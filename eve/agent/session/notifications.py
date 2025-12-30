@@ -66,23 +66,24 @@ async def create_session_message_notification(
             message_content = content[:100] + "..." if len(content) > 100 else content
 
         # Fetch agent details for name and avatar
-        from eve.mongo import get_db
+        from eve.agent.agent import Agent
 
-        db = get_db()
-        agent = db.agents.find_one({"_id": ObjectId(agent_id)})
-        agent_name = agent.get("name", "Agent") if agent else "Agent"
-        agent_avatar = agent.get("picture") if agent else None
+        agent = Agent.from_mongo(agent_id)
+        agent_name = agent.name if agent else "Agent"
+        agent_avatar = agent.picture if agent and hasattr(agent, "picture") else None
 
         notification_data = {
             "user_id": user_id,
             "type": "session_message",
-            "title": thread_title,  # Thread/session title
+            "title": f"{agent_name} ({thread_title})",  # Agent Name (Thread name) - Discord style
             "message": message_content or "New message",  # Message content (truncated)
             "priority": "normal",
             "session_id": session_id,
             "agent_id": agent_id,
             "action_url": f"/sessions/{session_id}",
             "channels": ["in_app", "push"],
+            "icon": agent_avatar,  # Agent profile picture as main icon
+            "badge": "https://eden.art/icon.png",  # Eden app icon badge overlay
             "metadata": {
                 "sender_name": agent_name,  # Sending user name
                 "sender_avatar": agent_avatar,  # Profile picture URL

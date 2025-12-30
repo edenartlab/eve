@@ -3,6 +3,7 @@ Tool loaders - dynamic parameter injection and filtering for platform-specific t
 """
 
 import traceback
+from contextlib import nullcontext
 from typing import Any, Callable, Dict, List, Optional
 
 import sentry_sdk
@@ -145,7 +146,7 @@ def load_lora_docs(models: Optional[List[Dict]], models_collection) -> List[Dict
 
 def load_deployments(agent_id, deployment_class) -> Dict[str, Any]:
     """
-    Load deployments from MongoDB
+    Load deployments from MongoDB (with lazy KMS decryption)
 
     Args:
         agent_id: Agent ObjectId
@@ -156,10 +157,32 @@ def load_deployments(agent_id, deployment_class) -> Dict[str, Any]:
     """
     from bson import ObjectId
 
-    return {
-        deployment.platform.value: deployment
-        for deployment in deployment_class.find({"agent": ObjectId(str(agent_id))})
-    }
+    try:
+        import sentry_sdk
+    except ImportError:
+        sentry_sdk = None
+
+    parent_span = sentry_sdk.Hub.current.scope.span if sentry_sdk else None
+
+    # Find returns a cursor - this doesn't actually query yet
+    deployments_cursor = deployment_class.find({"agent": ObjectId(str(agent_id))})
+
+    # Iterate and construct models - KMS decryption is now LAZY
+    construct_span = (
+        parent_span.start_child(
+            op="deployments.load", description="Load deployment documents"
+        )
+        if parent_span
+        else None
+    )
+    with construct_span if construct_span else nullcontext():
+        result = {}
+        for deployment in deployments_cursor:
+            # This iteration triggers:
+            # 1. Document fetch from MongoDB
+            # 2. Model construction (but NO KMS decryption - that's lazy now)
+            result[deployment.platform.value] = deployment
+        return result
 
 
 def register_tool_loader(tool_name: str):
@@ -240,11 +263,15 @@ def inject_deployment_parameters(
     Returns:
         Updated tools dict
     """
-    # Add span for deployment parameter injection (includes KMS decryption)
+    try:
+        import sentry_sdk
+    except ImportError:
+        sentry_sdk = None
+
     with sentry_sdk.start_span(
-        op="tools.inject_deployment_parameters",
-        description=f"{len(tools)} tools, {len(deployments)} deployments",
-    ):
+        op="tools.inject_deployment_params",
+        description="Inject deployment parameters into tools",
+    ) if sentry_sdk else nullcontext():
         for tool_name, tool in tools.items():
             if tool_name not in TOOL_PARAMETER_LOADERS:
                 continue
@@ -259,13 +286,9 @@ def inject_deployment_parameters(
             loader = TOOL_PARAMETER_LOADERS[tool_name]
 
             try:
-                # Each tool parameter load may trigger KMS decryption
-                with sentry_sdk.start_span(
-                    op="tools.load_parameters", description=tool_name
-                ):
-                    param_updates = loader(deployment)
-                    if param_updates:
-                        tool.update_parameters(param_updates)
+                param_updates = loader(deployment)
+                if param_updates:
+                    tool.update_parameters(param_updates)
             except Exception as e:
                 logger.error(f"Error loading parameters for {tool_name}: {e}")
                 with sentry_sdk.push_scope() as scope:
@@ -286,7 +309,7 @@ def inject_deployment_parameters(
                     )
                     sentry_sdk.capture_exception(e)
 
-    return tools
+        return tools
 
 
 def remove_non_deployed_platform_tools(tools: Dict, deployments: Dict) -> Dict:

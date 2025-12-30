@@ -1,5 +1,6 @@
 import json
 import os
+from contextlib import nullcontext
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
@@ -1561,14 +1562,28 @@ class Deployment(Document):
     platform: ClientType
     valid: Optional[bool] = None
     local: Optional[bool] = None
-    secrets: Optional[DeploymentSecrets]
-    config: Optional[DeploymentConfig]
+    secrets: Optional[DeploymentSecrets] = None
+    config: Optional[DeploymentConfig] = None
     encrypted: Optional[bool] = None  # Track if secrets are encrypted
+
+    # Internal fields for lazy decryption (excluded from model export)
+    encrypted_secrets_cache: Optional[dict] = Field(default=None, exclude=True)
+    decrypted_secrets_cache: Optional[DeploymentSecrets] = Field(
+        default=None, exclude=True
+    )
 
     def __init__(self, **data):
         # Convert string to ClientType enum if needed
         if "platform" in data and isinstance(data["platform"], str):
             data["platform"] = ClientType(data["platform"])
+
+        # Store encrypted secrets separately if present
+        if "secrets" in data and isinstance(data["secrets"], dict):
+            if "encryption_metadata" in data["secrets"]:
+                # This is encrypted data - store it for lazy decryption
+                data["encrypted_secrets_cache"] = data["secrets"]
+                data.pop("secrets")  # Remove from data so it doesn't get parsed
+
         super().__init__(**data)
 
     def model_dump(self, *args, **kwargs):
@@ -1577,6 +1592,63 @@ class Deployment(Document):
         if "platform" in data and isinstance(data["platform"], ClientType):
             data["platform"] = data["platform"].value
         return data
+
+    def get_secrets(self) -> Optional[DeploymentSecrets]:
+        """Get secrets with lazy decryption"""
+        # If we have already decrypted, return cached value
+        if self.decrypted_secrets_cache is not None:
+            return self.decrypted_secrets_cache
+
+        # If we have encrypted secrets that need decryption
+        if self.encrypted_secrets_cache:
+            from eve.utils.kms_encryption import decrypt_deployment_secrets
+
+            try:
+                import sentry_sdk
+            except ImportError:
+                sentry_sdk = None
+
+            parent_span = sentry_sdk.Hub.current.scope.span if sentry_sdk else None
+            decrypt_span = (
+                parent_span.start_child(
+                    op="kms.decrypt_lazy",
+                    description=f"Lazy decrypt {self.platform} deployment",
+                )
+                if parent_span
+                else None
+            )
+
+            with decrypt_span if decrypt_span else nullcontext():
+                try:
+                    decrypted_dict = decrypt_deployment_secrets(
+                        self.encrypted_secrets_cache
+                    )
+                    if decrypted_dict:
+                        # Parse the decrypted dict into the appropriate model
+                        self.decrypted_secrets_cache = DeploymentSecrets(
+                            **decrypted_dict
+                        )
+                        return self.decrypted_secrets_cache
+                except Exception as e:
+                    logger.error(
+                        f"Failed to decrypt {self.platform} deployment secrets on access: {e}"
+                    )
+                    return None
+
+        # Return the plain secrets if they exist (not encrypted case)
+        return self.secrets
+
+    def __getattribute__(self, name):
+        """Override attribute access to handle lazy decryption of secrets"""
+        if name == "secrets":
+            # Check if this is an access to the secrets attribute for reading
+            # Get the actual attribute value first
+            value = super().__getattribute__(name)
+            # If it's None and we have encrypted secrets, decrypt them
+            if value is None and super().__getattribute__("encrypted_secrets_cache"):
+                return self.get_secrets()
+            return value
+        return super().__getattribute__(name)
 
     @classmethod
     def convert_to_mongo(cls, schema: dict, **kwargs) -> dict:
@@ -1599,30 +1671,10 @@ class Deployment(Document):
 
     @classmethod
     def convert_from_mongo(cls, schema: dict, **kwargs) -> dict:
-        """Decrypt secrets after loading from MongoDB"""
-        from eve.utils.kms_encryption import (
-            decrypt_deployment_secrets,
-            get_kms_encryption,
-        )
-
-        get_kms_encryption()
-
-        if "secrets" in schema and schema["secrets"]:
-            # Check if secrets are encrypted
-            if (
-                isinstance(schema["secrets"], dict)
-                and "encryption_metadata" in schema["secrets"]
-            ):
-                # Decrypt the secrets
-                try:
-                    decrypted_secrets = decrypt_deployment_secrets(schema["secrets"])
-                    schema["secrets"] = decrypted_secrets
-                except Exception as e:
-                    logger.error(f"Failed to decrypt deployment secrets: {e}")
-                    # Keep encrypted data in schema, will fail validation
-                    # This is better than losing data
-            # else: secrets are not encrypted (backward compatibility)
-
+        """Load from MongoDB - no decryption here, will decrypt lazily"""
+        # Simply return the schema as-is
+        # The __init__ method will handle storing encrypted secrets
+        # And the secrets property will handle lazy decryption
         return schema
 
     @classmethod

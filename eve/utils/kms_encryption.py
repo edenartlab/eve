@@ -1,7 +1,6 @@
 import base64
 import json
 import os
-from contextlib import nullcontext
 from typing import Any, Dict, Optional
 
 from loguru import logger
@@ -14,11 +13,6 @@ try:
 except ImportError:
     BOTO3_AVAILABLE = False
     logger.warning("boto3 not available, KMS encryption disabled")
-
-try:
-    import sentry_sdk
-except ImportError:
-    sentry_sdk = None
 
 
 class KMSEncryption:
@@ -138,28 +132,24 @@ class KMSEncryption:
             logger.error("KMS encryption not enabled but encrypted data found")
             raise Exception("Cannot decrypt secrets: KMS not configured")
 
-        # Add Sentry span for KMS decryption
-        span_context = sentry_sdk.start_span(op="kms.decrypt") if sentry_sdk else None
-
         try:
-            with span_context if span_context else nullcontext():
-                # Decode base64 encrypted data
-                encrypted_data = encrypted_dict.get("encrypted_data")
-                if not encrypted_data:
-                    logger.error("No encrypted_data found in encrypted secrets")
-                    return None
+            # Decode base64 encrypted data
+            encrypted_data = encrypted_dict.get("encrypted_data")
+            if not encrypted_data:
+                logger.error("No encrypted_data found in encrypted secrets")
+                return None
 
-                ciphertext_blob = base64.b64decode(encrypted_data)
+            ciphertext_blob = base64.b64decode(encrypted_data)
 
-                # Decrypt using KMS
-                response = self.kms_client.decrypt(CiphertextBlob=ciphertext_blob)
+            # Decrypt using KMS
+            response = self.kms_client.decrypt(CiphertextBlob=ciphertext_blob)
 
-                # Parse decrypted JSON
-                decrypted_bytes = response["Plaintext"]
-                decrypted_json = decrypted_bytes.decode("utf-8")
-                secrets_dict = json.loads(decrypted_json)
+            # Parse decrypted JSON
+            decrypted_bytes = response["Plaintext"]
+            decrypted_json = decrypted_bytes.decode("utf-8")
+            secrets_dict = json.loads(decrypted_json)
 
-                return secrets_dict
+            return secrets_dict
 
         except ClientError as e:
             logger.error(f"KMS decryption failed: {e}")

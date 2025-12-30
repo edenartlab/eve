@@ -10,11 +10,6 @@ from bson import ObjectId
 from fastapi import BackgroundTasks
 from loguru import logger
 
-try:
-    import sentry_sdk
-except ImportError:
-    sentry_sdk = None
-
 from eve.agent.agent import Agent
 from eve.agent.llm.llm import async_prompt as provider_async_prompt
 from eve.agent.llm.llm import async_prompt_stream as provider_async_prompt_stream
@@ -211,27 +206,24 @@ class PromptSessionRuntime:
             else nullcontext()
         )
         with stage_cm:
-            # Session initialization
-            span_context = (
-                sentry_sdk.start_span(op="session.init")
-                if sentry_sdk
-                else nullcontext()
-            )
-            with span_context:
-                self._register_active_request()
-                # Mark session run as in progress
+            self._register_active_request()
+
+            # Start parallel initialization tasks
+            init_tasks = []
+
+            # Task 1: Update session run status
+            async def update_session_run():
                 self.session_run.status = "in_progress"
                 self.session_run.save()
-                yield self._start_update()
 
-                # Initialize billing docs and rate limiter if enabled
-                if self.billing_user_id:
+            # Task 2: Load billing user doc if needed
+            async def load_billing_user():
+                if self.billing_user_id and not self.billing_user_doc:
                     from eve.user import User
 
-                    if not self.billing_user_doc:
-                        self.billing_user_doc = User.from_mongo(self.billing_user_id)
-                        if self.billing_user_doc and not self.billed_user_doc:
-                            self.billed_user_doc = self.billing_user_doc
+                    self.billing_user_doc = User.from_mongo(self.billing_user_id)
+                    if self.billing_user_doc and not self.billed_user_doc:
+                        self.billed_user_doc = self.billing_user_doc
 
                     if (
                         os.environ.get("FF_RATE_LIMITS") == "yes"
@@ -241,20 +233,42 @@ class PromptSessionRuntime:
 
                         self.rate_limiter = RateLimiter()
 
+            try:
+                import sentry_sdk
+            except ImportError:
+                sentry_sdk = None
+
+            # Run initialization tasks in parallel
+            with sentry_sdk.start_span(
+                op="session.parallel_init", description="Parallel initialization"
+            ) if sentry_sdk else nullcontext():
+                init_tasks = [
+                    asyncio.create_task(update_session_run()),
+                    asyncio.create_task(load_billing_user()),
+                ]
+                await asyncio.gather(*init_tasks)
+
+            yield self._start_update()
+
             prompt_session_finished = False
             while not prompt_session_finished:
                 self._ensure_not_cancelled()
-                await self._refresh_llm_messages()
 
-                # Pre-LLM checks and setup
-                span_context = (
-                    sentry_sdk.start_span(op="session.pre_llm_checks")
-                    if sentry_sdk
-                    else nullcontext()
-                )
-                with span_context:
-                    self._maybe_disable_tools()
+                # Start prefetching messages early (non-blocking)
+                refresh_task = asyncio.create_task(self._refresh_llm_messages())
 
+                self._maybe_disable_tools()
+
+                # Check rate limits and billing before LLM call
+                try:
+                    import sentry_sdk
+                except ImportError:
+                    sentry_sdk = None
+
+                with sentry_sdk.start_span(
+                    op="session.pre_llm_checks",
+                    description="Rate limits and billing checks",
+                ) if sentry_sdk else nullcontext():
                     # Check rate limits before LLM call
                     if self.rate_limiter and self.billing_user_doc:
                         try:
@@ -293,7 +307,10 @@ class PromptSessionRuntime:
                             )
                             return
 
-                    provider = self._select_provider()
+                # Wait for message refresh to complete before proceeding to LLM call
+                await refresh_task
+
+                provider = self._select_provider()
                 llm_result: Dict[str, Any]
 
                 if self.stream:
@@ -307,25 +324,20 @@ class PromptSessionRuntime:
                 assistant_message = await self._persist_assistant_message(llm_result)
 
                 # Publish assistant message update (WebSocket)
-                span_context = (
-                    sentry_sdk.start_span(op="session.publish_update")
-                    if sentry_sdk
-                    else nullcontext()
+                yield SessionUpdate(
+                    type=UpdateType.ASSISTANT_MESSAGE,
+                    message=assistant_message,
+                    agent={
+                        "_id": str(self.actor.id),
+                        "username": self.actor.username,
+                        "name": self.actor.name,
+                        "userImage": self.actor.userImage,
+                    },
+                    session_run_id=self.session_run_id,
                 )
-                with span_context:
-                    yield SessionUpdate(
-                        type=UpdateType.ASSISTANT_MESSAGE,
-                        message=assistant_message,
-                        agent={
-                            "_id": str(self.actor.id),
-                            "username": self.actor.username,
-                            "name": self.actor.name,
-                            "userImage": self.actor.userImage,
-                        },
-                        session_run_id=self.session_run_id,
-                    )
 
-                await self._maybe_notify_user()
+                # Fire-and-forget notification - don't await or block
+                asyncio.create_task(self._maybe_notify_user())
 
                 async for update in self._process_tool_calls(assistant_message):
                     yield update
@@ -357,59 +369,43 @@ class PromptSessionRuntime:
         )
 
     async def _refresh_llm_messages(self):
-        # Add Sentry span for context building
-        span_context = (
-            sentry_sdk.start_span(op="session.context_build")
-            if sentry_sdk
-            else nullcontext()
+        # Run both database queries in parallel using thread pool
+        fresh_messages, eden_messages = await asyncio.gather(
+            asyncio.to_thread(select_messages, self.session),
+            asyncio.to_thread(get_all_eden_messages_for_llm, self.session.id),
         )
-        with span_context as span:
-            if span:
-                span.set_tag("session_id", str(self.session.id))
 
-            fresh_messages = select_messages(self.session)
+        # Combine and sort messages
+        if eden_messages:
+            fresh_messages.extend(eden_messages)
+            fresh_messages.sort(key=lambda m: m.createdAt)
 
-            # Add ALL eden messages (converted to user role) to the context
-            # Eden messages are filtered out by select_messages, so we query separately
-            # This includes conductor messages (CONDUCTOR_INIT, CONDUCTOR_TURN, CONDUCTOR_HINT, etc.)
-            eden_messages = get_all_eden_messages_for_llm(self.session.id)
-            if eden_messages:
-                fresh_messages.extend(eden_messages)
-                fresh_messages.sort(key=lambda m: m.createdAt)
+        system_message = self.llm_context.messages[0]
+        pinned_messages = []
 
-            system_message = self.llm_context.messages[0]
-            pinned_messages = []
-
-            # Preserve system messages AND pinned context messages (with <SystemMessage> tag)
-            # These are created in-memory and not stored in the database, so they would be lost
-            # if we only fetched from fresh_messages
-            for msg in self.llm_context.messages[1:]:
-                is_system_role = msg.role == "system"
-                is_pinned_context = (
-                    msg.content
-                    and "<SystemMessage>" in msg.content
-                    and "</SystemMessage>" in msg.content
-                )
-                if is_system_role or is_pinned_context:
-                    pinned_messages.append(msg)
-                else:
-                    break
-
-            refreshed_messages = [system_message]
-            if pinned_messages:
-                refreshed_messages.extend(pinned_messages)
-            refreshed_messages.extend(fresh_messages)
-            refreshed_messages = label_message_channels(
-                refreshed_messages, self.session
+        # Preserve system messages AND pinned context messages (with <SystemMessage> tag)
+        # These are created in-memory and not stored in the database, so they would be lost
+        # if we only fetched from fresh_messages
+        for msg in self.llm_context.messages[1:]:
+            is_system_role = msg.role == "system"
+            is_pinned_context = (
+                msg.content
+                and "<SystemMessage>" in msg.content
+                and "</SystemMessage>" in msg.content
             )
-            refreshed_messages = convert_message_roles(
-                refreshed_messages, self.actor.id
-            )
-            self.llm_context.messages = refreshed_messages
-            self.llm_context.metadata.generation_id = str(uuid.uuid4())
+            if is_system_role or is_pinned_context:
+                pinned_messages.append(msg)
+            else:
+                break
 
-            if span:
-                span.set_data("message_count", len(refreshed_messages))
+        refreshed_messages = [system_message]
+        if pinned_messages:
+            refreshed_messages.extend(pinned_messages)
+        refreshed_messages.extend(fresh_messages)
+        refreshed_messages = label_message_channels(refreshed_messages, self.session)
+        refreshed_messages = convert_message_roles(refreshed_messages, self.actor.id)
+        self.llm_context.messages = refreshed_messages
+        self.llm_context.metadata.generation_id = str(uuid.uuid4())
 
     def _maybe_disable_tools(self):
         if self.tool_was_cancelled:
@@ -550,14 +546,23 @@ class PromptSessionRuntime:
     async def _persist_assistant_message(
         self, llm_result: Dict[str, Any]
     ) -> ChatMessage:
-        # Add span for message persistence
-        span_context = (
-            sentry_sdk.start_span(op="message.persist") if sentry_sdk else nullcontext()
-        )
-        with span_context as span:
-            if span:
-                span.set_tag("message_type", "assistant")
+        try:
+            import sentry_sdk
+        except ImportError:
+            sentry_sdk = None
 
+        # Use start_child to ensure proper span hierarchy
+        parent_span = sentry_sdk.Hub.current.scope.span if sentry_sdk else None
+        persist_span = (
+            parent_span.start_child(
+                op="message.persist",
+                description="Persist assistant message and update metrics",
+            )
+            if parent_span
+            else None
+        )
+
+        with persist_span if persist_span else nullcontext():
             usage_payload = llm_result.get("usage")
             usage_obj = None
             if usage_payload:
@@ -617,54 +622,57 @@ class PromptSessionRuntime:
             )
             assistant_message.save()
 
-        # Post-persist operations with instrumentation
-        span_context = (
-            sentry_sdk.start_span(op="message.post_persist")
-            if sentry_sdk
-            else nullcontext()
-        )
-        with span_context:
-            # Increment message count for the agent (sender)
-            increment_message_count(assistant_message.sender)
-
-            memory_context = self.session.memory_context
-            memory_context.last_activity = datetime.now(timezone.utc)
-            memory_context.messages_since_memory_formation += 1
-            self.session.update(memory_context=memory_context.model_dump())
-            self.session.memory_context = SessionMemoryContext(
-                **self.session.memory_context
+            # Post-persist operations
+            post_persist_span = (
+                persist_span.start_child(
+                    op="message.post_persist",
+                    description="Update metrics and session state",
+                )
+                if persist_span
+                else None
             )
+            with post_persist_span if post_persist_span else nullcontext():
+                # Increment message count for the agent (sender)
+                increment_message_count(assistant_message.sender)
 
-            update_session_budget(
-                self.session,
-                tokens_spent=llm_result.get("tokens_spent", 0),
-                turns_spent=1,
-            )
+                memory_context = self.session.memory_context
+                memory_context.last_activity = datetime.now(timezone.utc)
+                memory_context.messages_since_memory_formation += 1
+                self.session.update(memory_context=memory_context.model_dump())
+                self.session.memory_context = SessionMemoryContext(
+                    **self.session.memory_context
+                )
 
-            # Update SessionRun metrics
-            self.session_run.update_metrics(
-                tokens=llm_result.get("tokens_spent"),
-                prompt_tokens=assistant_message.observability.prompt_tokens
-                if assistant_message.observability
-                else None,
-                completion_tokens=assistant_message.observability.completion_tokens
-                if assistant_message.observability
-                else None,
-                cached_tokens=assistant_message.observability.cached_prompt_tokens
-                if assistant_message.observability
-                else None,
-                cost=assistant_message.observability.cost_usd
-                if assistant_message.observability
-                else None,
-                messages=1,
-                tool_calls=len(assistant_message.tool_calls)
-                if assistant_message.tool_calls
-                else 0,
-            )
+                update_session_budget(
+                    self.session,
+                    tokens_spent=llm_result.get("tokens_spent", 0),
+                    turns_spent=1,
+                )
 
-            self._record_transaction_metadata(assistant_message, llm_result)
+                # Update SessionRun metrics
+                self.session_run.update_metrics(
+                    tokens=llm_result.get("tokens_spent"),
+                    prompt_tokens=assistant_message.observability.prompt_tokens
+                    if assistant_message.observability
+                    else None,
+                    completion_tokens=assistant_message.observability.completion_tokens
+                    if assistant_message.observability
+                    else None,
+                    cached_tokens=assistant_message.observability.cached_prompt_tokens
+                    if assistant_message.observability
+                    else None,
+                    cost=assistant_message.observability.cost_usd
+                    if assistant_message.observability
+                    else None,
+                    messages=1,
+                    tool_calls=len(assistant_message.tool_calls)
+                    if assistant_message.tool_calls
+                    else 0,
+                )
 
-        return assistant_message
+                self._record_transaction_metadata(assistant_message, llm_result)
+
+            return assistant_message
 
     def _persist_rate_limit_message(self, error: APIError) -> ChatMessage:
         """Persist a rate limit error message as an Eden message."""
@@ -732,36 +740,54 @@ class PromptSessionRuntime:
     def _record_transaction_metadata(
         self, assistant_message: ChatMessage, llm_result: Dict[str, Any]
     ):
-        if not self.transaction:
-            return
+        try:
+            import sentry_sdk
+        except ImportError:
+            sentry_sdk = None
 
-        tokens_spent = llm_result.get("tokens_spent")
-        stop_reason = llm_result.get("stop_reason")
-        if tokens_spent is not None:
-            self.transaction.set_data("tokens_spent", tokens_spent)
-        if stop_reason is not None:
-            self.transaction.set_data("stop_reason", stop_reason)
-        if assistant_message.tool_calls:
-            self.transaction.set_data(
-                "tool_calls_count", len(assistant_message.tool_calls)
+        parent_span = sentry_sdk.Hub.current.scope.span if sentry_sdk else None
+        metadata_span = (
+            parent_span.start_child(
+                op="message.record_metadata", description="Record transaction metadata"
             )
+            if parent_span
+            else None
+        )
 
-        if (
-            assistant_message.observability
-            and hasattr(self.transaction, "trace_id")
-            and self.transaction.trace_id
-        ):
-            assistant_message.observability.sentry_trace_id = self.transaction.trace_id
-            assistant_message.save()
+        with metadata_span if metadata_span else nullcontext():
+            if not self.transaction:
+                return
+
+            tokens_spent = llm_result.get("tokens_spent")
+            stop_reason = llm_result.get("stop_reason")
+            if tokens_spent is not None:
+                self.transaction.set_data("tokens_spent", tokens_spent)
+            if stop_reason is not None:
+                self.transaction.set_data("stop_reason", stop_reason)
+            if assistant_message.tool_calls:
+                self.transaction.set_data(
+                    "tool_calls_count", len(assistant_message.tool_calls)
+                )
+
+            if (
+                assistant_message.observability
+                and hasattr(self.transaction, "trace_id")
+                and self.transaction.trace_id
+            ):
+                assistant_message.observability.sentry_trace_id = (
+                    self.transaction.trace_id
+                )
+                assistant_message.save()
 
     async def _maybe_notify_user(self):
-        # Add span for notification check
-        span_context = (
-            sentry_sdk.start_span(op="notification.check")
-            if sentry_sdk
-            else nullcontext()
-        )
-        with span_context:
+        try:
+            import sentry_sdk
+        except ImportError:
+            sentry_sdk = None
+
+        with sentry_sdk.start_span(
+            op="notification.check", description="Check if user needs notification"
+        ) if sentry_sdk else nullcontext():
             try:
                 is_active_response = await check_if_session_active(
                     str(self.session.owner), str(self.session.id)
@@ -1010,26 +1036,17 @@ async def async_prompt_session(
     instrumentation: Optional[PromptSessionInstrumentation] = None,
     context: Optional[PromptSessionContext] = None,
 ):
-    # Wrap runtime creation in a span to capture SessionRun creation
-    span_context = (
-        sentry_sdk.start_span(
-            op="runtime.create", description="PromptSessionRuntime.__init__"
-        )
-        if sentry_sdk
-        else nullcontext()
+    runtime = PromptSessionRuntime(
+        session,
+        llm_context,
+        agent,
+        stream=stream,
+        is_client_platform=is_client_platform,
+        session_run_id=session_run_id,
+        api_key_id=api_key_id,
+        instrumentation=instrumentation,
+        context=context,
     )
-    with span_context:
-        runtime = PromptSessionRuntime(
-            session,
-            llm_context,
-            agent,
-            stream=stream,
-            is_client_platform=is_client_platform,
-            session_run_id=session_run_id,
-            api_key_id=api_key_id,
-            instrumentation=instrumentation,
-            context=context,
-        )
 
     async for update in runtime.run():
         yield update

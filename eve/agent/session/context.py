@@ -1,3 +1,4 @@
+import contextlib
 import copy
 import os
 import re
@@ -753,22 +754,18 @@ async def build_llm_context(
     instrumentation=None,
 ):
     try:
-        from contextlib import nullcontext
-
         import sentry_sdk
     except ImportError:
         sentry_sdk = None
-        from contextlib import nullcontext
 
-    # Wrap entire function in a span
-    span_context = (
+    with (
         sentry_sdk.start_span(
-            op="context.build_initial", description="build_llm_context"
+            op="context.build",
+            description=f"Build LLM context for session {session.id}",
         )
         if sentry_sdk
-        else nullcontext()
-    )
-    with span_context:
+        else contextlib.nullcontext()
+    ):
         instrumentation = getattr(context, "instrumentation", None)
         if context.initiating_user_id:
             user = User.from_mongo(context.initiating_user_id)

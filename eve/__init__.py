@@ -104,13 +104,15 @@ def setup_eve():
 
             return event  # Send everything else to Sentry
 
-        # Only import integrations needed for ERROR tracking, not performance tracing
+        # Import integrations for error tracking and performance tracing
         from sentry_sdk.integrations.argv import ArgvIntegration
         from sentry_sdk.integrations.atexit import AtexitIntegration
         from sentry_sdk.integrations.dedupe import DedupeIntegration
         from sentry_sdk.integrations.excepthook import ExcepthookIntegration
+        from sentry_sdk.integrations.httpx import HttpxIntegration
         from sentry_sdk.integrations.logging import LoggingIntegration
         from sentry_sdk.integrations.modules import ModulesIntegration
+        from sentry_sdk.integrations.pymongo import PyMongoIntegration
         from sentry_sdk.integrations.stdlib import StdlibIntegration
         from sentry_sdk.integrations.threading import ThreadingIntegration
 
@@ -123,7 +125,7 @@ def setup_eve():
             before_send=before_send,
             # Disable ALL auto-instrumentation - we manually instrument what we need
             default_integrations=False,
-            # Only enable basic error tracking integrations (NO performance/tracing integrations)
+            # Enable error tracking + database/HTTP performance tracing
             integrations=[
                 LoggingIntegration(level=None, event_level=None),
                 StdlibIntegration(),
@@ -133,6 +135,9 @@ def setup_eve():
                 ModulesIntegration(),
                 ArgvIntegration(),
                 ThreadingIntegration(),
+                # Performance tracing integrations
+                PyMongoIntegration(),  # Auto-instrument MongoDB queries
+                HttpxIntegration(),  # Auto-instrument HTTP calls
             ],
         )
 

@@ -177,6 +177,11 @@ class Agent(User):
 
     def _reload(self, extra_tools: list[str] = []):
         """Reload all tools, loras, and deployments from mongo"""
+        try:
+            import sentry_sdk
+        except ImportError:
+            sentry_sdk = None
+
         from ..agent.session.models import Deployment
         from ..tool import get_tools_from_mongo
         from .tool_loaders import (
@@ -185,34 +190,23 @@ class Agent(User):
             load_lora_docs,
         )
 
-        # Load deployments to memory (triggers KMS decryption for all deployments)
-        span_context = (
-            sentry_sdk.start_span(
-                op="agent.load_deployments", description=f"agent={self.username}"
+        parent_span = sentry_sdk.Hub.current.scope.span if sentry_sdk else None
+        reload_span = (
+            parent_span.start_child(
+                op="agent.reload", description=f"agent={self.username}"
             )
-            if sentry_sdk
-            else nullcontext()
+            if parent_span
+            else None
         )
-        with span_context:
+
+        with reload_span if reload_span else nullcontext():
+            # Load deployments to memory
             self.deployments = load_deployments(self.id, Deployment)
 
-        # Load loras to memory
-        span_context = (
-            sentry_sdk.start_span(op="agent.load_loras")
-            if sentry_sdk
-            else nullcontext()
-        )
-        with span_context:
+            # Load loras to memory
             models_collection = get_collection(Model.collection_name)
             self.lora_docs = load_lora_docs(self.models, models_collection)
 
-        # Load tools from mongo
-        span_context = (
-            sentry_sdk.start_span(op="agent.load_tools")
-            if sentry_sdk
-            else nullcontext()
-        )
-        with span_context:
             # Collect all tools needed
             tools_to_load = []
             for tool_set, set_tools in TOOL_SETS.items():
@@ -232,6 +226,11 @@ class Agent(User):
                 self.tools_ = {}
 
     def get_tools(self, cache=True, auth_user: str = None, extra_tools: list[str] = []):
+        try:
+            import sentry_sdk
+        except ImportError:
+            sentry_sdk = None
+
         from .tool_loaders import (
             filter_tools_by_feature_flags,
             inject_deployment_parameters,
@@ -240,46 +239,49 @@ class Agent(User):
             remove_non_deployed_platform_tools,
         )
 
-        # for Solienne only, make all tools unavailable except for admin
-        if self.username == "solienne":
-            user = User.from_mongo(auth_user)
-            solienne_whitelist = [
-                "ameesia77",
-                "farcaster_ameesia",
-                "farcaster_kristicoronado",
-                "farcaster_seth",
-                "farcaster_gene",
-                "farcaster_sethgoldstein",
-                "farcaster_xanderst",
-                "farcaster_jmill",
-            ]
-            if (
-                "eden_admin" not in user.featureFlags
-                and user.username not in solienne_whitelist
-            ):
-                return {}
+        with sentry_sdk.start_span(
+            op="agent.get_tools", description=f"agent={self.username}"
+        ) if sentry_sdk else nullcontext():
+            # for Solienne only, make all tools unavailable except for admin
+            if self.username == "solienne":
+                user = User.from_mongo(auth_user)
+                solienne_whitelist = [
+                    "ameesia77",
+                    "farcaster_ameesia",
+                    "farcaster_kristicoronado",
+                    "farcaster_seth",
+                    "farcaster_gene",
+                    "farcaster_sethgoldstein",
+                    "farcaster_xanderst",
+                    "farcaster_jmill",
+                ]
+                if (
+                    "eden_admin" not in user.featureFlags
+                    and user.username not in solienne_whitelist
+                ):
+                    return {}
 
-        self._reload(extra_tools)
-        tools = self.tools_
+            self._reload(extra_tools)
+            tools = self.tools_
 
-        # Inject deployment-specific parameters (channels, etc.)
-        tools = inject_deployment_parameters(tools, self.deployments, self.username)
+            # Inject deployment-specific parameters (channels, etc.)
+            tools = inject_deployment_parameters(tools, self.deployments, self.username)
 
-        # Remove tools for non-deployed platforms
-        tools = remove_non_deployed_platform_tools(tools, self.deployments)
+            # Remove tools for non-deployed platforms
+            tools = remove_non_deployed_platform_tools(tools, self.deployments)
 
-        # Filter tools based on feature flags
-        tools = filter_tools_by_feature_flags(tools, self.featureFlags, {})
+            # Filter tools based on feature flags
+            tools = filter_tools_by_feature_flags(tools, self.featureFlags, {})
 
-        # Inject LoRA parameters for tools that use loras
-        tools = inject_lora_parameters(
-            tools, self.lora_docs, self.models or [], self.username
-        )
+            # Inject LoRA parameters for tools that use loras
+            tools = inject_lora_parameters(
+                tools, self.lora_docs, self.models or [], self.username
+            )
 
-        # Inject voice parameter for elevenlabs
-        tools = inject_voice_parameters(tools, self.voice, self.username)
+            # Inject voice parameter for elevenlabs
+            tools = inject_voice_parameters(tools, self.voice, self.username)
 
-        return tools
+            return tools
 
 
 def get_agents_from_mongo(
