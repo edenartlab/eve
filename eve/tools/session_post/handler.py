@@ -118,6 +118,7 @@ async def handler(context: ToolContext):
                 title=title,
                 parent_session=context.session,
                 extras={"is_public": context.args.get("public", False)},
+                visible=context.args.get("visible"),
             ),
         )
         placeholder_request = request.model_copy()
@@ -137,6 +138,11 @@ async def handler(context: ToolContext):
 
     # make a new set of drafts
     session = Session.from_mongo(session_id)
+
+    # Update visible flag if explicitly provided
+    if context.args.get("visible") is not None:
+        session.visible = context.args.get("visible")
+        session.save()
 
     if context.args.get("role") == "assistant":
         attachments = context.args.get("attachments") or []

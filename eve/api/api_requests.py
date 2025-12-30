@@ -163,6 +163,7 @@ class SessionCreationArgs(BaseModel):
     extras: Optional[Dict[str, Any]] = None
     context: Optional[str] = None  # Scenario/premise for automatic multi-agent sessions
     settings: Optional[Dict[str, Any]] = None  # SessionSettings (e.g., delay_interval)
+    visible: Optional[bool] = None  # Visibility flag for public listing
 
 
 class PromptSessionRequest(BaseModel):

@@ -437,9 +437,9 @@ async def build_system_message(
             "use_when", "This is your default Lora model"
         )
 
-    # Get memory (unless excluded by session extras)
+    # Get memory
     memory = None
-    if user and not (session.extras and session.extras.exclude_memory):
+    if user:
         memory = await memory_service.assemble_memory_context(
             session,
             actor,
@@ -923,7 +923,7 @@ async def build_agent_session_system_message(
     if parent_session.users:
         user = User.from_mongo(parent_session.users[0])
 
-    if user and not (agent_session.extras and agent_session.extras.exclude_memory):
+    if user:
         memory = await memory_service.assemble_memory_context(
             agent_session,
             actor,

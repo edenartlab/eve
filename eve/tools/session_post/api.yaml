@@ -85,3 +85,9 @@ parameters:
     label: Selection Limit
     description: Override the default message selection limit (30) for this prompt. Use higher values for tools that need more context history.
     required: false
+  visible:
+    type: boolean
+    label: Visible
+    description: Explicitly set the session's visibility flag. Leave blank to use default behavior (undefined). Set to true to make the session visible in public listings.
+    tip: Only set this if you need to explicitly control visibility. Most sessions should leave this blank.
+    required: false

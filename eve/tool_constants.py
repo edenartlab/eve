@@ -140,10 +140,13 @@ SOCIAL_MEDIA_TOOLS = [
 ]
 
 EDEN_DB_TOOLS = [
-    "search_collections",
-    "add_to_collection",
-    "search_agents",
-    "search_models",
+    # "search_collections",
+    # "add_to_collection",
+    # "search_agents",
+    # "search_models",
+    "eden_search",
+    "get_messages",
+    "get_messages_digest",
 ]
 
 CONTEXT7_MCP_TOOLS = ["context7_resolve_library_id"]
