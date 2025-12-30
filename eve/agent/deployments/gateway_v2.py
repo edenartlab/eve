@@ -653,6 +653,7 @@ async def process_discord_message_for_agent(
                 status="active",
                 parent_session=parent_session_obj.id if parent_session_obj else None,
                 settings=inherited_settings,
+                visible=True if parent_session_obj else None,
             )
             session.save()
             is_new_session = True
