@@ -1,7 +1,8 @@
 {
   "collection": "collections",
-  "query": "texture flow",
+  "query": "Reels",
   "limit": 5,
   "sort_by": "name",
-  "sort_order": "asc"
+  "sort_order": "asc",
+  "user_id": "65284b18f8bbb9bff13ebe65"
 }
