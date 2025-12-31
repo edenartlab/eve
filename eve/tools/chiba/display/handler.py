@@ -20,6 +20,10 @@ async def handler(context: ToolContext):
     base_url = os.getenv("CHIBA_DISPLAY_URL")
     api_key = os.getenv("CHIBA_API_KEY")
 
+    logger.info(
+        f"[DISPLAY] base_url={base_url}, api_key={api_key[:10] if api_key else None}..."
+    )
+
     if not base_url:
         raise ValueError("CHIBA_DISPLAY_URL environment variable not set")
     if not api_key:
@@ -37,6 +41,8 @@ async def handler(context: ToolContext):
             f"[DISPLAY] Missing 'action' parameter. Args received: {context.args}"
         )
         raise ValueError(f"action parameter is required. Received args: {context.args}")
+
+    kiosk = context.args.get("kiosk")
 
     def handle_response(response, action_name, request_data=None):
         """Helper to handle response and provide detailed error info."""
@@ -58,13 +64,15 @@ async def handler(context: ToolContext):
         return response.json()
 
     if action == "status":
-        response = requests.get(f"{base_url}/status")
+        params = {"kiosk": kiosk} if kiosk else {}
+        response = requests.get(f"{base_url}/status", params=params)
         result = handle_response(response, "status")
         logger.info(f"[DISPLAY] status result: {result}")
         return {"output": result}
 
     elif action == "files":
-        response = requests.get(f"{base_url}/files")
+        params = {"kiosk": kiosk} if kiosk else {}
+        response = requests.get(f"{base_url}/files", params=params)
         result = handle_response(response, "files")
         logger.info(f"[DISPLAY] files result: {result}")
         return {"output": result}
@@ -79,6 +87,8 @@ async def handler(context: ToolContext):
                 f"file parameter is required for 'play' action. Received args: {context.args}"
             )
         request_data = {"file": file}
+        if kiosk:
+            request_data["kiosk"] = kiosk
         response = requests.post(
             f"{base_url}/file",
             headers=headers,
@@ -89,8 +99,9 @@ async def handler(context: ToolContext):
         return {"output": result}
 
     elif action == "off":
-        response = requests.post(f"{base_url}/off", headers=headers)
-        result = handle_response(response, "off")
+        request_data = {"kiosk": kiosk} if kiosk else {}
+        response = requests.post(f"{base_url}/off", headers=headers, json=request_data)
+        result = handle_response(response, "off", request_data)
         logger.info(f"[DISPLAY] off result: {result}")
         return {"output": result}
 
@@ -104,6 +115,8 @@ async def handler(context: ToolContext):
                 f"url parameter is required for 'url' action. Received args: {context.args}"
             )
         request_data = {"url": url}
+        if kiosk:
+            request_data["kiosk"] = kiosk
         response = requests.post(
             f"{base_url}/url",
             headers=headers,
@@ -123,6 +136,8 @@ async def handler(context: ToolContext):
                 f"url parameter is required for 'cache' action. Received args: {context.args}"
             )
         request_data = {"url": url}
+        if kiosk:
+            request_data["kiosk"] = kiosk
         response = requests.post(
             f"{base_url}/cache",
             headers=headers,
@@ -133,6 +148,8 @@ async def handler(context: ToolContext):
         play_after_cache = context.args.get("play_after_cache", False)
         if play_after_cache and "filename" in result:
             play_request = {"file": result["filename"]}
+            if kiosk:
+                play_request["kiosk"] = kiosk
             play_response = requests.post(
                 f"{base_url}/file",
                 headers=headers,
@@ -155,6 +172,8 @@ async def handler(context: ToolContext):
                 f"collection_id parameter is required for 'sync' action. Received args: {context.args}"
             )
         request_data = {"collectionId": collection_id, "db": os.getenv("DB", "STAGE")}
+        if kiosk:
+            request_data["kiosk"] = kiosk
         response = requests.post(
             f"{base_url}/sync",
             headers=headers,
@@ -179,6 +198,8 @@ async def handler(context: ToolContext):
             "loop": loop,
             "db": os.getenv("DB", "STAGE"),
         }
+        if kiosk:
+            request_data["kiosk"] = kiosk
         response = requests.post(
             f"{base_url}/sync_and_play",
             headers=headers,
@@ -199,6 +220,8 @@ async def handler(context: ToolContext):
             )
         loop = context.args.get("loop", True)
         request_data = {"items": playlist, "loop": loop}
+        if kiosk:
+            request_data["kiosk"] = kiosk
         response = requests.post(
             f"{base_url}/playlist",
             headers=headers,
@@ -209,37 +232,51 @@ async def handler(context: ToolContext):
         return {"output": result}
 
     elif action == "next":
-        response = requests.post(f"{base_url}/next", headers=headers, json={})
-        result = handle_response(response, "next")
+        request_data = {"kiosk": kiosk} if kiosk else {}
+        response = requests.post(f"{base_url}/next", headers=headers, json=request_data)
+        result = handle_response(response, "next", request_data)
         logger.info(f"[DISPLAY] next result: {result}")
         return {"output": result}
 
     elif action == "previous":
-        response = requests.post(f"{base_url}/previous", headers=headers, json={})
-        result = handle_response(response, "previous")
+        request_data = {"kiosk": kiosk} if kiosk else {}
+        response = requests.post(
+            f"{base_url}/previous", headers=headers, json=request_data
+        )
+        result = handle_response(response, "previous", request_data)
         logger.info(f"[DISPLAY] previous result: {result}")
         return {"output": result}
 
     elif action == "restart":
-        response = requests.post(f"{base_url}/restart", headers=headers, json={})
-        result = handle_response(response, "restart")
+        request_data = {"kiosk": kiosk} if kiosk else {}
+        response = requests.post(
+            f"{base_url}/restart", headers=headers, json=request_data
+        )
+        result = handle_response(response, "restart", request_data)
         logger.info(f"[DISPLAY] restart result: {result}")
         return {"output": result}
 
     elif action == "pause":
-        response = requests.post(f"{base_url}/pause", headers=headers, json={})
-        result = handle_response(response, "pause")
+        request_data = {"kiosk": kiosk} if kiosk else {}
+        response = requests.post(
+            f"{base_url}/pause", headers=headers, json=request_data
+        )
+        result = handle_response(response, "pause", request_data)
         logger.info(f"[DISPLAY] pause result: {result}")
         return {"output": result}
 
     elif action == "resume":
-        response = requests.post(f"{base_url}/resume", headers=headers, json={})
-        result = handle_response(response, "resume")
+        request_data = {"kiosk": kiosk} if kiosk else {}
+        response = requests.post(
+            f"{base_url}/resume", headers=headers, json=request_data
+        )
+        result = handle_response(response, "resume", request_data)
         logger.info(f"[DISPLAY] resume result: {result}")
         return {"output": result}
 
     elif action == "get_volume":
-        response = requests.get(f"{base_url}/volume")
+        params = {"kiosk": kiosk} if kiosk else {}
+        response = requests.get(f"{base_url}/volume", params=params)
         result = handle_response(response, "get_volume")
         logger.info(f"[DISPLAY] get_volume result: {result}")
         return {"output": result}
@@ -254,6 +291,8 @@ async def handler(context: ToolContext):
                 f"level parameter is required for 'volume' action. Received args: {context.args}"
             )
         request_data = {"level": level}
+        if kiosk:
+            request_data["kiosk"] = kiosk
         response = requests.post(
             f"{base_url}/volume",
             headers=headers,
