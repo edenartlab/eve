@@ -2,7 +2,6 @@ import asyncio
 import json
 import os
 import shutil
-import subprocess
 import uuid
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -39,29 +38,33 @@ class FFmpegResponse(BaseModel):
     )
 
 
-def probe_media_with_streams(filepath: str, timeout: int = 10) -> dict:
-    """Enhanced probe_media that includes stream information"""
+async def probe_media_with_streams(filepath: str, timeout: int = 10) -> dict:
+    """Enhanced probe_media that includes stream information (async to avoid blocking)"""
     try:
-        process = subprocess.run(
-            [
-                "ffprobe",
-                "-v",
-                "quiet",
-                "-print_format",
-                "json",
-                "-show_format",
-                "-show_streams",
-                filepath,
-            ],
-            capture_output=True,
-            text=True,
-            timeout=timeout,
+        process = await asyncio.create_subprocess_exec(
+            "ffprobe",
+            "-v",
+            "quiet",
+            "-print_format",
+            "json",
+            "-show_format",
+            "-show_streams",
+            filepath,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
         )
+
+        try:
+            stdout, _ = await asyncio.wait_for(process.communicate(), timeout=timeout)
+        except asyncio.TimeoutError:
+            process.kill()
+            await process.wait()
+            return {"error": "Probe timeout"}
 
         if process.returncode != 0:
             return {}
 
-        probe_data = json.loads(process.stdout)
+        probe_data = json.loads(stdout.decode())
 
         info = {}
         # Basic media info
@@ -80,8 +83,6 @@ def probe_media_with_streams(filepath: str, timeout: int = 10) -> dict:
         info["streams"] = get_stream_info(probe_data)
 
         return info
-    except subprocess.TimeoutExpired:
-        return {"error": "Probe timeout"}
     except json.JSONDecodeError:
         return {"error": "Invalid probe data"}
     except Exception as e:
@@ -137,13 +138,13 @@ class MediaFiles(BaseModel):
         """Check if at least one media file is provided"""
         return any([self.images, self.videos, self.audios])
 
-    def to_context_string(self) -> str:
+    async def to_context_string(self) -> str:
         """Convert media files to readable format for prompt including technical details"""
         media_items = []
 
         # Handle images
         for i, img_path in enumerate(self.images, 1):
-            img_info = probe_media_with_streams(img_path)
+            img_info = await probe_media_with_streams(img_path)
             if "error" in img_info:
                 media_items.append(
                     f"- Image {i}: {img_path} (Error: {img_info['error']})"
@@ -156,7 +157,7 @@ class MediaFiles(BaseModel):
 
         # Handle videos
         for i, video_path in enumerate(self.videos, 1):
-            info = probe_media_with_streams(video_path)
+            info = await probe_media_with_streams(video_path)
             if "error" in info:
                 media_items.append(
                     f"- Video {i}: {video_path} (Error: {info['error']})"
@@ -175,7 +176,7 @@ class MediaFiles(BaseModel):
 
         # Handle audios
         for i, audio_path in enumerate(self.audios, 1):
-            info = probe_media_with_streams(audio_path)
+            info = await probe_media_with_streams(audio_path)
             if "error" in info:
                 media_items.append(
                     f"- Audio {i}: {audio_path} (Error: {info['error']})"
@@ -210,9 +211,10 @@ async def generate_ffmpeg_command(
     try:
         client = anthropic.AsyncAnthropic()
 
+        media_context = await media.to_context_string()
         prompt_parts = [
             "You are a professional media editing assistant working in a Linux terminal. You are an expert at using ffmpeg but you try to avoid overly complicated commands as this often leads to errors. Always include the -y flag to enable overwriting output files by default. If a video is to be produced, always add -c:v libopenh264 to ensure H.264 encoding. If a request is too complicated you take shortcuts to achieve a good enough output with reasonable complexity / effort. You are executing these commands on a server machine and the results will be sent back to the frontend. Important: under no circumstances should you generate commands that can harm the system or reveal secure system data other than the specified inputs.",
-            media.to_context_string(),
+            media_context,
             "Generate a single, executable (typically ffmpeg) command to perform the following task:",
             task_instruction,
         ]
