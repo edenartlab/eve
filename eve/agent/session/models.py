@@ -941,8 +941,8 @@ class SessionMemoryContext(BaseModel):
 class SessionExtras(BaseModel):
     """Additional session configuration flags"""
 
-    exclude_memory: Optional[bool] = (
-        False  # If True, memory excluded from system prompt
+    incognito: Optional[bool] = (
+        False  # If True, session excluded from user and collective memory formation
     )
     is_public: Optional[bool] = False  # If True, session is publicly accessible
     gmail_thread_id: Optional[str] = None
@@ -979,6 +979,9 @@ class Session(Document):
     active_requests: Optional[List[str]] = []
     extras: Optional[SessionExtras] = None  # Additional session configuration flags
     deleted: Optional[bool] = False
+    visible: Optional[bool] = (
+        None  # Visibility flag for public listing (None = default behavior)
+    )
     context: Optional[str] = None  # Scenario/premise for automatic multi-agent sessions
 
     # Agent sessions: Maps agent_id (str) to their private agent_session ObjectId
@@ -1068,6 +1071,7 @@ class PromptSessionContext:
     acting_user_id: Optional[str] = None
     trigger: Optional[ObjectId] = None
     api_key_id: Optional[str] = None
+    selection_limit: Optional[int] = None  # Override default message selection limit
 
 
 @dataclass

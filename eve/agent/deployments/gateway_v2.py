@@ -464,6 +464,7 @@ async def process_discord_message_for_agent(
     guild_id: Optional[str],
     should_prompt: bool = False,
     trace_id: str = None,
+    parent_channel_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
     Process a Discord message for a single agent.
@@ -473,10 +474,12 @@ async def process_discord_message_for_agent(
     Args:
         message_data: Raw Discord message data
         deployment: The agent's deployment
-        channel_id: Discord channel ID
+        channel_id: Discord channel ID (the actual channel/thread where the message was sent)
         guild_id: Discord guild ID (None for DMs)
         should_prompt: Whether to prompt the agent to respond
         trace_id: Trace ID for logging
+        parent_channel_id: Parent channel ID if this is a thread. Used to look up
+                          the parent session for inheritance when creating thread sessions.
 
     Returns:
         Status dict with session_id, message_id, etc.
@@ -530,6 +533,7 @@ async def process_discord_message_for_agent(
             media_urls = await upload_discord_media_to_s3(media_urls)
 
         # Create session key: discord-{agent_id}-{guild_id}-{channel_id}
+        # Each channel/thread gets its own session
         session_key = f"discord-{agent.id}-{guild_id or 'dm'}-{channel_id}"
 
         # Find or create session
@@ -589,30 +593,76 @@ async def process_discord_message_for_agent(
         except MongoDocumentNotFound:
             # Build session title based on channel type
             if guild_id:
-                # Guild channel - use "Guild: Channel" format
-                channel_name = await fetch_discord_channel_name(
-                    channel_id, deployment.secrets.discord.token
-                )
                 guild_name = await fetch_discord_guild_name(
                     guild_id, deployment.secrets.discord.token
                 )
 
-                if guild_name and channel_name:
-                    session_title = f"{guild_name}: {channel_name}"
-                elif channel_name:
-                    session_title = channel_name
+                if parent_channel_id:
+                    # This is a thread - use "Guild: ParentChannel: ThreadName" format
+                    thread_name = await fetch_discord_channel_name(
+                        channel_id, deployment.secrets.discord.token
+                    )
+                    parent_channel_name = await fetch_discord_channel_name(
+                        parent_channel_id, deployment.secrets.discord.token
+                    )
+                    if guild_name and parent_channel_name and thread_name:
+                        session_title = (
+                            f"{guild_name}: {parent_channel_name}: {thread_name}"
+                        )
+                    elif parent_channel_name and thread_name:
+                        session_title = f"{parent_channel_name}: {thread_name}"
+                    elif thread_name:
+                        session_title = thread_name
+                    else:
+                        session_title = f"#{channel_id}"
                 else:
-                    session_title = f"#{channel_id}"
+                    # Regular channel - use "Guild: Channel" format
+                    channel_name = await fetch_discord_channel_name(
+                        channel_id, deployment.secrets.discord.token
+                    )
+                    if guild_name and channel_name:
+                        session_title = f"{guild_name}: {channel_name}"
+                    elif channel_name:
+                        session_title = channel_name
+                    else:
+                        session_title = f"#{channel_id}"
             else:
                 # DM - use the author's username
                 session_title = author_username
+
+            # For threads, look up parent session to inherit from
+            parent_session_obj = None
+            inherited_users = []
+            inherited_agents = [agent.id]
+            inherited_settings = None
+
+            if parent_channel_id and guild_id:
+                # This is a thread - try to find parent channel's session
+                parent_session_key = (
+                    f"discord-{agent.id}-{guild_id}-{parent_channel_id}"
+                )
+                try:
+                    parent_session_obj = Session.load(session_key=parent_session_key)
+                    # Inherit users, agents, and settings from parent
+                    inherited_users = parent_session_obj.users or []
+                    inherited_agents = parent_session_obj.agents or [agent.id]
+                    inherited_settings = parent_session_obj.settings
+                    logger.info(
+                        f"[{trace_id}] Thread session inheriting from parent session {parent_session_obj.id}: "
+                        f"users={len(inherited_users)}, agents={len(inherited_agents)}"
+                    )
+                except MongoDocumentNotFound:
+                    logger.info(
+                        f"[{trace_id}] No parent session found for thread (parent_key={parent_session_key})"
+                    )
 
             # Create new session
             # For DMs, the Discord user owns the session; for guild channels, the agent owner does
             session_owner = user.id if not guild_id else agent.owner
             session = Session(
                 owner=session_owner,
-                agents=[agent.id],
+                users=inherited_users,
+                agents=inherited_agents,
                 title=session_title,
                 session_key=session_key,
                 platform="discord",
@@ -620,10 +670,16 @@ async def process_discord_message_for_agent(
                 discord_channel_id=channel_id,
                 session_type="passive",
                 status="active",
+                parent_session=parent_session_obj.id if parent_session_obj else None,
+                settings=inherited_settings,
+                visible=True if parent_session_obj else None,
             )
             session.save()
             is_new_session = True
-            logger.info(f"[{trace_id}] Created new session: {session.id}")
+            logger.info(
+                f"[{trace_id}] Created new session: {session.id}"
+                + (f" (parent: {parent_session_obj.id})" if parent_session_obj else "")
+            )
 
         # Build Discord message URL
         if guild_id:
@@ -1036,6 +1092,64 @@ class DiscordGatewayClient:
                 f"[trace:{trace_id}] Error checking if channel {channel_id} is allowlisted: {e}"
             )
             return False
+
+    async def _get_channel_info_for_allowlist(
+        self, channel_id: str, allowed_channels: list, trace_id: str
+    ) -> Tuple[bool, Optional[str]]:
+        """
+        Check if a channel is allowlisted and return thread parent info.
+
+        Returns:
+            Tuple of (is_allowed, parent_channel_id)
+            - is_allowed: True if channel or its parent is in allowlist
+            - parent_channel_id: The parent channel ID if this is a thread, else None
+        """
+        # First check if the channel is directly allowlisted
+        if channel_id in allowed_channels:
+            logger.info(
+                f"[trace:{trace_id}] Channel {channel_id} is directly allowlisted"
+            )
+            return True, None
+
+        # If not directly allowlisted, check if this might be a thread
+        try:
+            async with aiohttp.ClientSession() as session:
+                headers = {
+                    "Authorization": f"Bot {self.token}",
+                }
+                url = f"https://discord.com/api/v10/channels/{channel_id}"
+
+                async with session.get(url, headers=headers) as response:
+                    if response.status == 200:
+                        channel_data = await response.json()
+                        channel_type = channel_data.get("type")
+
+                        # Discord thread types: 10 (GUILD_NEWS_THREAD), 11 (GUILD_PUBLIC_THREAD), 12 (GUILD_PRIVATE_THREAD)
+                        if channel_type in [10, 11, 12]:
+                            parent_id = channel_data.get("parent_id")
+                            if parent_id and parent_id in allowed_channels:
+                                logger.info(
+                                    f"[trace:{trace_id}] Thread {channel_id} has allowlisted parent channel {parent_id}"
+                                )
+                                return True, parent_id
+                            else:
+                                logger.info(
+                                    f"[trace:{trace_id}] Thread {channel_id} has non-allowlisted parent channel {parent_id}"
+                                )
+                                return False, parent_id
+                        else:
+                            logger.info(
+                                f"[trace:{trace_id}] Channel {channel_id} is not a thread (type: {channel_type}) and not allowlisted"
+                            )
+                            return False, None
+                    else:
+                        logger.warning(
+                            f"[trace:{trace_id}] Failed to fetch channel info for {channel_id}: {response.status}"
+                        )
+                        return False, None
+        except Exception as e:
+            logger.error(f"[trace:{trace_id}] Error checking channel {channel_id}: {e}")
+            return False, None
 
     def _create_trace_id(self, message_data: dict) -> str:
         """Create a unique trace ID for this deployment-message combination"""
@@ -1579,25 +1693,37 @@ class DiscordGatewayClient:
             return
 
         # Check if channel is in allowlist (write) or read_access (read-only)
-        can_write = deployment_can_write_to_channel(deployment, channel_id)
+        # Also check if it's a thread with an allowlisted parent channel
         channel_allowlist = deployment.config.discord.channel_allowlist or []
         read_access = deployment.config.discord.read_access_channels or []
         allowed_ids = [str(item.id) for item in channel_allowlist if item]
         read_ids = [str(item.id) for item in read_access if item]
-        all_following_ids = set(allowed_ids + read_ids)
+        all_following_ids = list(set(allowed_ids + read_ids))
 
         logger.info(
-            f"[{trace_id}] Channel check: channel_id={channel_id}, allowed_ids={allowed_ids}, read_ids={read_ids}, can_write={can_write}"
+            f"[{trace_id}] Channel check: channel_id={channel_id}, allowed_ids={allowed_ids}, read_ids={read_ids}"
         )
 
-        if channel_id not in all_following_ids:
+        # Check if channel is allowed (directly or via thread parent)
+        is_allowed, parent_channel_id = await self._get_channel_info_for_allowlist(
+            channel_id, all_following_ids, trace_id
+        )
+
+        if not is_allowed:
             logger.info(
                 f"[{trace_id}] Deployment {deployment.id} does NOT follow channel {channel_id}, skipping"
             )
             return
 
+        # Determine write access: check if the effective channel (or parent for threads) is in write allowlist
+        effective_channel_for_write = (
+            parent_channel_id if parent_channel_id else channel_id
+        )
+        can_write = effective_channel_for_write in allowed_ids
+
         logger.info(
-            f"[{trace_id}] Deployment {deployment.id} follows channel {channel_id} (can_write={can_write})"
+            f"[{trace_id}] Deployment {deployment.id} follows channel {channel_id} "
+            f"(is_thread={parent_channel_id is not None}, parent={parent_channel_id}, can_write={can_write})"
         )
 
         # Parse mentioned agents
@@ -1639,6 +1765,7 @@ class DiscordGatewayClient:
             guild_id=guild_id,
             should_prompt=should_prompt,
             trace_id=trace_id,
+            parent_channel_id=parent_channel_id,
         )
 
         if isinstance(result, Exception):

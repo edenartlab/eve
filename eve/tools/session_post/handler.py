@@ -5,6 +5,7 @@ from typing import List, Optional
 import modal
 from bson import ObjectId
 from fastapi import BackgroundTasks
+from loguru import logger
 from pydantic import BaseModel, Field
 
 from eve import db
@@ -117,6 +118,7 @@ async def handler(context: ToolContext):
                 title=title,
                 parent_session=context.session,
                 extras={"is_public": context.args.get("public", False)},
+                visible=context.args.get("visible"),
             ),
         )
         placeholder_request = request.model_copy()
@@ -136,6 +138,11 @@ async def handler(context: ToolContext):
 
     # make a new set of drafts
     session = Session.from_mongo(session_id)
+
+    # Update visible flag if explicitly provided
+    if context.args.get("visible") is not None:
+        session.visible = context.args.get("visible")
+        session.save()
 
     if context.args.get("role") == "assistant":
         attachments = context.args.get("attachments") or []
@@ -178,6 +185,7 @@ async def handler(context: ToolContext):
                 extra_tools=context.args.get("extra_tools") or [],
                 async_mode=context.args.get("async"),
                 response_type=response_type,
+                selection_limit=context.args.get("selection_limit"),
             )
             return result
 
@@ -214,6 +222,7 @@ async def run_session_prompt(
     extra_tools: Optional[List[str]] = [],
     async_mode: bool = False,
     response_type: ResponseType = ResponseType.MEDIA,
+    selection_limit: Optional[int] = None,
 ):
     # If async_mode, spawn session prompt and return immediately
     if async_mode:
@@ -227,6 +236,7 @@ async def run_session_prompt(
             content=content,
             attachments=attachments,
             extra_tools=extra_tools,
+            selection_limit=selection_limit,
         )
 
         return {"output": {"session_id": session_id}}
@@ -239,6 +249,7 @@ async def run_session_prompt(
         content=content,
         attachments=attachments,
         extra_tools=extra_tools,
+        selection_limit=selection_limit,
     )
 
     # Get structured output based on response type
@@ -266,6 +277,8 @@ async def _extract_media_response(session_id: str) -> dict:
 
     response = await async_prompt(context)
     output = MediaSessionResponse(**json.loads(response.content))
+
+    logger.info(f"========== Media response for session {session_id}: {output}")
 
     if output.error:
         return {

@@ -1,0 +1,98 @@
+name: display
+description: Control the Chiba kiosk display - play videos, show URLs, manage playlists, control volume, or turn off the screen
+tip: |-
+  This tool controls the Chiba digital signage display. Use it to:
+  - Play a single video file (loops continuously)
+  - Display a website in an iframe
+  - Sync and play an Eden collection as a playlist
+  - Create custom playlists from files or URLs (including YouTube)
+  - Navigate playlists (next, previous, restart)
+  - Control playback (pause, resume)
+  - Adjust volume (0-10, where 0 is mute and 10 is max)
+  - Cache a video from a URL and optionally play it
+  - Turn off the display
+  - Check the current status and available files
+cost_estimate: 0
+output_type: string
+active: true
+handler: local
+visible: false
+parameters:
+  action:
+    type: string
+    label: Action
+    description: The action to perform on the display
+    required: true
+    choices:
+      - status
+      - files
+      - play
+      - off
+      - url
+      - cache
+      - sync
+      - sync_and_play
+      - playlist
+      - next
+      - previous
+      - restart
+      - pause
+      - resume
+      - get_volume
+      - volume
+    choices_labels:
+      - Get Status
+      - List Files
+      - Play File
+      - Turn Off
+      - Show URL
+      - Cache Video
+      - Sync Collection
+      - Sync and Play
+      - Create Playlist
+      - Next Track
+      - Previous Track
+      - Restart Playlist
+      - Pause Playback
+      - Resume Playback
+      - Get Volume
+      - Set Volume
+  file:
+    type: string
+    label: File
+    description: The filename to play (required for 'play' action)
+    required: false
+  url:
+    type: string
+    label: URL
+    description: The URL to display or cache (required for 'url' and 'cache' actions)
+    required: false
+  collection_id:
+    type: string
+    label: Collection ID
+    description: Eden collection ID to sync (required for 'sync' and 'sync_and_play' actions)
+    required: false
+  loop:
+    type: boolean
+    label: Loop
+    description: Whether to loop the playlist (for sync_and_play and playlist actions)
+    default: true
+    required: false
+  play_after_cache:
+    type: boolean
+    label: Play After Cache
+    description: Whether to play the video after caching it
+    default: false
+    required: false
+  playlist:
+    type: array
+    label: Playlist Items
+    description: List of items for playlist creation. Each item is an object with either "file" (cached filename) or "url" (URL to download, including YouTube URLs)
+    required: false
+    items:
+      type: object
+  level:
+    type: integer
+    label: Volume Level
+    description: Volume level from 0 (mute) to 10 (max). Required for 'volume' action.
+    required: false

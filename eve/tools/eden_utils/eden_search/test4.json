@@ -1,0 +1,8 @@
+{
+  "collection": "concepts",
+  "query": "",
+  "created_after": "2024-01-01T00:00:00Z",
+  "sort_by": "creationCount",
+  "sort_order": "desc",
+  "limit": 15
+}

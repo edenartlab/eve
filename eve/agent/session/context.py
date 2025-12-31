@@ -44,6 +44,39 @@ from eve.models import Model
 from eve.tool import Tool
 from eve.user import User, increment_message_count
 
+
+def substitute_trigger_variables(prompt: str, user: Optional[User]) -> str:
+    """
+    Substitute dynamic variables in trigger prompts.
+
+    Supported variables:
+    - {{discordId}}: Replaced with user's Discord ID, or the entire line is removed if not set
+
+    Args:
+        prompt: The trigger prompt text with potential {{variable}} placeholders
+        user: The User object to extract values from (may be None)
+
+    Returns:
+        The prompt with variables substituted or lines removed
+    """
+    if not prompt:
+        return prompt
+
+    # Handle {{discordId}} - replace with value or remove the line
+    discord_id = user.discordId if user else None
+
+    if discord_id:
+        # Replace {{discordId}} with the actual value
+        prompt = prompt.replace("{{discordId}}", discord_id)
+    else:
+        # Remove any line containing {{discordId}}
+        lines = prompt.split("\n")
+        lines = [line for line in lines if "{{discordId}}" not in line]
+        prompt = "\n".join(lines)
+
+    return prompt
+
+
 # Rich notification templates for social media channels
 twitter_notification_template = Template("""
 │ 📨 TWITTER NOTIFICATION
@@ -214,7 +247,8 @@ async def determine_actors(
 
 def convert_message_roles(messages: List[ChatMessage], actor_id: ObjectId):
     """
-    Re-assembles messages from perspective of actor (assistant) and everyone else (user)
+    Re-assembles messages from perspective of actor (assistant) and everyone else (user).
+    Eden messages are converted to user role with content wrapped in SystemMessage tags.
     """
 
     # Social media channel types that use notification decorators instead of [name]: prefix
@@ -227,6 +261,34 @@ def convert_message_roles(messages: List[ChatMessage], actor_id: ObjectId):
     for message in messages:
         if message.role == "system":
             converted_messages.append(message)
+        elif message.role == "eden":
+            # Convert eden messages to user role with SystemMessage wrapper
+            content = message.content or ""
+
+            # For TRIGGER messages, simplify content to avoid bloat from repeated triggers
+            if (
+                message.eden_message_data
+                and message.eden_message_data.message_type == EdenMessageType.TRIGGER
+                and message.trigger
+            ):
+                from eve.trigger import Trigger
+
+                try:
+                    trigger = Trigger.from_mongo(message.trigger)
+                    if trigger:
+                        content = f'Run Task "{trigger.name}"'
+                except ValueError:
+                    # Trigger was deleted, use original content
+                    pass
+
+            # Wrap in SystemMessage tags
+            current_dt = datetime.now(timezone.utc).strftime("%Y %b %-d, %-I:%M%p")
+            wrapped_content = f'<SystemMessage current_date_time="{current_dt}">{content}</SystemMessage>'
+
+            eden_as_user = message.model_copy(
+                update={"role": "user", "content": wrapped_content}
+            )
+            converted_messages.append(eden_as_user)
         elif message.sender == actor_id:
             converted_messages.append(message.as_assistant_message())
         else:
@@ -243,7 +305,7 @@ def convert_message_roles(messages: List[ChatMessage], actor_id: ObjectId):
             ):
                 is_system_message = (
                     user_message.content
-                    and user_message.content.startswith("<SystemMessage>")
+                    and user_message.content.startswith("<SystemMessage")
                     and user_message.content.endswith("</SystemMessage>")
                 )
                 # Prepend the sender name to the content
@@ -359,6 +421,7 @@ async def build_system_message(
     user: Optional[User],
     tools: Dict[str, Tool],
     instrumentation=None,
+    trigger_context: Optional[dict] = None,  # {"name": str, "prompt": str}
 ):  # Get the last speaker ID for memory prioritization
     # Get concepts
     concepts = Concept.find({"agent": actor.id, "deleted": {"$ne": True}})
@@ -374,9 +437,9 @@ async def build_system_message(
             "use_when", "This is your default Lora model"
         )
 
-    # Get memory (unless excluded by session extras)
+    # Get memory
     memory = None
-    if user and not (session.extras and session.extras.exclude_memory):
+    if user:
         memory = await memory_service.assemble_memory_context(
             session,
             actor,
@@ -451,6 +514,8 @@ async def build_system_message(
         memory=memory,
         social_instructions=social_instructions,
         session_context=session.context,
+        trigger_task=trigger_context.get("prompt") if trigger_context else None,
+        trigger_task_name=trigger_context.get("name") if trigger_context else None,
     )
 
     return ChatMessage(session=[session.id], role="system", content=content)
@@ -674,56 +739,6 @@ async def distribute_message_to_agent_sessions(
     )
 
 
-def get_all_eden_messages_for_llm(session_id: ObjectId) -> List[ChatMessage]:
-    """
-    Get ALL eden messages for a session, converted for LLM consumption.
-
-    Eden messages are excluded from select_messages(), so we query separately.
-    Each eden message is converted to user role with content wrapped in SystemMessage tags.
-
-    This includes all conductor messages (CONDUCTOR_INIT, CONDUCTOR_TURN, CONDUCTOR_HINT,
-    CONDUCTOR_FINISH) as well as other eden messages (AGENT_ADD, RATE_LIMIT, TRIGGER).
-
-    Returns empty list if no eden messages exist.
-    """
-    messages_collection = ChatMessage.get_collection()
-    eden_messages = list(
-        messages_collection.find({"session": session_id, "role": "eden"}).sort(
-            "createdAt", 1
-        )  # Chronological order
-    )
-
-    if not eden_messages:
-        return []
-
-    converted = []
-    for doc in eden_messages:
-        eden_msg = ChatMessage(**doc)
-        # Convert: change role to user, wrap content in SystemMessage tags
-        current_dt = datetime.now(timezone.utc).strftime("%Y %b %-d, %-I:%M%p")
-        converted.append(
-            eden_msg.model_copy(
-                update={
-                    "role": "user",
-                    "content": f'<SystemMessage current_date_time="{current_dt}">{eden_msg.content}</SystemMessage>',
-                }
-            )
-        )
-
-    return converted
-
-
-# Keep old function for backward compatibility but mark as deprecated
-def get_last_eden_message_for_llm(session_id: ObjectId) -> Optional[ChatMessage]:
-    """
-    DEPRECATED: Use get_all_eden_messages_for_llm() instead.
-
-    Get the last eden message for a session, converted for LLM consumption.
-    """
-    all_eden = get_all_eden_messages_for_llm(session_id)
-    return all_eden[-1] if all_eden else None
-
-
 async def build_llm_context(
     session: Session,
     actor: Agent,
@@ -772,6 +787,24 @@ async def build_llm_context(
     )
     force_fake = is_fake_llm_mode() or is_test_mode_prompt(raw_prompt_text)
 
+    # Load trigger context if present
+    trigger_context = None
+    trigger_selection_limit = None
+    if context.trigger:
+        from eve.trigger import Trigger
+
+        try:
+            trigger = Trigger.from_mongo(context.trigger)
+            if trigger:
+                # Substitute dynamic variables in the trigger prompt
+                # e.g., {{discordId}} -> user's Discord ID (or remove line if not set)
+                processed_prompt = substitute_trigger_variables(trigger.prompt, user)
+                trigger_context = {"name": trigger.name, "prompt": processed_prompt}
+                trigger_selection_limit = trigger.selection_limit
+        except ValueError:
+            # Trigger was deleted, continue without trigger context
+            pass
+
     # build messages first to have context for thinking routing
     system_message = await build_system_message(
         session,
@@ -779,6 +812,7 @@ async def build_llm_context(
         user,
         tools,
         instrumentation=instrumentation,
+        trigger_context=trigger_context,
     )
 
     messages = [system_message]
@@ -788,16 +822,16 @@ async def build_llm_context(
     if len(system_extras) > 0:
         messages.extend(system_extras)
 
-    existing_messages = select_messages(session)
-
-    # Add ALL eden messages (converted to user role) to the context
-    # Eden messages are filtered out by select_messages, so we query separately
-    # This includes conductor messages (CONDUCTOR_INIT, CONDUCTOR_TURN, CONDUCTOR_HINT, etc.)
-    eden_messages = get_all_eden_messages_for_llm(session.id)
-    if eden_messages:
-        existing_messages.extend(eden_messages)
-        existing_messages.sort(key=lambda m: m.createdAt)
-
+    # Select messages including eden messages - all under the same limit
+    # Eden messages are converted to user role with SystemMessage tags in convert_message_roles()
+    # Priority: context.selection_limit > trigger.selection_limit > default (30)
+    effective_selection_limit = context.selection_limit or trigger_selection_limit
+    if effective_selection_limit is not None:
+        existing_messages = select_messages(
+            session, selection_limit=effective_selection_limit
+        )
+    else:
+        existing_messages = select_messages(session)
     messages.extend(existing_messages)
     messages = label_message_channels(messages, session)
     messages = convert_message_roles(messages, actor.id)
@@ -889,7 +923,7 @@ async def build_agent_session_system_message(
     if parent_session.users:
         user = User.from_mongo(parent_session.users[0])
 
-    if user and not (agent_session.extras and agent_session.extras.exclude_memory):
+    if user:
         memory = await memory_service.assemble_memory_context(
             agent_session,
             actor,
@@ -1010,15 +1044,9 @@ async def build_agent_session_llm_context(
 
     # Add agent_session's own history (includes messages from other agents
     # that were distributed in real-time via distribute_message_to_agent_sessions)
+    # Eden messages (including CONDUCTOR_HINT) are now included under the same limit
+    # and converted to user role with SystemMessage tags in convert_message_roles()
     existing_messages = select_messages(agent_session)
-
-    # Add ALL eden messages (converted to user role) to the context
-    # This includes CONDUCTOR_HINT messages which are specific to this agent_session
-    eden_messages = get_all_eden_messages_for_llm(agent_session.id)
-    if eden_messages:
-        existing_messages.extend(eden_messages)
-        existing_messages.sort(key=lambda m: m.createdAt)
-
     messages.extend(existing_messages)
 
     # Log messages before role conversion to debug context presence

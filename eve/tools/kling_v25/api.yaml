@@ -1,5 +1,5 @@
 name: Kling v2.5 Image to Video
-description: Generate 5s or 10s videos from a starting image using Kling v2.5 via FAL.
+description: Generate 5s or 10s videos from a starting image using Kling v2.5 via FAL. (no audio)
 tip: |-
   Generate high-quality videos from a starting image. Supports optional end image for more controlled video generation.
 output_type: video

@@ -435,6 +435,8 @@ async def handle_image_creation(args: dict, user: str = None, agent: str = None)
         if reference_images:
             args["image_input"] = reference_images
 
+        # args["image_size"] = "4K"
+
         result = await nano_banana_pro.async_run(args, save_thumbnails=True)
 
     #########################################################

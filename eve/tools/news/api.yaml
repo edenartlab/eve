@@ -3,7 +3,7 @@ description: Get the news
 cost_estimate: 0.5
 output_type: string
 active: true
-handler: modal
+handler: local
 visible: false
 parameters:
   subject:

@@ -456,7 +456,11 @@ class Tool(Document, ABC):
         prepared_args = {}
         for field in self.model.model_fields.keys():
             parameter = self.parameters[field]
-            if parameter.get("type") == "object" and isinstance(args[field], str):
+            if (
+                parameter.get("type") == "object"
+                and field in args
+                and isinstance(args[field], str)
+            ):
                 args[field] = json.loads(args[field])
             if field in args:
                 prepared_args[field] = args[field]
@@ -586,6 +590,11 @@ class Tool(Document, ABC):
                 else:
                     await rate_limiter.check_manna_spend_rate_limit(user)
 
+            # Pre-generate handler_id if tool supports it (saves a DB write)
+            pre_handler_id = None
+            if hasattr(self, "pre_generate_handler_id"):
+                pre_handler_id = self.pre_generate_handler_id()
+
             task = Task(
                 user=user_id,
                 agent=agent_id,
@@ -600,6 +609,7 @@ class Tool(Document, ABC):
                 cost=cost,
                 public=public,
                 paying_user=paying_user.id,
+                handler_id=pre_handler_id,  # Include if pre-generated
             )
             task.save()
             sentry_sdk.add_breadcrumb(
@@ -627,7 +637,9 @@ class Tool(Document, ABC):
                     )
                 else:
                     handler_id = await start_task_function(self, task)
-                    task.update(handler_id=handler_id)
+                    # Only update if handler_id wasn't pre-generated
+                    if not pre_handler_id:
+                        task.update(handler_id=handler_id)
 
                 if "free_tools" not in (paying_user.featureFlags or []):
                     task.spend_manna()

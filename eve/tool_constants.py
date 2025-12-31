@@ -73,12 +73,12 @@ ALL_TOOLS = [
     "video_FX",
     "texture_flow",
     # audio
-    "ace_step_musicgen",
+    # "ace_step_musicgen",
     "elevenlabs",
     "vibevoice",
-    "mmaudio",
-    "thinksound",
-    "stable_audio",
+    # "mmaudio",
+    # "thinksound",
+    # "stable_audio",
     "transcription",
     "elevenlabs_music",
     "elevenlabs_fx",
@@ -104,6 +104,7 @@ ALL_TOOLS = [
 GIGABRAIN_TOOLS = _discover_tools("gigabrain")
 ABRAHAM_TOOLS = _discover_tools("abraham")
 VERDELIS_TOOLS = _discover_tools("verdelis")
+CHIBA_TOOLS = _discover_tools("chiba")
 
 DISCORD_TOOLS = ["discord_post", "discord_search", "discord_broadcast_dm"]
 TELEGRAM_TOOLS = ["telegram_post"]
@@ -139,10 +140,13 @@ SOCIAL_MEDIA_TOOLS = [
 ]
 
 EDEN_DB_TOOLS = [
-    "search_collections",
-    "add_to_collection",
-    "search_agents",
-    "search_models",
+    # "search_collections",
+    # "add_to_collection",
+    # "search_agents",
+    # "search_models",
+    "eden_search",
+    "get_messages",
+    "get_messages_digest",
 ]
 
 CONTEXT7_MCP_TOOLS = ["context7_resolve_library_id"]
@@ -154,7 +158,7 @@ TOOL_SETS = {
     "create_audio": ["elevenlabs", "elevenlabs_music", "elevenlabs_fx"],
     "vj_tools": ["texture_flow", "video_FX", "reel"],
     "news": [],  # deprecated
-    "manage_collections": ["search_collections", "add_to_collection"],
+    "manage_collections": ["eden_search", "add_to_collection"],
     "social_media_tools": SOCIAL_MEDIA_TOOLS,
     "context7_mcp_tools": CONTEXT7_MCP_TOOLS,
     "calculator_mcp_tools": CALCULATOR_MCP_TOOLS,

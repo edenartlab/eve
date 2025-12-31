@@ -1,0 +1,10 @@
+{
+  "collection": "creations",
+  "query": "steampunk",
+  "filter": {
+    "agent": "mechanical_duck",
+    "tool": "create"
+  },
+  "created_after": "720h",
+  "limit": 50
+}

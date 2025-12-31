@@ -53,6 +53,7 @@ from eve.api.api_requests import (
     GetDiscordChannelsRequest,
     PromptSessionRequest,
     ReactionRequest,
+    RealtimeToolRequest,
     RefreshDiscordChannelsRequest,
     SessionCreationArgs,
     SyncDiscordChannelsRequest,
@@ -134,6 +135,145 @@ async def handle_cancel(request: CancelRequest):
     tool = Tool.load(key=task.tool)
     await tool.async_cancel(task)
     return {"status": task.status}
+
+
+@handle_errors
+async def handle_realtime_tool(
+    request: RealtimeToolRequest, background_tasks: BackgroundTasks
+):
+    """
+    Handle realtime tool calls from ElevenLabs client tools.
+
+    Supported tools:
+    - "create": Run the create tool with default args (blocking)
+    - "display": Run the display tool (blocking)
+    - "create_async": Run create tool in background, return immediately
+
+    For blocking tools: waits for completion and returns result.
+    For async tools: returns immediately with task_id for tracking.
+    """
+    # Log full request for debugging
+    logger.info(
+        f"[REALTIME_TOOL] Received request: tool={request.tool_name}, "
+        f"wait={request.wait_for_response}, session={request.session_id}, "
+        f"args={json.dumps(request.args, default=str)}"
+    )
+
+    # Get agent_id from session
+    agent_id = None
+    if request.session_id:
+        try:
+            session = Session.from_mongo(ObjectId(request.session_id))
+            if session and session.agents:
+                agent_id = str(session.agents[0])
+                logger.info(f"[REALTIME_TOOL] Found agent_id from session: {agent_id}")
+        except Exception as e:
+            logger.warning(f"[REALTIME_TOOL] Could not load session: {e}")
+
+    # Map tool names to actual tool keys
+    tool_key_map = {
+        "create": "create",
+        "create_async": "create",
+        "display": "display",
+        "eden_search": "eden_search",
+    }
+
+    actual_tool_key = tool_key_map.get(request.tool_name)
+    if not actual_tool_key:
+        raise APIError(f"Unknown tool: {request.tool_name}", status_code=400)
+
+    # Load the tool
+    tool = Tool.load(key=actual_tool_key)
+
+    # Prepare args - for create tool, use defaults if prompt not provided
+    args = request.args.copy()
+    if actual_tool_key == "create" and "prompt" not in args:
+        args["prompt"] = "A beautiful abstract image"
+        args["output"] = args.get("output", "image")
+
+    # Add context IDs
+    args["user_id"] = request.user_id
+    args["agent_id"] = agent_id
+    args["session_id"] = request.session_id
+
+    # Log prepared args
+    logger.info(
+        f"[REALTIME_TOOL] Prepared args for {actual_tool_key}: {json.dumps(args, default=str)}"
+    )
+
+    # Determine if this is an async (fire-and-forget) request
+    is_async = request.tool_name == "create_async" or not request.wait_for_response
+
+    # Generate a task_id for tracking (frontend expects this)
+    task_id = str(ObjectId())
+
+    if is_async:
+        # Non-blocking: start task and return immediately
+        async def run_tool_background():
+            try:
+                result = await tool.async_run(args)
+                logger.info(
+                    f"[REALTIME_TOOL] Background task {request.tool_name} completed: {json.dumps(result, default=str)}"
+                )
+            except Exception as e:
+                logger.error(
+                    f"[REALTIME_TOOL] Background task failed: {e}", exc_info=True
+                )
+
+        background_tasks.add_task(run_tool_background)
+
+        logger.info(f"[REALTIME_TOOL] Tool {request.tool_name} started in background")
+
+        return {
+            "task_id": task_id,
+            "status": "pending",
+            "message": "I've started working on that. I'll let you know when it's ready.",
+        }
+    else:
+        # Blocking: run and wait for result
+        logger.info(f"[REALTIME_TOOL] Running tool {request.tool_name} (blocking)")
+
+        try:
+            result = await tool.async_run(args)
+
+            # Log full result for debugging
+            logger.info(
+                f"[REALTIME_TOOL] Tool {request.tool_name} raw result: {json.dumps(result, default=str)}"
+            )
+
+            if result.get("status") == "failed":
+                error_msg = result.get("error", "Unknown error")
+                logger.error(
+                    f"[REALTIME_TOOL] Tool {request.tool_name} failed: {error_msg}. Args: {json.dumps(args, default=str)}"
+                )
+                return {
+                    "task_id": task_id,
+                    "status": "failed",
+                    "error": error_msg,
+                    "args": args,  # Include args in error response for debugging
+                }
+
+            logger.info(
+                f"[REALTIME_TOOL] Tool {request.tool_name} completed successfully"
+            )
+
+            return {
+                "task_id": task_id,
+                "status": "completed",
+                "result": result,
+            }
+
+        except Exception as e:
+            logger.error(
+                f"[REALTIME_TOOL] Tool execution failed: {e}. Args: {json.dumps(args, default=str)}",
+                exc_info=True,
+            )
+            return {
+                "task_id": task_id,
+                "status": "failed",
+                "error": str(e),
+                "args": args,  # Include args in error response for debugging
+            }
 
 
 async def handle_replicate_webhook(body: dict):

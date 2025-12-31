@@ -156,4 +156,9 @@ system_template = Template("""
     {{ session_context }}
   </SessionContext>
   {% endif %}
+  {% if trigger_task %}
+  <CurrentTask name="{{ trigger_task_name }}">
+    {{ trigger_task }}
+  </CurrentTask>
+  {% endif %}
 </AGENT_SPEC>""")

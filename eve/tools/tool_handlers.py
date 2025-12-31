@@ -1,6 +1,11 @@
 import importlib
 
-from eve.tool_constants import ABRAHAM_TOOLS, GIGABRAIN_TOOLS, VERDELIS_TOOLS
+from eve.tool_constants import (
+    ABRAHAM_TOOLS,
+    CHIBA_TOOLS,
+    GIGABRAIN_TOOLS,
+    VERDELIS_TOOLS,
+)
 
 handlers = {}
 
@@ -24,6 +29,7 @@ HANDLER_PATHS = {
     "search_collections": "mongo_utils.search_collections.handler",
     "add_to_collection": "mongo_utils.add_to_collection.handler",
     "get_messages": "eden_utils.get_messages.handler",
+    "eden_search": "eden_utils.eden_search.handler",
     "get_messages_digest": "gigabrain.get_messages_digest.handler",
     "twitter_mentions": "twitter.twitter_mentions.handler",
     "twitter_search": "twitter.twitter_search.handler",
@@ -70,6 +76,7 @@ HANDLER_PATHS = {
     **{tool: f"abraham.{tool}.handler" for tool in ABRAHAM_TOOLS},
     **{tool: f"verdelis.{tool}.handler" for tool in VERDELIS_TOOLS},
     **{tool: f"gigabrain.{tool}.handler" for tool in GIGABRAIN_TOOLS},
+    **{tool: f"chiba.{tool}.handler" for tool in CHIBA_TOOLS},
 }
 
 

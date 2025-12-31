@@ -1,25 +1,7 @@
 name: discord_post
-description: Post a message (max 2000 chars) to a Discord channel or send a direct message to a Discord user
+description: Post a message to Discord channel or send DM to a Discord user
 tip: |-
-  This tool allows an agent to post messages to Discord channels or send DMs to users.
-
-  IMPORTANT: Messages are always truncated at 2000 characters (Discord's limit). Keep messages concise.
-  If you really need to post a longer message, you MUST subdivide it into multiple calls to discord_post, each call having less than 2000 characters.
-
-  For channel posting:
-  - Requires exact channel_id from the deployment's channel allowlist
-  - Channel must be pre-configured in the deployment
-  - Example: channel_id="123456789"
-
-  For direct messages:
-  - Use discord_user_id parameter to send DMs
-  - The channel_id parameter is ignored when discord_user_id is provided
-  - DMs are sent directly to the specified Discord user
-  - Example: discord_user_id="987654321"
-
   Either channel_id OR discord_user_id must be provided (not both).
-
-  Only use this tool when explicitly requested to post a message or send a DM.
 cost_estimate: 1
 output_type: string
 active: true
@@ -28,25 +10,26 @@ visible: false
 parameters:
   channel_id:
     type: string
-    description: The Discord channel ID to post to (ignored if discord_user_id is provided)
+    description: The Discord channel ID to post to (ignored if discord_user_id is provided). Numeric, not a name.
     required: false
   discord_user_id:
     type: string
-    description: The numeric Discord user ID to send a DM to (takes priority over channel_id). Must be a numeric ID like "987654321", NOT a username.
+    description: The numeric Discord user ID to send a DM to (takes priority over channel_id). Do NOT use a username.
+    example: "987654321"
     required: false
   content:
     type: string
-    description: The message content to post
+    description: Message content
     required: true
   media_urls:
     type: array
     label: Media URLs
-    description: Array of any media URLs to attach in the discord post
+    description: Array of media URLs to attach
     required: false
     minimum: 0
     items:
       type: string
   reply_to:
     type: string
-    description: Message ID to reply to (creates a threaded reply in Discord)
+    description: Message ID to reply to
     required: false

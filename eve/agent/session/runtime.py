@@ -41,7 +41,6 @@ from .context import (
     build_llm_context,
     convert_message_roles,
     determine_actors,
-    get_all_eden_messages_for_llm,
     label_message_channels,
 )
 from .instrumentation import PromptSessionInstrumentation
@@ -273,15 +272,9 @@ class PromptSessionRuntime:
         )
 
     async def _refresh_llm_messages(self):
+        # Select messages including eden messages - all under the same limit
+        # Eden messages are converted to user role with SystemMessage tags in convert_message_roles()
         fresh_messages = select_messages(self.session)
-
-        # Add ALL eden messages (converted to user role) to the context
-        # Eden messages are filtered out by select_messages, so we query separately
-        # This includes conductor messages (CONDUCTOR_INIT, CONDUCTOR_TURN, CONDUCTOR_HINT, etc.)
-        eden_messages = get_all_eden_messages_for_llm(self.session.id)
-        if eden_messages:
-            fresh_messages.extend(eden_messages)
-            fresh_messages.sort(key=lambda m: m.createdAt)
 
         system_message = self.llm_context.messages[0]
         pinned_messages = []
@@ -673,12 +666,34 @@ class PromptSessionRuntime:
         self.transaction = transaction
 
     async def _setup_cancellation_listener(self):
+        """
+        Setup Ably realtime listener for cancellation signals.
+
+        This is non-critical functionality - if Ably fails to connect or disconnects,
+        the session continues but loses remote cancellation capability.
+        """
         try:
             from ably import AblyRealtime
 
             self.ably_client = AblyRealtime(os.getenv("ABLY_SUBSCRIBER_KEY"))
             channel_name = f"{os.getenv('DB')}-session-cancel-{self.session.id}"
             channel = self.ably_client.channels.get(channel_name)
+
+            # Monitor connection state - degrade gracefully on disconnect
+            def on_connection_state_change(state_change):
+                current_state = state_change.current
+                if current_state in ("suspended", "failed", "closed"):
+                    logger.warning(
+                        f"Ably connection {current_state} for session {self.session.id}. "
+                        f"Remote cancellation disabled - session will continue."
+                    )
+                    # Don't raise or block - just lose cancellation support
+                elif current_state == "disconnected":
+                    logger.info(
+                        f"Ably disconnected for session {self.session.id}, attempting reconnect..."
+                    )
+
+            self.ably_client.connection.on(on_connection_state_change)
 
             async def cancellation_handler(message):
                 try:
@@ -703,11 +718,36 @@ class PromptSessionRuntime:
                 except Exception as e:
                     logger.error(f"Error in cancellation handler: {e}")
 
-            await channel.subscribe("cancel", cancellation_handler)
+            # Use a timeout for subscription to prevent blocking on connection issues
+            try:
+                await asyncio.wait_for(
+                    channel.subscribe("cancel", cancellation_handler),
+                    timeout=10.0,  # 10 second timeout for initial subscription
+                )
+            except asyncio.TimeoutError:
+                logger.warning(
+                    f"Ably subscription timed out for session {self.session.id}. "
+                    f"Remote cancellation disabled - session will continue."
+                )
+                # Close the client to avoid zombie connections
+                try:
+                    await self.ably_client.close()
+                except Exception:
+                    pass
+                self.ably_client = None
+
         except Exception as e:
-            logger.error(
-                f"Failed to setup Ably cancellation for session {self.session.id}: {e}"
+            logger.warning(
+                f"Failed to setup Ably cancellation for session {self.session.id}: {e}. "
+                f"Remote cancellation disabled - session will continue."
             )
+            # Ensure we don't leave a half-initialized client
+            if self.ably_client:
+                try:
+                    await self.ably_client.close()
+                except Exception:
+                    pass
+                self.ably_client = None
 
     async def _handle_session_cancelled(self):
         try:
@@ -782,7 +822,12 @@ class PromptSessionRuntime:
         self._remove_active_request()
         if self.ably_client:
             try:
-                await self.ably_client.close()
+                # Use timeout to prevent hanging if Ably connection is stuck
+                await asyncio.wait_for(self.ably_client.close(), timeout=5.0)
+            except asyncio.TimeoutError:
+                logger.warning(
+                    f"Ably client close timed out for session {self.session.id}"
+                )
             except Exception as e:
                 logger.error(f"Error closing Ably client: {e}")
             finally:

@@ -50,6 +50,7 @@ from eve.api.api_requests import (
     GetDiscordChannelsRequest,
     PromptSessionRequest,
     ReactionRequest,
+    RealtimeToolRequest,
     RefreshDiscordChannelsRequest,
     RegenerateAgentMemoryRequest,
     RegenerateUserMemoryRequest,
@@ -72,6 +73,7 @@ from eve.api.handlers import (
     handle_get_discord_channels,
     handle_prompt_session,
     handle_reaction,
+    handle_realtime_tool,
     handle_refresh_discord_channels,
     handle_regenerate_agent_memory,
     handle_regenerate_user_memory,
@@ -114,6 +116,7 @@ async def remote_prompt_session(
     content: Optional[str] = None,
     attachments: Optional[List[str]] = None,
     extra_tools: Optional[List[str]] = None,
+    selection_limit: Optional[int] = None,
 ):
     """
     Remotely prompt an existing session with a user message.
@@ -127,6 +130,7 @@ async def remote_prompt_session(
         content: Optional message content
         attachments: Optional list of attachment URLs
         extra_tools: Optional list of additional tool keys to load
+        selection_limit: Optional override for message selection limit (default 30)
     """
     from eve.agent.session.orchestrator import orchestrate_remote
 
@@ -141,6 +145,7 @@ async def remote_prompt_session(
         content=content,
         attachments=attachments or [],
         extra_tools=extra_tools or [],
+        selection_limit=selection_limit,
     )
 
     logger.info(f"Remote prompt completed for session {session_id}")
@@ -231,6 +236,15 @@ async def create(request: TaskRequest, _: dict = Depends(auth.authenticate_admin
 @web_app.post("/cancel")
 async def cancel(request: CancelRequest, _: dict = Depends(auth.authenticate_admin)):
     return await handle_cancel(request)
+
+
+@web_app.post("/realtime/tool")
+async def realtime_tool(
+    request: RealtimeToolRequest,
+    background_tasks: BackgroundTasks,
+    _: dict = Depends(auth.authenticate_admin),
+):
+    return await handle_realtime_tool(request, background_tasks)
 
 
 @web_app.post("/update")
@@ -796,6 +810,7 @@ async def remote_prompt_session_fn(
     content: Optional[str] = None,
     attachments: Optional[List[str]] = None,
     extra_tools: Optional[List[str]] = None,
+    selection_limit: Optional[int] = None,
 ):
     """Modal wrapper for remote_prompt_session that can be spawned asynchronously."""
     return await remote_prompt_session(
@@ -805,6 +820,7 @@ async def remote_prompt_session_fn(
         content=content,
         attachments=attachments or [],
         extra_tools=extra_tools or [],
+        selection_limit=selection_limit,
     )
 
 

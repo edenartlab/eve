@@ -503,7 +503,6 @@ def select_messages(
             messages_since_last = messages.count_documents(
                 {
                     "session": session.id,
-                    "role": {"$ne": "eden"},
                     "createdAt": {"$gt": last_memory_msg["createdAt"]},
                 }
             )
@@ -512,9 +511,8 @@ def select_messages(
             # Add a small buffer to account for edge cases
             effective_limit = max(selection_limit, messages_since_last + 5)
 
-    selected_messages = messages.find(
-        {"session": session.id, "role": {"$ne": "eden"}}
-    ).sort("createdAt", -1)
+    # Select all messages including eden messages - they all share the same limit
+    selected_messages = messages.find({"session": session.id}).sort("createdAt", -1)
 
     if effective_limit is not None:
         selected_messages = selected_messages.limit(effective_limit)

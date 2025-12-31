@@ -326,6 +326,9 @@ def setup_session(
 
         session_kwargs["settings"] = SessionSettings(**request.creation_args.settings)
 
+    if request.creation_args.visible is not None:
+        session_kwargs["visible"] = request.creation_args.visible
+
     session = Session(**session_kwargs)
 
     if _is_test_prompt_request(request):
@@ -359,10 +362,14 @@ def setup_session(
 
     # Update trigger with session ID
     if request.creation_args.trigger:
-        trigger = Trigger.from_mongo(ObjectId(request.creation_args.trigger))
-        if trigger and not trigger.deleted:
-            trigger.session = session.id
-            trigger.save()
+        try:
+            trigger = Trigger.from_mongo(ObjectId(request.creation_args.trigger))
+            if trigger and not trigger.deleted:
+                trigger.session = session.id
+                trigger.save()
+        except ValueError:
+            # Trigger was deleted, skip linking
+            pass
 
     # Create eden message for initial agent additions
     agents = [Agent.from_mongo(agent_id) for agent_id in agent_object_ids]

@@ -101,6 +101,13 @@ def get_agent_specific_tools(
                 "verdelis_film",
             ]
         )
+    elif username == "chiba":
+        result.extend(
+            [
+                "display",
+                "eden_search",
+            ]
+        )
 
     # Check for gigabrain tools via tools config toggle
     if tools_config and tools_config.get("gigabrain_tools"):

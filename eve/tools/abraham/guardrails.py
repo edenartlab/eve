@@ -1,6 +1,7 @@
 """Shared guardrails functionality for Abraham seed and covenant validation."""
 
 import json
+import os
 import re
 from typing import Any, Dict, List
 
@@ -26,6 +27,11 @@ class IPFSDownloadError(Exception):
     """Error during IPFS download operations."""
 
 
+ipfs_prefix = os.getenv("IPFS_PREFIX")
+if not ipfs_prefix:
+    raise IPFSDownloadError("IPFS_PREFIX not configured")
+
+
 @retry(
     stop=stop_after_attempt(3),
     wait=wait_exponential(multiplier=1, min=2, max=10),
@@ -37,6 +43,7 @@ class IPFSDownloadError(Exception):
 def _download_from_gateway(url: str, timeout: int = 60) -> bytes:
     """Download content from a single gateway with retry logic."""
     try:
+        logger.info(f"Downloading {url}")
         response = requests.get(url, timeout=timeout)
         response.raise_for_status()
         content_length = len(response.content)
@@ -56,6 +63,7 @@ def download_from_ipfs(ipfs_hash: str) -> bytes:
     """Download content from IPFS gateway with automatic fallback to multiple gateways"""
     last_exception = None
     for gateway in [
+        ipfs_prefix,
         "https://ipfs.io/ipfs/",
         "https://cloudflare-ipfs.com/ipfs/",
         "https://dweb.link/ipfs/",
@@ -137,6 +145,7 @@ def validate_eden_session_id(data: Dict[str, Any]) -> None:
 )
 def download_with_retry(url: str, timeout: int = 60) -> bytes:
     """Download content from URL with retry logic."""
+    logger.info(f"Downloading {url}")
     response = requests.get(url, timeout=timeout)
     # Non-gateway errors should not be retried
     if response.status_code >= 400:

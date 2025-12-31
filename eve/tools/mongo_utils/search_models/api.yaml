@@ -5,7 +5,7 @@ cost_estimate: 1
 output_type: image
 active: true
 visible: false
-handler: modal
+handler: local
 parameters:
   query:
     type: string
