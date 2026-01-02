@@ -104,6 +104,70 @@ def calculate_next_scheduled_run(schedule: dict) -> datetime:
     return None
 
 
+def format_schedule_description(schedule: dict) -> str:
+    """Format a cron schedule as human-readable text.
+
+    Examples:
+    - "Daily at 1:30pm UTC"
+    - "Every Monday at 9:00am EST"
+    - "Hourly at minute 15"
+    - "Every 15th of the month at 12:00pm UTC"
+    """
+    if not schedule:
+        return "Manual (no schedule)"
+
+    hour = schedule.get("hour", "*")
+    minute = schedule.get("minute", "*")
+    day_of_month = schedule.get("day_of_month") or schedule.get("day", "*")
+    day_of_week = schedule.get("day_of_week", "*")
+    timezone_str = schedule.get("timezone", "UTC")
+
+    # Format time
+    if hour == "*" and minute == "*":
+        time_str = "every minute"
+    elif hour == "*":
+        time_str = f"hourly at minute {minute}"
+    else:
+        # Convert hour to 12-hour format
+        hour_int = int(hour) if hour != "*" else 0
+        minute_int = int(minute) if minute != "*" else 0
+        period = "am" if hour_int < 12 else "pm"
+        display_hour = hour_int % 12 or 12
+        time_str = f"at {display_hour}:{minute_int:02d}{period} {timezone_str}"
+
+    # Format frequency
+    day_names = {
+        "0": "Sunday",
+        "1": "Monday",
+        "2": "Tuesday",
+        "3": "Wednesday",
+        "4": "Thursday",
+        "5": "Friday",
+        "6": "Saturday",
+    }
+
+    if day_of_week != "*" and day_of_month == "*":
+        # Weekly on specific day(s)
+        if str(day_of_week) in day_names:
+            return f"Every {day_names[str(day_of_week)]} {time_str}"
+        else:
+            return f"Weekly (day {day_of_week}) {time_str}"
+    elif day_of_month != "*":
+        # Monthly on specific day
+        suffix = "th"
+        day_int = int(day_of_month)
+        if day_int in [1, 21, 31]:
+            suffix = "st"
+        elif day_int in [2, 22]:
+            suffix = "nd"
+        elif day_int in [3, 23]:
+            suffix = "rd"
+        return f"Monthly on the {day_int}{suffix} {time_str}"
+    else:
+        # Daily
+        return f"Daily {time_str}"
+
+
 def atomic_set_running(trigger_id: str) -> Optional[Trigger]:
     """Atomically set trigger status to 'running' if not already running or deleted.
 
