@@ -247,10 +247,15 @@ def inject_deployment_parameters(
         # Infer platform from tool name (e.g., "discord_post" -> "discord")
         platform = tool_name.split("_")[0]
 
-        if platform not in deployments:
+        # Special case: Discord tools can use either "discord" or "discord_v3" deployment
+        if platform == "discord":
+            deployment = deployments.get("discord_v3") or deployments.get("discord")
+        else:
+            deployment = deployments.get(platform)
+
+        if not deployment:
             continue
 
-        deployment = deployments[platform]
         loader = TOOL_PARAMETER_LOADERS[tool_name]
 
         try:
@@ -294,7 +299,13 @@ def remove_non_deployed_platform_tools(tools: Dict, deployments: Dict) -> Dict:
     platform_tool_sets = _get_platform_tool_sets()
 
     for platform, tool_list in platform_tool_sets.items():
-        if platform not in deployments:
+        # Special case: Discord tools are available for both "discord" and "discord_v3"
+        if platform == "discord":
+            has_deployment = "discord" in deployments or "discord_v3" in deployments
+        else:
+            has_deployment = platform in deployments
+
+        if not has_deployment:
             for tool in tool_list:
                 tools.pop(tool, None)
 

@@ -474,3 +474,57 @@ class UserIdentityHistory(Document):
     actor_eden_user_id: Optional[ObjectId] = None
     event_type: Literal["link", "unlink", "transfer"]
     metadata: Optional[Dict[str, Any]] = None
+
+
+class DiscordGuild(BaseModel):
+    """Discord guild info from OAuth."""
+
+    id: str
+    name: str
+    permissions: str  # bitfield
+    owner: Optional[bool] = False
+    icon: Optional[str] = None
+    has_eden_bot: Optional[bool] = False
+
+
+@Collection("discord_connections")
+class DiscordConnection(Document):
+    """User's Discord OAuth connection."""
+
+    user_id: ObjectId
+    discord_user_id: str
+    discord_username: str
+    access_token: str
+    refresh_token: str
+    expires_at: Optional[str] = None
+
+    # Cached guild data
+    guilds: Optional[List[DiscordGuild]] = []
+
+    @classmethod
+    def get_for_user(cls, user_id: ObjectId):
+        """Get Discord connection for a user."""
+        try:
+            return cls.find_one({"user_id": user_id})
+        except MongoDocumentNotFound:
+            return None
+
+
+@Collection("guild_webhooks")
+class GuildWebhook(Document):
+    """Shared webhook for a Discord channel."""
+
+    guild_id: str
+    channel_id: str
+    webhook_id: str
+    webhook_token: str
+    webhook_url: str
+    created_by: ObjectId
+
+    @classmethod
+    def get_for_channel(cls, guild_id: str, channel_id: str):
+        """Get webhook for a channel."""
+        try:
+            return cls.find_one({"guild_id": guild_id, "channel_id": channel_id})
+        except MongoDocumentNotFound:
+            return None

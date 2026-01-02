@@ -1093,6 +1093,7 @@ class LLMResponse:
 
 class ClientType(Enum):
     DISCORD = "discord"
+    DISCORD_V3 = "discord_v3"
     TELEGRAM = "telegram"
     FARCASTER = "farcaster"
     TWITTER = "twitter"
@@ -1145,16 +1146,34 @@ class DiscordAllowlistItem(AllowlistItem):
     pass
 
 
+class DiscordChannelConfig(BaseModel):
+    """Config for a single Discord channel in webhook-based deployments."""
+
+    channel_id: str
+    channel_name: Optional[str] = None  # cached for display
+    access: Literal["read_write", "read_only"] = "read_write"
+    webhook_id: Optional[str] = None
+    webhook_token: Optional[str] = None
+
+
 class DeploymentSettingsDiscord(BaseModel):
+    # Legacy token-based fields (for migration)
     oauth_client_id: Optional[str] = None
     oauth_url: Optional[str] = None
     channel_allowlist: Optional[List[DiscordAllowlistItem]] = None
     read_access_channels: Optional[List[DiscordAllowlistItem]] = None
     enable_discord_dm: Optional[bool] = False
 
+    # New webhook-based fields
+    guild_id: Optional[str] = None
+    guild_name: Optional[str] = None  # cached for display
+    role_id: Optional[str] = None  # Discord role ID for @mentions
+    role_name: Optional[str] = None  # role name (e.g., "chatsubo")
+    channel_configs: Optional[List[DiscordChannelConfig]] = None
+
 
 class DeploymentSecretsDiscord(BaseModel):
-    token: str
+    token: Optional[str] = None  # Optional for webhook-based deployments
     application_id: Optional[str] = None
 
 
@@ -1447,6 +1466,17 @@ class Deployment(Document):
         """Get allowed channels for the deployment"""
         if self.platform == ClientType.DISCORD:
             return self.config.discord.channel_allowlist
+        elif self.platform == ClientType.DISCORD_V3:
+            # Convert channel_configs to channel_allowlist format for compatibility
+            if not self.config.discord.channel_configs:
+                return []
+            # Return list of objects with .id and .note attributes
+            from types import SimpleNamespace
+
+            return [
+                SimpleNamespace(id=ch.channel_id, note=ch.channel_name)
+                for ch in self.config.discord.channel_configs
+            ]
         elif self.platform == ClientType.TELEGRAM:
             return self.config.telegram.topic_allowlist
         return []
