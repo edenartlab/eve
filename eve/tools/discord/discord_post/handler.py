@@ -65,7 +65,11 @@ async def handler(context: ToolContext):
     if not context.agent:
         raise Exception("Agent is required")
     agent = Agent.from_mongo(context.agent)
-    deployment = Deployment.load(agent=agent.id, platform="discord")
+
+    # Try to find Discord V3 deployment first, then fallback to legacy Discord
+    deployment = Deployment.load(agent=agent.id, platform="discord_v3")
+    if not deployment:
+        deployment = Deployment.load(agent=agent.id, platform="discord")
     if not deployment:
         raise Exception("No valid Discord deployments found")
 
@@ -88,6 +92,13 @@ async def handler(context: ToolContext):
     if content:
         content = convert_usernames_to_discord_mentions(content)
 
+    # Check if this is a V3 webhook-based deployment
+    is_webhook_deployment = (
+        deployment.config
+        and deployment.config.discord
+        and deployment.config.discord.guild_id is not None
+    )
+
     # Check if we can skip allowlist validation (fast path)
     # If channel_id matches session's discord_channel_id, it was already validated
     skip_allowlist_check = False
@@ -104,7 +115,19 @@ async def handler(context: ToolContext):
                 f"discord_post: Failed to load session for allowlist check: {e}"
             )
 
-    # Create Discord client
+    # V3 Webhook-based posting (no bot login required)
+    if is_webhook_deployment and channel_id and not discord_user_id:
+        logger.info("discord_post: Using webhook for Discord V3 deployment")
+        return await send_webhook_message(
+            deployment=deployment,
+            agent=agent,
+            channel_id=channel_id,
+            content=content,
+            media_urls=media_urls,
+            skip_allowlist_check=skip_allowlist_check,
+        )
+
+    # Legacy token-based posting (requires bot login)
     client = discord.Client(intents=discord.Intents.default())
 
     try:
@@ -368,5 +391,90 @@ async def send_channel_message(
 
     # return just the first url if messages are split
     output = output[:1]
+
+    return {"output": output}
+
+
+async def send_webhook_message(
+    deployment: Deployment,
+    agent: Agent,
+    channel_id: str,
+    content: str,
+    media_urls: list = None,
+    skip_allowlist_check: bool = False,
+):
+    """Send a message via Discord webhook (V3 deployments)."""
+    from eve.s3 import get_full_url
+
+    # Find the channel config with webhook info
+    channel_config = None
+    if deployment.config and deployment.config.discord:
+        for ch in deployment.config.discord.channel_configs or []:
+            if ch.channel_id == channel_id:
+                channel_config = ch
+                break
+
+    if not channel_config:
+        raise Exception(f"Channel {channel_id} not found in deployment configuration")
+
+    # Check write access if not skipping validation
+    if not skip_allowlist_check and channel_config.access != "read_write":
+        raise Exception(
+            f"Channel {channel_id} ({channel_config.channel_name}) is read-only. "
+            "Agent can only post to channels with read_write access."
+        )
+
+    if not channel_config.webhook_id or not channel_config.webhook_token:
+        raise Exception(f"No webhook configured for channel {channel_id}")
+
+    # Split content into chunks
+    chunks = split_content_into_chunks(content)
+    if not chunks:
+        chunks = [""]  # Allow empty if media_urls provided
+
+    # Build webhook payload
+    webhook_url = f"https://discord.com/api/v10/webhooks/{channel_config.webhook_id}/{channel_config.webhook_token}"
+
+    # Get full URL for avatar (may be just a filename)
+    avatar_url = (
+        get_full_url(agent.userImage)
+        if agent.userImage and not agent.userImage.startswith("http")
+        else agent.userImage
+    )
+
+    messages = []
+    async with aiohttp.ClientSession() as session:
+        for i, chunk in enumerate(chunks):
+            payload = {
+                "content": chunk,
+                "username": agent.name,  # Custom bot name
+                "avatar_url": avatar_url,  # Custom bot avatar
+                "allowed_mentions": {"parse": ["users", "roles"]},
+            }
+
+            # Add media URLs to the last chunk (webhooks don't support file uploads well)
+            # So we just append URLs as text
+            if i == len(chunks) - 1 and media_urls:
+                media_content = "\n".join(media_urls)
+                payload["content"] = (
+                    f"{chunk}\n\n{media_content}" if chunk else media_content
+                )
+
+            async with session.post(webhook_url, json=payload) as response:
+                if response.status not in [200, 204]:
+                    error_text = await response.text()
+                    raise Exception(f"Webhook request failed: {error_text}")
+
+                # Discord returns the message object on success
+                if response.status == 200:
+                    msg_data = await response.json()
+                    messages.append(msg_data)
+
+    # Build output URLs (webhook messages don't have guild_id in response, need to construct)
+    guild_id = deployment.config.discord.guild_id
+    output = []
+    for msg in messages[:1]:  # Return just first URL if split
+        url = f"https://discord.com/channels/{guild_id}/{channel_id}/{msg['id']}"
+        output.append({"url": url})
 
     return {"output": output}
