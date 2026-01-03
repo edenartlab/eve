@@ -474,3 +474,87 @@ class UserIdentityHistory(Document):
     actor_eden_user_id: Optional[ObjectId] = None
     event_type: Literal["link", "unlink", "transfer"]
     metadata: Optional[Dict[str, Any]] = None
+
+
+class DiscordGuild(BaseModel):
+    """Discord guild info from OAuth."""
+
+    id: str
+    name: str
+    permissions: str  # bitfield
+    owner: Optional[bool] = False
+    icon: Optional[str] = None
+    has_eden_bot: Optional[bool] = False
+
+
+@Collection("discord_connections")
+class DiscordConnection(Document):
+    """User's Discord OAuth connection."""
+
+    user_id: ObjectId
+    discord_user_id: str
+    discord_username: str
+    access_token: str
+    refresh_token: str
+    expires_at: Optional[str] = None
+
+    # Cached guild data
+    guilds: Optional[List[DiscordGuild]] = []
+
+    @classmethod
+    def get_for_user(cls, user_id: ObjectId):
+        """Get Discord connection for a user."""
+        try:
+            return cls.find_one({"user_id": user_id})
+        except MongoDocumentNotFound:
+            return None
+
+
+@Collection("discord_guild_access")
+class DiscordGuildAccess(Document):
+    """Role-based access configuration for Discord guilds."""
+
+    guild_id: str
+    allowed_role_ids: List[str] = []
+    updated_by_user_id: Optional[ObjectId] = None
+    updated_by_discord_id: Optional[str] = None
+
+    @classmethod
+    def get_for_guild(cls, guild_id: str):
+        return cls.find_one({"guild_id": guild_id})
+
+    @classmethod
+    def set_roles(
+        cls,
+        guild_id: str,
+        role_ids: List[str],
+        updated_by_discord_id: Optional[str] = None,
+        updated_by_user_id: Optional[ObjectId] = None,
+    ):
+        unique_roles = list({role_id for role_id in role_ids if role_id})
+        doc = cls.get_for_guild(guild_id) or cls(guild_id=guild_id)
+        doc.allowed_role_ids = unique_roles
+        doc.updated_by_discord_id = updated_by_discord_id
+        doc.updated_by_user_id = updated_by_user_id
+        doc.save(upsert_filter={"guild_id": guild_id})
+        return doc
+
+
+@Collection("guild_webhooks")
+class GuildWebhook(Document):
+    """Shared webhook for a Discord channel."""
+
+    guild_id: str
+    channel_id: str
+    webhook_id: str
+    webhook_token: str
+    webhook_url: str
+    created_by: ObjectId
+
+    @classmethod
+    def get_for_channel(cls, guild_id: str, channel_id: str):
+        """Get webhook for a channel."""
+        try:
+            return cls.find_one({"guild_id": guild_id, "channel_id": channel_id})
+        except MongoDocumentNotFound:
+            return None

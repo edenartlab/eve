@@ -84,49 +84,101 @@ async def fetch_tweet_ancestry(
     tweet_id: str, conversation_id: str, twitter_api
 ) -> List[Dict[str, Any]]:
     """
-    Fetch tweet ancestry by getting all tweets in the conversation.
+    Fetch tweet ancestry by walking up the reply chain.
     Returns tweets in chronological order (oldest first).
+
+    Uses the tweet lookup endpoint to fetch each parent tweet individually,
+    which is more reliable than the conversation_id search approach.
     """
     try:
         import httpx
-
-        # Use Twitter API v2 conversation search
-        # We'll search for tweets in this conversation that came before this tweet
-        params = {
-            "query": f"conversation_id:{conversation_id}",
-            "max_results": 100,
-            "tweet.fields": "id,text,created_at,author_id,conversation_id,in_reply_to_user_id,referenced_tweets,attachments",
-            "user.fields": "id,username,name,profile_image_url",
-            "media.fields": "media_key,type,url,preview_image_url,variants",
-            "expansions": "author_id,attachments.media_keys,referenced_tweets.id",
-        }
 
         headers = {
             "Authorization": f"Bearer {twitter_api.access_token}",
         }
 
+        params = {
+            "tweet.fields": "id,text,created_at,author_id,conversation_id,in_reply_to_user_id,referenced_tweets,attachments",
+            "user.fields": "id,username,name,profile_image_url",
+            "media.fields": "media_key,type,url,preview_image_url,variants",
+            "expansions": "author_id,attachments.media_keys",
+        }
+
+        ancestors = []
+        all_users = {}
+        all_media = {}
+        current_tweet_id = tweet_id
+        max_depth = 10  # Limit API calls for thread reconstruction
+
         async with httpx.AsyncClient(timeout=30) as client:
+            # First, fetch the current tweet to get its parent
             response = await client.get(
-                "https://api.twitter.com/2/tweets/search/recent",
+                f"https://api.twitter.com/2/tweets/{current_tweet_id}",
                 headers=headers,
                 params=params,
             )
+            response.raise_for_status()
+            current_data = response.json()
 
-        response.raise_for_status()
-        data = response.json()
+            # Get parent tweet ID from referenced_tweets
+            current_tweet = current_data.get("data", {})
+            referenced_tweets = current_tweet.get("referenced_tweets", [])
+            parent_id = None
+            for ref in referenced_tweets:
+                if ref.get("type") == "replied_to":
+                    parent_id = ref.get("id")
+                    break
 
-        tweets = data.get("data", [])
-        # Sort by created_at to get chronological order
-        tweets.sort(key=lambda t: t.get("created_at", ""))
+            # Walk up the chain
+            depth = 0
+            while parent_id and depth < max_depth:
+                response = await client.get(
+                    f"https://api.twitter.com/2/tweets/{parent_id}",
+                    headers=headers,
+                    params=params,
+                )
 
-        # Filter to only include tweets before the current one
-        for i, tweet in enumerate(tweets):
-            if tweet["id"] == tweet_id:
-                # Return all tweets before this one
-                return {"data": tweets[:i], "includes": data.get("includes", {})}
+                if response.status_code != 200:
+                    logger.warning(
+                        f"Failed to fetch parent tweet {parent_id}: {response.status_code}"
+                    )
+                    break
 
-        # If we didn't find the current tweet, return all tweets
-        return data
+                data = response.json()
+                tweet = data.get("data")
+                if not tweet:
+                    break
+
+                # Collect this ancestor
+                ancestors.append(tweet)
+
+                # Collect includes (users and media)
+                includes = data.get("includes", {})
+                for user in includes.get("users", []):
+                    all_users[user["id"]] = user
+                for media in includes.get("media", []):
+                    all_media[media["media_key"]] = media
+
+                # Find next parent
+                referenced_tweets = tweet.get("referenced_tweets", [])
+                parent_id = None
+                for ref in referenced_tweets:
+                    if ref.get("type") == "replied_to":
+                        parent_id = ref.get("id")
+                        break
+
+                depth += 1
+
+        # Reverse to get chronological order (oldest first)
+        ancestors.reverse()
+
+        # Build includes from collected data
+        includes = {
+            "users": list(all_users.values()),
+            "media": list(all_media.values()),
+        }
+
+        return {"data": ancestors, "includes": includes}
 
     except Exception as e:
         logger.error(f"Error fetching tweet ancestry: {e}")

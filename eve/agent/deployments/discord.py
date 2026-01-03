@@ -375,6 +375,59 @@ class DiscordClient(PlatformClient):
                         )
                         raise Exception(f"Failed to send Discord message: {error_text}")
 
+    async def _send_via_webhook(
+        self, channel_id: str, payload: dict, agent_name: str, agent_image: str
+    ) -> None:
+        """Send message via Discord webhook (v3)."""
+        from eve.s3 import get_full_url
+
+        # Find channel config with webhook
+        channel_config = None
+        if self.deployment.config and self.deployment.config.discord:
+            for ch in self.deployment.config.discord.channel_configs or []:
+                if ch.channel_id == channel_id:
+                    channel_config = ch
+                    break
+
+        if not channel_config or not channel_config.webhook_id:
+            raise Exception(f"No webhook configured for channel {channel_id}")
+
+        webhook_token = channel_config.webhook_token
+
+        # Get full URL for avatar (may be just a filename)
+        avatar_url = (
+            get_full_url(agent_image)
+            if agent_image and not agent_image.startswith("http")
+            else agent_image
+        )
+
+        # Build webhook payload
+        webhook_payload = {
+            "content": payload.get("content"),
+            "username": agent_name,  # Custom name
+            "avatar_url": avatar_url,  # Custom avatar
+            "allowed_mentions": {"parse": ["users", "roles"]},
+        }
+
+        # Add components if present (buttons)
+        if payload.get("components"):
+            webhook_payload["components"] = payload["components"]
+
+        # Post via webhook
+        async with aiohttp.ClientSession() as session:
+            async with session.post(
+                f"https://discord.com/api/v10/webhooks/{channel_config.webhook_id}/{webhook_token}",
+                json=webhook_payload,
+            ) as response:
+                if response.status not in [200, 204]:
+                    error_text = await response.text()
+                    logger.error(f"Failed to send webhook message: {error_text}")
+                    raise Exception(f"Failed to send webhook message: {error_text}")
+
+                logger.info(
+                    f"Successfully sent webhook message to channel {channel_id} as {agent_name}"
+                )
+
     async def handle_emission(self, emission) -> None:
         """Handle an emission from the platform client"""
         try:
@@ -396,16 +449,41 @@ class DiscordClient(PlatformClient):
                 logger.debug("No content to send")
                 return
 
-            # Send message
-            headers = {
-                "Authorization": f"Bot {self.deployment.secrets.discord.token}",
-                "Content-Type": "application/json",
-            }
+            # Determine if this is v3 webhook-based or legacy token-based
+            is_webhook_based = (
+                self.deployment.config
+                and self.deployment.config.discord
+                and self.deployment.config.discord.guild_id is not None
+            )
 
-            if is_dm:
-                await self._send_dm_message(discord_user_id, payload, headers)
+            if is_webhook_based and not is_dm:
+                # V3 webhook-based: post via webhook
+                from eve.agent.agent import Agent
+
+                agent = Agent.from_mongo(self.deployment.agent)
+                if not agent:
+                    raise Exception("Agent not found")
+
+                await self._send_via_webhook(
+                    channel_id=channel_id,
+                    payload=payload,
+                    agent_name=agent.name,
+                    agent_image=agent.userImage,
+                )
             else:
-                await self._send_channel_message(channel_id, payload, headers)
+                # Legacy token-based or DM: use bot token
+                if not self.deployment.secrets or not self.deployment.secrets.discord:
+                    raise Exception("No Discord secrets configured")
+
+                headers = {
+                    "Authorization": f"Bot {self.deployment.secrets.discord.token}",
+                    "Content-Type": "application/json",
+                }
+
+                if is_dm:
+                    await self._send_dm_message(discord_user_id, payload, headers)
+                else:
+                    await self._send_channel_message(channel_id, payload, headers)
 
         except Exception as e:
             logger.error(

@@ -22,6 +22,7 @@ class TaskRequest(BaseModel):
     args: dict
     user_id: str
     public: bool = False
+    metadata: Optional[Dict[str, Any]] = None
 
 
 class RealtimeToolRequest(BaseModel):

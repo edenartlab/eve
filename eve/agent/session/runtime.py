@@ -240,7 +240,7 @@ class PromptSessionRuntime:
                     session_run_id=self.session_run_id,
                 )
 
-                await self._maybe_notify_user()
+                await self._maybe_notify_user(assistant_message)
 
                 async for update in self._process_tool_calls(assistant_message):
                     yield update
@@ -582,7 +582,7 @@ class PromptSessionRuntime:
             assistant_message.observability.sentry_trace_id = self.transaction.trace_id
             assistant_message.save()
 
-    async def _maybe_notify_user(self):
+    async def _maybe_notify_user(self, assistant_message: ChatMessage):
         try:
             is_active_response = await check_if_session_active(
                 str(self.session.owner), str(self.session.id)
@@ -592,7 +592,8 @@ class PromptSessionRuntime:
                 await create_session_message_notification(
                     user_id=str(self.session.owner),
                     session_id=str(self.session.id),
-                    agent_id=str(self.actor.id),
+                    agent_id=str(self.actor.id) if self.actor else None,
+                    message=assistant_message.content if assistant_message else None,
                 )
         except Exception as e:
             logger.warning(

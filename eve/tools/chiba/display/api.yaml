@@ -96,3 +96,18 @@ parameters:
     label: Volume Level
     description: Volume level from 0 (mute) to 10 (max). Required for 'volume' action.
     required: false
+  kiosk:
+    type: string
+    label: Kiosk
+    description: Which display kiosk to send the command to
+    required: false
+    choices:
+      - mars01.local
+      - mars02.local
+      - mars04.local
+      - mars05.local
+    choices_labels:
+      - Mars 01
+      - Mars 02
+      - Mars 04
+      - Mars 05

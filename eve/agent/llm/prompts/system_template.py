@@ -157,7 +157,10 @@ system_template = Template("""
   </SessionContext>
   {% endif %}
   {% if trigger_task %}
-  <CurrentTask name="{{ trigger_task_name }}">
+  <CurrentTask name="{{ trigger_task_name }}"{% if trigger_task_schedule %} schedule="{{ trigger_task_schedule }}"{% endif %}>
+    {% if trigger_task_schedule %}
+    <Note>This is a RECURRING scheduled task ({{ trigger_task_schedule }}). Execute it fully each time it runs, even if you completed a previous run recently. Each scheduled run is independent.</Note>
+    {% endif %}
     {{ trigger_task }}
   </CurrentTask>
   {% endif %}

@@ -348,6 +348,7 @@ def get_platform_client(
     """Helper function to get the appropriate platform client"""
     from eve.agent.deployments.captions import CaptionsClient
     from eve.agent.deployments.discord import DiscordClient
+    from eve.agent.deployments.discord_v3 import DiscordV3Client
     from eve.agent.deployments.email import EmailClient
     from eve.agent.deployments.farcaster import FarcasterClient
     from eve.agent.deployments.gmail import GmailClient
@@ -361,6 +362,8 @@ def get_platform_client(
 
     if platform == ClientType.DISCORD:
         return DiscordClient(agent=agent, deployment=deployment)
+    elif platform == ClientType.DISCORD_V3:
+        return DiscordV3Client(agent=agent, deployment=deployment)
     elif platform == ClientType.TELEGRAM:
         return TelegramClient(agent=agent, deployment=deployment)
     elif platform == ClientType.FARCASTER:
