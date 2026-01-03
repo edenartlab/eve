@@ -3,7 +3,7 @@
 import base64
 import json
 import os
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 import aiohttp
 from ably import AblyRest
@@ -12,6 +12,9 @@ from fastapi import Request
 from loguru import logger
 
 from eve.agent.deployments import PlatformClient
+from eve.agent.deployments.discord_gateway import (
+    get_or_create_discord_message,
+)
 from eve.agent.deployments.utils import get_api_url
 from eve.agent.session.models import (
     DeploymentConfig,
@@ -588,12 +591,40 @@ class DiscordV3Client(PlatformClient):
             if not agent:
                 raise Exception("Agent not found")
 
-            await self._send_via_webhook(
+            response_data = await self._send_via_webhook(
                 channel_id=channel_id,
                 payload=payload,
                 agent_name=agent.name,
                 agent_image=agent.userImage,
             )
+
+            # Record webhook message attribution for later ingestion
+            if response_data and response_data.get("id"):
+                try:
+                    message_data = dict(response_data)
+                    if self.deployment and self.deployment.config:
+                        guild_id = (
+                            self.deployment.config.discord.guild_id
+                            if self.deployment.config.discord
+                            else None
+                        )
+                        if guild_id and not message_data.get("guild_id"):
+                            message_data["guild_id"] = guild_id
+                    if not message_data.get("channel_id"):
+                        message_data["channel_id"] = channel_id
+
+                    discord_msg, _ = get_or_create_discord_message(message_data)
+                    if discord_msg:
+                        discord_msg.update(
+                            source_agent_id=str(agent.id),
+                            source_deployment_id=str(self.deployment.id)
+                            if self.deployment
+                            else None,
+                        )
+                except Exception as e:
+                    logger.warning(
+                        f"Failed to record webhook attribution for message: {e}"
+                    )
 
         except Exception as e:
             logger.error(f"Error handling Discord V3 emission: {str(e)}", exc_info=True)
@@ -674,7 +705,7 @@ class DiscordV3Client(PlatformClient):
 
     async def _send_via_webhook(
         self, channel_id: str, payload: dict, agent_name: str, agent_image: str
-    ) -> None:
+    ) -> Optional[dict]:
         """Send message via Discord webhook."""
         from eve.s3 import get_full_url
 
@@ -714,6 +745,7 @@ class DiscordV3Client(PlatformClient):
         async with aiohttp.ClientSession() as session:
             async with session.post(
                 f"https://discord.com/api/v10/webhooks/{channel_config.webhook_id}/{webhook_token}",
+                params={"wait": "true"},
                 json=webhook_payload,
             ) as response:
                 if response.status not in [200, 204]:
@@ -721,6 +753,14 @@ class DiscordV3Client(PlatformClient):
                     logger.error(f"Failed to send webhook message: {error_text}")
                     raise Exception(f"Failed to send webhook message: {error_text}")
 
+                response_data = None
+                if response.status == 200:
+                    try:
+                        response_data = await response.json()
+                    except Exception as e:
+                        logger.warning(f"Failed to parse webhook response JSON: {e}")
+
                 logger.info(
                     f"Successfully sent webhook message to channel {channel_id} as {agent_name}"
                 )
+                return response_data

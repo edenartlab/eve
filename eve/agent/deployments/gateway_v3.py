@@ -21,10 +21,12 @@ del _original_path, _deployment_dir
 
 import aiohttp
 import modal
+from bson import ObjectId
 from fastapi import FastAPI
 
 from eve.agent.agent import Agent
 from eve.agent.deployments.discord_gateway import (
+    DiscordMessage,
     convert_discord_mentions_to_usernames,
     get_or_create_discord_message,
     upload_discord_media_to_s3,
@@ -207,6 +209,8 @@ async def process_discord_message_for_agent(
     should_prompt: bool = False,
     trace_id: str = None,
     parent_channel_id: Optional[str] = None,
+    source_agent: Optional[Agent] = None,
+    source_deployment_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
     Process a Discord message for a single agent.
@@ -284,12 +288,19 @@ async def process_discord_message_for_agent(
         if media_urls:
             media_urls = await upload_discord_media_to_s3(media_urls)
 
-        # Create/get user
-        sender = User.from_discord(
-            author_id,
-            author_username,
-            discord_avatar=message.author.avatar.key if message.author.avatar else None,
-        )
+        # Determine sender/role (webhook messages may map to an agent)
+        if source_agent:
+            sender = source_agent
+            role = "assistant"
+        else:
+            sender = User.from_discord(
+                author_id,
+                author_username,
+                discord_avatar=message.author.avatar.key
+                if message.author.avatar
+                else None,
+            )
+            role = "user"
 
         # Build session key
         session_key = f"discord-{agent.id}-{guild_id or 'dm'}-{channel_id}"
@@ -411,7 +422,7 @@ async def process_discord_message_for_agent(
                 createdAt=timestamp,
                 session=[session.id],
                 channel=Channel(type="discord", key=message_id, url=discord_url),
-                role="user",
+                role=role,
                 content=content,
                 sender=sender.id,
                 attachments=media_urls if media_urls else None,
@@ -431,15 +442,21 @@ async def process_discord_message_for_agent(
             "timestamp": timestamp.isoformat(),
             "attachments": [{"url": a.url} for a in message.attachments],
         }
-        get_or_create_discord_message(
+        discord_msg, _ = get_or_create_discord_message(
             message_dict, session_id=session.id, eve_message_id=chat_message.id
         )
+        if source_agent and discord_msg:
+            discord_msg.update(
+                source_agent_id=str(source_agent.id),
+                source_deployment_id=source_deployment_id,
+            )
 
         # Increment message count
         increment_message_count(sender.id)
 
-        # Add user to session
-        add_user_to_session(session, sender.id)
+        # Add user to session (skip assistants)
+        if role == "user":
+            add_user_to_session(session, sender.id)
 
         # Prompt if needed
         if should_prompt:
@@ -785,6 +802,50 @@ async def on_message(message: discord.Message):
     mentioned_deployments = parse_mentioned_deployments(message, following_deployments)
     mentioned_ids = {d.id for d in mentioned_deployments}
 
+    # Resolve webhook attribution if available
+    source_agent = None
+    source_deployment_id = None
+    if is_webhook_message:
+        try:
+            for _ in range(5):
+                discord_msg = DiscordMessage.find_one(
+                    {"discord_message_id": str(message.id)}
+                )
+                if discord_msg and discord_msg.source_agent_id:
+                    source_deployment_id = discord_msg.source_deployment_id
+                    if ObjectId.is_valid(discord_msg.source_agent_id):
+                        source_agent = Agent.from_mongo(
+                            ObjectId(discord_msg.source_agent_id)
+                        )
+                    break
+                await asyncio.sleep(0.2)
+        except Exception as e:
+            logger.warning(f"Failed to resolve webhook attribution: {e}")
+
+        if not source_agent:
+            # Best-effort fallback: match webhook display name to a unique agent
+            try:
+                candidates = []
+                for deployment in following_deployments:
+                    agent = Agent.from_mongo(deployment.agent)
+                    if not agent:
+                        continue
+                    if message.author.name in {agent.name, agent.username}:
+                        candidates.append((agent, deployment))
+                if len(candidates) == 1:
+                    source_agent, matched_deployment = candidates[0]
+                    source_deployment_id = str(matched_deployment.id)
+                    discord_msg = DiscordMessage.find_one(
+                        {"discord_message_id": str(message.id)}
+                    )
+                    if discord_msg:
+                        discord_msg.update(
+                            source_agent_id=str(source_agent.id),
+                            source_deployment_id=source_deployment_id,
+                        )
+            except Exception as e:
+                logger.warning(f"Failed webhook name fallback: {e}")
+
     # Process for each following deployment
     tasks = []
     for deployment in following_deployments:
@@ -825,6 +886,8 @@ async def on_message(message: discord.Message):
             deployment=deployment,
             should_prompt=should_prompt,
             parent_channel_id=parent_channel_id,
+            source_agent=source_agent,
+            source_deployment_id=source_deployment_id,
         )
         tasks.append(task)
 
