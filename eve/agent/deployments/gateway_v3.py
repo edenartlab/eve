@@ -520,6 +520,13 @@ def parse_mentioned_deployments(
 
     # Check role mentions - webhook-based v3
     mentioned_role_ids = {str(r.id) for r in message.role_mentions}
+    mentioned_roles_by_name = {}
+    for role in message.role_mentions:
+        # Only map unique names to avoid accidental collisions
+        if role.name in mentioned_roles_by_name:
+            mentioned_roles_by_name[role.name] = None
+        else:
+            mentioned_roles_by_name[role.name] = str(role.id)
 
     for deployment in following_deployments:
         # V3 webhook-based: check role mentions
@@ -531,6 +538,31 @@ def parse_mentioned_deployments(
             role_id = deployment.config.discord.role_id
             if role_id in mentioned_role_ids:
                 mentioned.append(deployment)
+                continue
+        # Fallback: role name match (self-heal stale role_id)
+        if (
+            deployment.config
+            and deployment.config.discord
+            and deployment.config.discord.role_name
+        ):
+            role_name = deployment.config.discord.role_name
+            if role_name in mentioned_roles_by_name:
+                matched_role_id = mentioned_roles_by_name.get(role_name)
+                mentioned.append(deployment)
+                if matched_role_id and (
+                    not deployment.config.discord.role_id
+                    or deployment.config.discord.role_id != matched_role_id
+                ):
+                    try:
+                        deployment.config.discord.role_id = matched_role_id
+                        deployment.get_collection().update_one(
+                            {"_id": deployment.id},
+                            {"$set": {"config.discord.role_id": matched_role_id}},
+                        )
+                    except Exception as e:
+                        logger.warning(
+                            f"Failed to update role_id for deployment {deployment.id}: {e}"
+                        )
                 continue
 
         # Legacy token-based: check bot user mentions

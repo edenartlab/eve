@@ -386,7 +386,7 @@ class ChatMessage(Document):
         if self.role == "user":
             return self
 
-        attachments = self.attachments.copy()
+        attachments = list(self.attachments or [])
         for tc in self.tool_calls or []:
             result = prepare_result(tc.result) or []
             urls = [
