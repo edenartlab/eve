@@ -745,8 +745,10 @@ async def on_message(message: discord.Message):
         f"📨 Message received from {message.author.name} in channel {message.channel.id}"
     )
 
-    # Skip bot messages
-    if message.author.bot:
+    is_webhook_message = getattr(message, "webhook_id", None) is not None
+
+    # Skip bot messages except webhooks (webhooks should be ingested)
+    if message.author.bot and not is_webhook_message:
         logger.info(f"Skipping bot message from {message.author.name}")
         return
 
@@ -792,6 +794,8 @@ async def on_message(message: discord.Message):
         )
         was_mentioned = deployment.id in mentioned_ids
         should_prompt = was_mentioned and has_write_access
+        if is_webhook_message:
+            should_prompt = False
 
         # For DMs, check if DMs are enabled
         if not guild_id:
