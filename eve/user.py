@@ -510,6 +510,36 @@ class DiscordConnection(Document):
             return None
 
 
+@Collection("discord_guild_access")
+class DiscordGuildAccess(Document):
+    """Role-based access configuration for Discord guilds."""
+
+    guild_id: str
+    allowed_role_ids: List[str] = []
+    updated_by_user_id: Optional[ObjectId] = None
+    updated_by_discord_id: Optional[str] = None
+
+    @classmethod
+    def get_for_guild(cls, guild_id: str):
+        return cls.find_one({"guild_id": guild_id})
+
+    @classmethod
+    def set_roles(
+        cls,
+        guild_id: str,
+        role_ids: List[str],
+        updated_by_discord_id: Optional[str] = None,
+        updated_by_user_id: Optional[ObjectId] = None,
+    ):
+        unique_roles = list({role_id for role_id in role_ids if role_id})
+        doc = cls.get_for_guild(guild_id) or cls(guild_id=guild_id)
+        doc.allowed_role_ids = unique_roles
+        doc.updated_by_discord_id = updated_by_discord_id
+        doc.updated_by_user_id = updated_by_user_id
+        doc.save(upsert_filter={"guild_id": guild_id})
+        return doc
+
+
 @Collection("guild_webhooks")
 class GuildWebhook(Document):
     """Shared webhook for a Discord channel."""

@@ -174,13 +174,15 @@ async def get_or_create_webhook(
     guild_id: str, channel_id: str, user_id: ObjectId
 ) -> Dict[str, str]:
     """Get or create webhook for this channel."""
+    bot_token = os.getenv("DISCORD_BOT_TOKEN")
+    application_id = os.getenv("DISCORD_OAUTH_CLIENT_ID")
+
     # Check if we have it cached
     cached = GuildWebhook.get_for_channel(guild_id, channel_id)
 
     if cached:
         # Verify it still exists
         try:
-            bot_token = os.getenv("DISCORD_BOT_TOKEN")
             async with aiohttp.ClientSession() as session:
                 async with session.get(
                     f"https://discord.com/api/v10/webhooks/{cached.webhook_id}",
@@ -200,8 +202,70 @@ async def get_or_create_webhook(
             # Webhook was deleted, clean up
             cached.delete()
 
+    # Check Discord for an existing managed webhook
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(
+                f"https://discord.com/api/v10/channels/{channel_id}/webhooks",
+                headers={"Authorization": f"Bot {bot_token}"},
+            ) as response:
+                if response.status == 200:
+                    webhooks = await response.json()
+                    managed_webhook = None
+                    for webhook in webhooks:
+                        if not webhook.get("token"):
+                            continue
+                        if (
+                            application_id
+                            and webhook.get("application_id") == application_id
+                        ):
+                            managed_webhook = webhook
+                            break
+                    if not managed_webhook:
+                        for webhook in webhooks:
+                            if (
+                                webhook.get("token")
+                                and webhook.get("name") == "Eden Agent Webhook"
+                            ):
+                                managed_webhook = webhook
+                                break
+
+                    if managed_webhook:
+                        webhook_id = managed_webhook["id"]
+                        webhook_token = managed_webhook["token"]
+                        webhook_url = managed_webhook.get("url") or (
+                            f"https://discord.com/api/v10/webhooks/{webhook_id}/{webhook_token}"
+                        )
+                        webhook_doc = GuildWebhook(
+                            guild_id=guild_id,
+                            channel_id=channel_id,
+                            webhook_id=webhook_id,
+                            webhook_token=webhook_token,
+                            webhook_url=webhook_url,
+                            created_by=user_id,
+                        )
+                        webhook_doc.save(
+                            upsert_filter={
+                                "guild_id": guild_id,
+                                "channel_id": channel_id,
+                            }
+                        )
+                        logger.info(
+                            f"Reusing existing webhook for channel {channel_id}: {webhook_id}"
+                        )
+                        return {
+                            "id": webhook_id,
+                            "token": webhook_token,
+                            "url": webhook_url,
+                        }
+                else:
+                    logger.warning(
+                        f"Failed to list webhooks for channel {channel_id}: {await response.text()}"
+                    )
+    except Exception as e:
+        logger.warning(f"Failed to inspect existing webhooks: {e}")
+
     # Create new webhook
-    bot_token = os.getenv("DISCORD_BOT_TOKEN")
     async with aiohttp.ClientSession() as session:
         async with session.post(
             f"https://discord.com/api/v10/channels/{channel_id}/webhooks",
@@ -227,7 +291,9 @@ async def get_or_create_webhook(
                 webhook_url=webhook["url"],
                 created_by=user_id,
             )
-            webhook_doc.save()
+            webhook_doc.save(
+                upsert_filter={"guild_id": guild_id, "channel_id": channel_id}
+            )
 
             logger.info(f"Created webhook for channel {channel_id}: {webhook['id']}")
             return {

@@ -42,7 +42,7 @@ from eve.agent.session.models import (
     Session,
     SessionUpdateConfig,
 )
-from eve.user import User, increment_message_count
+from eve.user import DiscordGuildAccess, User, increment_message_count
 
 # Override the imported db with uppercase version for Ably channel consistency
 db = os.getenv("DB", "STAGE").upper()
@@ -580,6 +580,146 @@ intents.dm_messages = True
 intents.members = True
 
 bot = discord.Bot(intents=intents)
+
+# Slash commands
+eden_group = discord.SlashCommandGroup("eden", "Eden bot commands")
+access_group = eden_group.create_subgroup(
+    "access", "Manage server access roles for Eden"
+)
+
+
+def can_manage_guild(member: discord.Member) -> bool:
+    permissions = member.guild_permissions
+    return permissions.administrator or permissions.manage_guild
+
+
+def format_role_mentions(role_ids: List[str]) -> str:
+    return ", ".join(f"<@&{role_id}>" for role_id in role_ids)
+
+
+@access_group.command(name="add-role", description="Allow a role to deploy Eden agents")
+async def access_add_role(ctx: discord.ApplicationContext, role: discord.Role):
+    if not ctx.guild or not isinstance(ctx.author, discord.Member):
+        await ctx.respond("This command must be used in a server.", ephemeral=True)
+        return
+
+    if not can_manage_guild(ctx.author):
+        await ctx.respond(
+            "You need Manage Server permissions to update access roles.",
+            ephemeral=True,
+        )
+        return
+
+    if role.id == ctx.guild.id:
+        await ctx.respond("The @everyone role cannot be added.", ephemeral=True)
+        return
+
+    try:
+        access_doc = DiscordGuildAccess.get_for_guild(str(ctx.guild.id))
+        allowed_role_ids = access_doc.allowed_role_ids if access_doc else []
+        if str(role.id) in allowed_role_ids:
+            await ctx.respond(f"{role.mention} is already allowed.", ephemeral=True)
+            return
+
+        updated_roles = allowed_role_ids + [str(role.id)]
+        DiscordGuildAccess.set_roles(
+            guild_id=str(ctx.guild.id),
+            role_ids=updated_roles,
+            updated_by_discord_id=str(ctx.author.id),
+        )
+
+        await ctx.respond(
+            f"Added {role.mention}. Allowed roles: {format_role_mentions(updated_roles)}",
+            ephemeral=True,
+        )
+    except Exception:
+        logger.exception("Failed to update access roles")
+        await ctx.respond(
+            "Failed to update access roles. Please try again later.",
+            ephemeral=True,
+        )
+
+
+@access_group.command(
+    name="remove-role", description="Remove a role from Eden deploy access"
+)
+async def access_remove_role(ctx: discord.ApplicationContext, role: discord.Role):
+    if not ctx.guild or not isinstance(ctx.author, discord.Member):
+        await ctx.respond("This command must be used in a server.", ephemeral=True)
+        return
+
+    if not can_manage_guild(ctx.author):
+        await ctx.respond(
+            "You need Manage Server permissions to update access roles.",
+            ephemeral=True,
+        )
+        return
+
+    try:
+        access_doc = DiscordGuildAccess.get_for_guild(str(ctx.guild.id))
+        allowed_role_ids = access_doc.allowed_role_ids if access_doc else []
+        if str(role.id) not in allowed_role_ids:
+            await ctx.respond(f"{role.mention} isn't allowed.", ephemeral=True)
+            return
+
+        updated_roles = [
+            role_id for role_id in allowed_role_ids if role_id != str(role.id)
+        ]
+        DiscordGuildAccess.set_roles(
+            guild_id=str(ctx.guild.id),
+            role_ids=updated_roles,
+            updated_by_discord_id=str(ctx.author.id),
+        )
+
+        if updated_roles:
+            await ctx.respond(
+                f"Removed {role.mention}. Allowed roles: {format_role_mentions(updated_roles)}",
+                ephemeral=True,
+            )
+        else:
+            await ctx.respond(
+                f"Removed {role.mention}. No roles are allowed yet.",
+                ephemeral=True,
+            )
+    except Exception:
+        logger.exception("Failed to update access roles")
+        await ctx.respond(
+            "Failed to update access roles. Please try again later.",
+            ephemeral=True,
+        )
+
+
+@access_group.command(
+    name="list", description="List roles allowed to deploy Eden agents"
+)
+async def access_list(ctx: discord.ApplicationContext):
+    if not ctx.guild:
+        await ctx.respond("This command must be used in a server.", ephemeral=True)
+        return
+
+    try:
+        access_doc = DiscordGuildAccess.get_for_guild(str(ctx.guild.id))
+        allowed_role_ids = access_doc.allowed_role_ids if access_doc else []
+        if not allowed_role_ids:
+            await ctx.respond(
+                "No roles are allowed yet. Use `/eden access add-role @role`.",
+                ephemeral=True,
+            )
+            return
+
+        await ctx.respond(
+            f"Allowed roles: {format_role_mentions(allowed_role_ids)}",
+            ephemeral=True,
+        )
+    except Exception:
+        logger.exception("Failed to fetch access roles")
+        await ctx.respond(
+            "Failed to fetch access roles. Please try again later.",
+            ephemeral=True,
+        )
+
+
+bot.add_application_command(eden_group)
 
 # Typing managers
 typing_managers: Dict[str, DiscordTypingManager] = {}
