@@ -1,7 +1,9 @@
 import os
+from typing import Optional
 
 from sentry_sdk import capture_exception
 
+from eve.agent import Agent
 from eve.agent.session.models import NotificationConfig, Session
 
 
@@ -36,8 +38,34 @@ async def check_if_session_active(user_id: str, session_id: str) -> dict:
         return {"is_active": False, "redis_available": False}
 
 
+def _format_session_message_title(
+    agent_name: Optional[str], session_title: Optional[str]
+) -> str:
+    clean_agent_name = agent_name.strip() if agent_name else None
+    clean_session_title = session_title.strip() if session_title else None
+    if clean_agent_name and clean_session_title:
+        return f"{clean_agent_name} ({clean_session_title})"
+    if clean_agent_name:
+        return clean_agent_name
+    if clean_session_title:
+        return clean_session_title
+    return "New message"
+
+
+def _format_session_message_body(message: Optional[str]) -> str:
+    if not message:
+        return "You have a new message"
+    snippet = " ".join(message.split()).strip()
+    if not snippet:
+        return "You have a new message"
+    return f"{snippet[:140]}…" if len(snippet) > 140 else snippet
+
+
 async def create_session_message_notification(
-    user_id: str, session_id: str, agent_id: str
+    user_id: str,
+    session_id: str,
+    agent_id: Optional[str],
+    message: Optional[str] = None,
 ):
     """Create a notification for a new session message via the Fastify API"""
     import httpx
@@ -47,17 +75,34 @@ async def create_session_message_notification(
         if not api_url:
             return
 
+        agent_name = None
+        session_title = None
+        if session_id:
+            try:
+                session = Session.from_mongo(session_id)
+                session_title = session.title
+            except Exception:
+                session_title = None
+
+        if agent_id:
+            try:
+                agent = Agent.from_mongo(agent_id)
+                agent_name = agent.name or agent.username
+            except Exception:
+                agent_name = None
+
         notification_data = {
             "user_id": user_id,
             "type": "session_message",
-            "title": "New message",
-            "message": "You have a new message in your session",
+            "title": _format_session_message_title(agent_name, session_title),
+            "message": _format_session_message_body(message),
             "priority": "normal",
             "session_id": session_id,
-            "agent_id": agent_id,
             "action_url": f"/sessions/{session_id}",
             "channels": ["in_app", "push"],
         }
+        if agent_id:
+            notification_data["agent_id"] = agent_id
 
         async with httpx.AsyncClient() as client:
             headers = {
