@@ -532,9 +532,13 @@ async def process_discord_message_for_agent(
         if media_urls:
             media_urls = await upload_discord_media_to_s3(media_urls)
 
-        # Create session key: discord-{agent_id}-{guild_id}-{channel_id}
-        # Each channel/thread gets its own session
-        session_key = f"discord-{agent.id}-{guild_id or 'dm'}-{channel_id}"
+        # Create session key
+        # Guild sessions: discord-{agent_id}-{guild_id}-{channel_id}
+        # DM sessions: discord-dm-{agent_id}-{user_id}
+        if guild_id:
+            session_key = f"discord-{agent.id}-{guild_id}-{channel_id}"
+        else:
+            session_key = f"discord-dm-{agent.id}-{author_id}"
 
         # Find or create session
         session = None

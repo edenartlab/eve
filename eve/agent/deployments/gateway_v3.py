@@ -303,7 +303,10 @@ async def process_discord_message_for_agent(
             role = "user"
 
         # Build session key
-        session_key = f"discord-{agent.id}-{guild_id or 'dm'}-{channel_id}"
+        if guild_id:
+            session_key = f"discord-{agent.id}-{guild_id}-{channel_id}"
+        else:
+            session_key = f"discord-dm-{agent.id}-{author_id}"
 
         # Try to load existing session
         session = Session.find_one({"session_key": session_key})
