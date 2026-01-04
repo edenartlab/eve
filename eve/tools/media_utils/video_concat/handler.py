@@ -1,3 +1,4 @@
+import asyncio
 import os
 import subprocess
 import tempfile
@@ -41,7 +42,9 @@ async def handler(context: ToolContext):
                 "csv=p=0",
                 video,
             ]
-            probe_result = subprocess.run(probe_command, capture_output=True, text=True)
+            probe_result = await asyncio.to_thread(
+                subprocess.run, probe_command, capture_output=True, text=True
+            )
             has_audio = probe_result.stdout.strip() != ""
 
             # Prepare ffmpeg command
@@ -80,7 +83,9 @@ async def handler(context: ToolContext):
             convert_command.append(output_video)
 
             # Run conversion and log outputs
-            result = subprocess.run(convert_command, capture_output=True, text=True)
+            result = await asyncio.to_thread(
+                subprocess.run, convert_command, capture_output=True, text=True
+            )
             if result.returncode != 0:
                 raise Exception(f"Error in converting video {video}: {result.stderr}")
 
@@ -130,7 +135,9 @@ async def handler(context: ToolContext):
         output_file.name,
     ]
 
-    result = subprocess.run(concat_command, capture_output=True, text=True)
+    result = await asyncio.to_thread(
+        subprocess.run, concat_command, capture_output=True, text=True
+    )
     if result.returncode != 0:
         raise Exception(f"Error in concatenating videos: {result.stderr}")
 

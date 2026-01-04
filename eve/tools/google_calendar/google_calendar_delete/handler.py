@@ -4,6 +4,7 @@ Handler for google_calendar_delete tool.
 Deletes/cancels an event from Google Calendar.
 """
 
+import asyncio
 from typing import Any, Dict
 
 from googleapiclient.errors import HttpError
@@ -24,6 +25,9 @@ async def handler(context: ToolContext) -> Dict[str, Any]:
     if not context.agent:
         raise Exception("Agent is required")
 
+    async def _execute(request):
+        return await asyncio.to_thread(request.execute)
+
     # Get service and config
     service, config, deployment = await get_service_and_config(context.agent)
 
@@ -42,7 +46,9 @@ async def handler(context: ToolContext) -> Dict[str, Any]:
 
     # First, fetch the event to confirm what we're deleting
     try:
-        event = service.events().get(calendarId=calendar_id, eventId=event_id).execute()
+        event = await _execute(
+            service.events().get(calendarId=calendar_id, eventId=event_id)
+        )
     except HttpError as e:
         if e.resp.status == 404:
             raise Exception(
@@ -72,11 +78,13 @@ async def handler(context: ToolContext) -> Dict[str, Any]:
 
     # Delete the event
     try:
-        service.events().delete(
-            calendarId=calendar_id,
-            eventId=event_id,
-            sendNotifications=send_notifications,
-        ).execute()
+        await _execute(
+            service.events().delete(
+                calendarId=calendar_id,
+                eventId=event_id,
+                sendNotifications=send_notifications,
+            )
+        )
 
         logger.info(f"Deleted event: {event_title} (ID: {event_id})")
 

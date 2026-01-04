@@ -1,3 +1,4 @@
+import asyncio
 import json
 import subprocess
 import tempfile
@@ -61,7 +62,7 @@ async def handler(context: ToolContext):
 
         audio_file = utils.get_file_handler(".mp3", audio_url)
         duration = utils.get_media_duration(audio_file)
-        loudness = get_audio_loudness(audio_file)
+        loudness = await asyncio.to_thread(get_audio_loudness, audio_file)
 
         track_data.append(
             {
@@ -144,6 +145,6 @@ async def handler(context: ToolContext):
         ]
     )
 
-    subprocess.run(cmd)
+    await asyncio.to_thread(subprocess.run, cmd)
 
     return {"output": output_file.name}

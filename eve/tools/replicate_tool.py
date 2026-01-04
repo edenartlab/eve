@@ -54,7 +54,7 @@ class ReplicateTool(Tool):
                 with tempfile.NamedTemporaryFile(
                     suffix=suffix, delete=False
                 ) as temp_file:
-                    temp_file.write(output.read())
+                    temp_file.write(await asyncio.to_thread(output.read))
                 output = temp_file.name
             result = {"output": output}
 
@@ -76,7 +76,7 @@ class ReplicateTool(Tool):
             func = modal.Function.from_name(
                 f"api-{db.lower()}", "run_task_replicate", environment_name="main"
             )
-            job = func.spawn(task)
+            job = await func.spawn.aio(task)
             return job.object_id
 
     @Tool.handle_wait
@@ -92,7 +92,8 @@ class ReplicateTool(Tool):
             while True:
                 if prediction.status != status:
                     status = prediction.status
-                    result = replicate_update_task(
+                    result = await asyncio.to_thread(
+                        replicate_update_task,
                         task,
                         status,
                         prediction.error,

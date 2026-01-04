@@ -1,3 +1,4 @@
+import asyncio
 import subprocess
 import tempfile
 
@@ -32,7 +33,9 @@ async def handler(context: ToolContext):
         "default=noprint_wrappers=1:nokey=1",
         video_file,
     ]
-    result = subprocess.run(probe_cmd, capture_output=True, text=True)
+    result = await asyncio.to_thread(
+        subprocess.run, probe_cmd, capture_output=True, text=True
+    )
     video_has_audio = result.stdout.strip() == "audio"
 
     # Build ffmpeg command
@@ -102,6 +105,6 @@ async def handler(context: ToolContext):
         ]
     )
 
-    subprocess.run(cmd)
+    await asyncio.to_thread(subprocess.run, cmd)
 
     return {"output": output_file.name}

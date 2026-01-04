@@ -4,6 +4,7 @@ Handler for google_calendar_query tool.
 Consolidated read-only operations: list events, get event details, find free slots.
 """
 
+import asyncio
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List
 
@@ -44,6 +45,10 @@ async def handler(context: ToolContext) -> Dict[str, Any]:
         raise Exception(f"Unknown action: {action}. Use list, get, or find_free_slots.")
 
 
+async def _execute(request):
+    return await asyncio.to_thread(request.execute)
+
+
 async def _list_events(
     context: ToolContext,
     service,
@@ -62,9 +67,8 @@ async def _list_events(
     )
 
     try:
-        events_result = (
-            service.events()
-            .list(
+        events_result = await _execute(
+            service.events().list(
                 calendarId=calendar_id,
                 timeMin=start_time.isoformat(),
                 timeMax=end_time.isoformat(),
@@ -73,7 +77,6 @@ async def _list_events(
                 orderBy="startTime",
                 showDeleted=False,
             )
-            .execute()
         )
         events = events_result.get("items", [])
         logger.info(f"Retrieved {len(events)} events from Google Calendar")
@@ -114,10 +117,8 @@ async def _list_events(
                 or x.get("start", {}).get("date", "")
             )
             try:
-                master_event = (
-                    service.events()
-                    .get(calendarId=calendar_id, eventId=recurring_id)
-                    .execute()
+                master_event = await _execute(
+                    service.events().get(calendarId=calendar_id, eventId=recurring_id)
                 )
                 formatted = format_event_compact(
                     master_event, include_fields=include_fields
@@ -174,7 +175,9 @@ async def _get_event(
         raise Exception("event_id is required for action=get")
 
     try:
-        event = service.events().get(calendarId=calendar_id, eventId=event_id).execute()
+        event = await _execute(
+            service.events().get(calendarId=calendar_id, eventId=event_id)
+        )
         logger.info(f"Retrieved event: {event.get('summary', 'Untitled')}")
     except HttpError as e:
         if e.resp.status == 404:
@@ -257,16 +260,14 @@ async def _find_free_slots(
     )
 
     try:
-        events_result = (
-            service.events()
-            .list(
+        events_result = await _execute(
+            service.events().list(
                 calendarId=calendar_id,
                 timeMin=start_time.isoformat(),
                 timeMax=end_time.isoformat(),
                 singleEvents=True,
                 orderBy="startTime",
             )
-            .execute()
         )
         events = events_result.get("items", [])
     except HttpError as e:

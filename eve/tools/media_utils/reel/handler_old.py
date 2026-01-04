@@ -234,7 +234,7 @@ async def handler(context: ToolContext):
         speech_audio_url = s3.get_full_url(speech_audio["output"][0]["filename"])
 
         # download to temp file
-        response = requests.get(speech_audio_url)
+        response = await asyncio.to_thread(requests.get, speech_audio_url)
         speech_audio = BytesIO(response.content)
         speech_audio = AudioSegment.from_file(speech_audio, format="mp3")
 

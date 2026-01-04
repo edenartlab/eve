@@ -1,3 +1,4 @@
+import asyncio
 import os
 
 from web3 import Web3
@@ -5,7 +6,7 @@ from web3 import Web3
 from eve.tool import ToolContext
 
 
-async def handler(context: ToolContext):
+def _send_eth_sync(context: ToolContext):
     # Initialize Web3 with Base Sepolia RPC URL
     w3 = Web3(Web3.HTTPProvider(os.getenv("BASE_SEPOLIA_RPC_URL")))
 
@@ -36,3 +37,7 @@ async def handler(context: ToolContext):
     tx_hash = w3.eth.send_raw_transaction(signed_tx.rawTransaction)
 
     return {"trasnaction_hash": tx_hash.hex()}
+
+
+async def handler(context: ToolContext):
+    return await asyncio.to_thread(_send_eth_sync, context)

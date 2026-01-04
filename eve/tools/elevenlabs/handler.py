@@ -1,3 +1,4 @@
+import asyncio
 import os
 import random
 from tempfile import NamedTemporaryFile
@@ -23,35 +24,38 @@ async def handler(context: ToolContext):
     args["style"] = args.get("style", 0.0)
     args["speed"] = args.get("speed", 1.0)
 
-    # get voice
-    response = eleven.voices.get_all()
-    voices = {v.name: v.voice_id for v in response.voices}
-    voice_ids = [v.voice_id for v in response.voices]
-    voice_id = args.get("voice", DEFAULT_VOICE)
-    if voice_id not in voice_ids:
-        # check if voice is a name
-        if voice_id in voices:
-            voice_id = voices[voice_id]
-        else:
-            raise ValueError(
-                f"Voice ID {voice_id} not found, try another one (DEFAULT_VOICE: {DEFAULT_VOICE})"
-            )
-
     async def generate_with_params():
-        audio_generator = eleven.text_to_speech.convert(
-            text=args["text"],
-            voice_id=voice_id,
-            voice_settings={
-                "stability": args["stability"],
-                "style": args["style"],
-                "speed": args["speed"],
-                "use_speaker_boost": True,  # args["use_speaker_boost"],
-                # similarity_boost=args["similarity_boost"],
-            },
-            model_id="eleven_multilingual_v2",
-            output_format="mp3_44100_128",
-        )
-        return audio_generator
+        def _generate():
+            response = eleven.voices.get_all()
+            voices = {v.name: v.voice_id for v in response.voices}
+            voice_ids = [v.voice_id for v in response.voices]
+            voice_id = args.get("voice", DEFAULT_VOICE)
+            if voice_id not in voice_ids:
+                if voice_id in voices:
+                    voice_id = voices[voice_id]
+                else:
+                    raise ValueError(
+                        f"Voice ID {voice_id} not found, try another one (DEFAULT_VOICE: {DEFAULT_VOICE})"
+                    )
+
+            audio_generator = eleven.text_to_speech.convert(
+                text=args["text"],
+                voice_id=voice_id,
+                voice_settings={
+                    "stability": args["stability"],
+                    "style": args["style"],
+                    "speed": args["speed"],
+                    "use_speaker_boost": True,  # args["use_speaker_boost"],
+                    # similarity_boost=args["similarity_boost"],
+                },
+                model_id="eleven_multilingual_v2",
+                output_format="mp3_44100_128",
+            )
+            if isinstance(audio_generator, Iterator):
+                return b"".join(audio_generator)
+            return audio_generator
+
+        return await asyncio.to_thread(_generate)
 
     audio_generator = await utils.async_exponential_backoff(
         generate_with_params,
@@ -59,10 +63,7 @@ async def handler(context: ToolContext):
         initial_delay=1,  # args["initial_delay"],
     )
 
-    if isinstance(audio_generator, Iterator):
-        audio = b"".join(audio_generator)
-    else:
-        audio = audio_generator
+    audio = audio_generator
 
     # save to file
     audio_file = NamedTemporaryFile(delete=False)
