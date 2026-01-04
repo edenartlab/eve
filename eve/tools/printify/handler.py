@@ -1,3 +1,4 @@
+import asyncio
 import traceback
 import uuid
 from typing import Any, Dict
@@ -32,17 +33,25 @@ async def handler(context: ToolContext):
         "Content-Type": "application/json",
     }
 
-    def _api_request(method: str, endpoint: str, data: Dict = None) -> Dict[str, Any]:
+    async def _api_request(
+        method: str, endpoint: str, data: Dict = None
+    ) -> Dict[str, Any]:
         """Make a request to the Printify API"""
         url = f"{BASE_URL}{endpoint}"
 
         try:
             if method == "GET":
-                response = requests.get(url, headers=HEADERS, timeout=30)
+                response = await asyncio.to_thread(
+                    requests.get, url, headers=HEADERS, timeout=30
+                )
             elif method == "POST":
-                response = requests.post(url, headers=HEADERS, json=data, timeout=30)
+                response = await asyncio.to_thread(
+                    requests.post, url, headers=HEADERS, json=data, timeout=30
+                )
             elif method == "PUT":
-                response = requests.put(url, headers=HEADERS, json=data, timeout=30)
+                response = await asyncio.to_thread(
+                    requests.put, url, headers=HEADERS, json=data, timeout=30
+                )
             else:
                 raise ValueError(f"Unsupported method: {method}")
 
@@ -96,7 +105,7 @@ async def handler(context: ToolContext):
     image_url = context.args.get("image")
     upload_data = {"file_name": f"design_{uuid.uuid4().hex}.png", "url": image_url}
 
-    uploaded_image = _api_request("POST", "/uploads/images.json", upload_data)
+    uploaded_image = await _api_request("POST", "/uploads/images.json", upload_data)
 
     # Get the uploaded image ID
     image_id = uploaded_image["id"]
@@ -132,7 +141,7 @@ async def handler(context: ToolContext):
         "print_areas": print_areas,
     }
 
-    created_product = _api_request(
+    created_product = await _api_request(
         "POST", f"/shops/{shop_id}/products.json", product_data
     )
     product_id = created_product["id"]
@@ -141,7 +150,7 @@ async def handler(context: ToolContext):
     published = False
     if context.args.get("auto_publish"):
         try:
-            _api_request(
+            await _api_request(
                 "POST",
                 f"/shops/{shop_id}/products/{product_id}/publish.json",
                 {
@@ -159,7 +168,7 @@ async def handler(context: ToolContext):
             )
 
     # Fetch the product details to get the generated product images
-    product_details = _api_request(
+    product_details = await _api_request(
         "GET", f"/shops/{shop_id}/products/{product_id}.json"
     )
 
@@ -196,7 +205,7 @@ async def handler(context: ToolContext):
     if published:
         try:
             # Get shop details to find the Shopify domain
-            shop_details = _api_request("GET", "/shops.json")
+            shop_details = await _api_request("GET", "/shops.json")
 
             # Find the specific shop from the list
             shop_info = None

@@ -6,6 +6,7 @@ be expanded into a full Storyboard. They contain a title, logline,
 contributing agents, and exemplary images that represent the concept.
 """
 
+import asyncio
 import logging
 from typing import List
 
@@ -116,7 +117,7 @@ async def handler(context: ToolContext):
     invalid_images = []
     for i, image_url in enumerate(images):
         logger.info(f"Validating image {i + 1}/{len(images)}: {image_url}")
-        ok, info = validate_image_url(image_url)
+        ok, info = await asyncio.to_thread(validate_image_url, image_url)
         if not ok:
             invalid_images.append((i, image_url, info.get("reason", "Unknown error")))
         else:

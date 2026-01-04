@@ -8,6 +8,7 @@ Optionally includes music and vocals audio tracks.
 Storyboards are expanded from Seeds, and must reference a valid seed.
 """
 
+import asyncio
 import logging
 from typing import List, Optional
 
@@ -189,7 +190,7 @@ async def handler(context: ToolContext):
     invalid_frames = []
     for i, frame_url in enumerate(image_frames):
         logger.info(f"Validating image frame {i + 1}/{len(image_frames)}: {frame_url}")
-        ok, info = validate_image_url(frame_url)
+        ok, info = await asyncio.to_thread(validate_image_url, frame_url)
         if not ok:
             invalid_frames.append((i, frame_url, info.get("reason", "Unknown error")))
         else:
@@ -204,7 +205,7 @@ async def handler(context: ToolContext):
     # Validate music URL if provided
     if music:
         logger.info(f"Validating music URL: {music}")
-        ok, info = validate_audio_url(music)
+        ok, info = await asyncio.to_thread(validate_audio_url, music)
         if not ok:
             raise ValueError(
                 f"Invalid music audio: {info.get('reason', 'Unknown error')}"
@@ -216,7 +217,7 @@ async def handler(context: ToolContext):
     # Validate vocals URL if provided
     if vocals:
         logger.info(f"Validating vocals URL: {vocals}")
-        ok, info = validate_audio_url(vocals)
+        ok, info = await asyncio.to_thread(validate_audio_url, vocals)
         if not ok:
             raise ValueError(
                 f"Invalid vocals audio: {info.get('reason', 'Unknown error')}"

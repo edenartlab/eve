@@ -1,3 +1,4 @@
+import asyncio
 import json
 
 import requests
@@ -14,12 +15,12 @@ async def handler(context: ToolContext):
     headers = {"User-Agent": "MyForecastApp (contact@example.com)"}
 
     # Step 1: Get the forecast endpoint
-    points_resp = requests.get(points_url, headers=headers)
+    points_resp = await asyncio.to_thread(requests.get, points_url, headers=headers)
     points_data = points_resp.json()
 
     # Step 2: Use the "forecast" or "forecastHourly" property to get actual data
     forecast_url = points_data["properties"]["forecast"]
-    forecast_resp = requests.get(forecast_url, headers=headers)
+    forecast_resp = await asyncio.to_thread(requests.get, forecast_url, headers=headers)
     forecast_data = forecast_resp.json()
 
     output = forecast_data["properties"]

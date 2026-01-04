@@ -40,14 +40,15 @@ class FalTool(Tool):
     @Tool.handle_run
     async def async_run(self, context: ToolContext):
         check_fal_api_token()
-        args = self._format_args_for_fal(context.args)
+        args = await asyncio.to_thread(self._format_args_for_fal, context.args)
 
         def on_queue_update(update):
             if isinstance(update, fal_client.InProgress):
                 for log in update.logs:
                     logger.info(log["message"])
 
-        result = fal_client.subscribe(
+        result = await asyncio.to_thread(
+            fal_client.subscribe,
             self.fal_endpoint,
             arguments=args,
             with_logs=self.with_logs,
@@ -129,7 +130,7 @@ class FalTool(Tool):
     async def async_start_task(self, task: Task, webhook: bool = True):
         check_fal_api_token()
         args = self.prepare_args(task.args)
-        args = self._format_args_for_fal(args)
+        args = await asyncio.to_thread(self._format_args_for_fal, args)
 
         # Use webhook if provided
         webhook_url = get_webhook_url() if webhook else None
@@ -137,7 +138,9 @@ class FalTool(Tool):
             args["webhook_url"] = webhook_url
 
         # Submit the request to FAL queue and get the request_id
-        handler = fal_client.submit(self.fal_endpoint, arguments=args)
+        handler = await asyncio.to_thread(
+            fal_client.submit, self.fal_endpoint, arguments=args
+        )
 
         return handler.request_id
 
@@ -149,8 +152,11 @@ class FalTool(Tool):
         last_print_time = 0  # Initialize timer
 
         while True:
-            status = fal_client.status(
-                self.fal_endpoint, request_id, with_logs=self.with_logs
+            status = await asyncio.to_thread(
+                fal_client.status,
+                self.fal_endpoint,
+                request_id,
+                with_logs=self.with_logs,
             )
 
             if status.status == "FAILED":
@@ -172,7 +178,9 @@ class FalTool(Tool):
                     last_print_time = current_time
 
             elif status.status == "COMPLETED":
-                result = fal_client.result(self.fal_endpoint, request_id)
+                result = await asyncio.to_thread(
+                    fal_client.result, self.fal_endpoint, request_id
+                )
                 processed_result = self._process_result(result, task)
                 task.status = "completed"
                 task.result = processed_result

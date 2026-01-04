@@ -1,3 +1,4 @@
+import asyncio
 import json
 import os
 
@@ -63,16 +64,19 @@ async def handler(context: ToolContext):
             )
         return response.json()
 
+    async def _request(method: str, url: str, **kwargs):
+        return await asyncio.to_thread(requests.request, method, url, **kwargs)
+
     if action == "status":
         params = {"kiosk": kiosk} if kiosk else {}
-        response = requests.get(f"{base_url}/status", params=params)
+        response = await _request("GET", f"{base_url}/status", params=params)
         result = handle_response(response, "status")
         logger.info(f"[DISPLAY] status result: {result}")
         return {"output": result}
 
     elif action == "files":
         params = {"kiosk": kiosk} if kiosk else {}
-        response = requests.get(f"{base_url}/files", params=params)
+        response = await _request("GET", f"{base_url}/files", params=params)
         result = handle_response(response, "files")
         logger.info(f"[DISPLAY] files result: {result}")
         return {"output": result}
@@ -89,7 +93,8 @@ async def handler(context: ToolContext):
         request_data = {"file": file}
         if kiosk:
             request_data["kiosk"] = kiosk
-        response = requests.post(
+        response = await _request(
+            "POST",
             f"{base_url}/file",
             headers=headers,
             json=request_data,
@@ -100,7 +105,9 @@ async def handler(context: ToolContext):
 
     elif action == "off":
         request_data = {"kiosk": kiosk} if kiosk else {}
-        response = requests.post(f"{base_url}/off", headers=headers, json=request_data)
+        response = await _request(
+            "POST", f"{base_url}/off", headers=headers, json=request_data
+        )
         result = handle_response(response, "off", request_data)
         logger.info(f"[DISPLAY] off result: {result}")
         return {"output": result}
@@ -117,7 +124,8 @@ async def handler(context: ToolContext):
         request_data = {"url": url}
         if kiosk:
             request_data["kiosk"] = kiosk
-        response = requests.post(
+        response = await _request(
+            "POST",
             f"{base_url}/url",
             headers=headers,
             json=request_data,
@@ -138,7 +146,8 @@ async def handler(context: ToolContext):
         request_data = {"url": url}
         if kiosk:
             request_data["kiosk"] = kiosk
-        response = requests.post(
+        response = await _request(
+            "POST",
             f"{base_url}/cache",
             headers=headers,
             json=request_data,
@@ -150,7 +159,8 @@ async def handler(context: ToolContext):
             play_request = {"file": result["filename"]}
             if kiosk:
                 play_request["kiosk"] = kiosk
-            play_response = requests.post(
+            play_response = await _request(
+                "POST",
                 f"{base_url}/file",
                 headers=headers,
                 json=play_request,
@@ -174,7 +184,8 @@ async def handler(context: ToolContext):
         request_data = {"collectionId": collection_id, "db": os.getenv("DB", "STAGE")}
         if kiosk:
             request_data["kiosk"] = kiosk
-        response = requests.post(
+        response = await _request(
+            "POST",
             f"{base_url}/sync",
             headers=headers,
             json=request_data,
@@ -200,7 +211,8 @@ async def handler(context: ToolContext):
         }
         if kiosk:
             request_data["kiosk"] = kiosk
-        response = requests.post(
+        response = await _request(
+            "POST",
             f"{base_url}/sync_and_play",
             headers=headers,
             json=request_data,
@@ -222,7 +234,8 @@ async def handler(context: ToolContext):
         request_data = {"items": playlist, "loop": loop}
         if kiosk:
             request_data["kiosk"] = kiosk
-        response = requests.post(
+        response = await _request(
+            "POST",
             f"{base_url}/playlist",
             headers=headers,
             json=request_data,
@@ -233,15 +246,17 @@ async def handler(context: ToolContext):
 
     elif action == "next":
         request_data = {"kiosk": kiosk} if kiosk else {}
-        response = requests.post(f"{base_url}/next", headers=headers, json=request_data)
+        response = await _request(
+            "POST", f"{base_url}/next", headers=headers, json=request_data
+        )
         result = handle_response(response, "next", request_data)
         logger.info(f"[DISPLAY] next result: {result}")
         return {"output": result}
 
     elif action == "previous":
         request_data = {"kiosk": kiosk} if kiosk else {}
-        response = requests.post(
-            f"{base_url}/previous", headers=headers, json=request_data
+        response = await _request(
+            "POST", f"{base_url}/previous", headers=headers, json=request_data
         )
         result = handle_response(response, "previous", request_data)
         logger.info(f"[DISPLAY] previous result: {result}")
@@ -249,8 +264,8 @@ async def handler(context: ToolContext):
 
     elif action == "restart":
         request_data = {"kiosk": kiosk} if kiosk else {}
-        response = requests.post(
-            f"{base_url}/restart", headers=headers, json=request_data
+        response = await _request(
+            "POST", f"{base_url}/restart", headers=headers, json=request_data
         )
         result = handle_response(response, "restart", request_data)
         logger.info(f"[DISPLAY] restart result: {result}")
@@ -258,8 +273,8 @@ async def handler(context: ToolContext):
 
     elif action == "pause":
         request_data = {"kiosk": kiosk} if kiosk else {}
-        response = requests.post(
-            f"{base_url}/pause", headers=headers, json=request_data
+        response = await _request(
+            "POST", f"{base_url}/pause", headers=headers, json=request_data
         )
         result = handle_response(response, "pause", request_data)
         logger.info(f"[DISPLAY] pause result: {result}")
@@ -267,8 +282,8 @@ async def handler(context: ToolContext):
 
     elif action == "resume":
         request_data = {"kiosk": kiosk} if kiosk else {}
-        response = requests.post(
-            f"{base_url}/resume", headers=headers, json=request_data
+        response = await _request(
+            "POST", f"{base_url}/resume", headers=headers, json=request_data
         )
         result = handle_response(response, "resume", request_data)
         logger.info(f"[DISPLAY] resume result: {result}")
@@ -276,7 +291,7 @@ async def handler(context: ToolContext):
 
     elif action == "get_volume":
         params = {"kiosk": kiosk} if kiosk else {}
-        response = requests.get(f"{base_url}/volume", params=params)
+        response = await _request("GET", f"{base_url}/volume", params=params)
         result = handle_response(response, "get_volume")
         logger.info(f"[DISPLAY] get_volume result: {result}")
         return {"output": result}
@@ -293,7 +308,8 @@ async def handler(context: ToolContext):
         request_data = {"level": level}
         if kiosk:
             request_data["kiosk"] = kiosk
-        response = requests.post(
+        response = await _request(
+            "POST",
             f"{base_url}/volume",
             headers=headers,
             json=request_data,

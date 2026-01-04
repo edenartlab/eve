@@ -1,3 +1,4 @@
+import asyncio
 import base64
 import json
 import uuid
@@ -37,8 +38,9 @@ async def handler(context: ToolContext):
     # ────────────────────────────────────────────────────────────────
     # GraphQL Helper
     # ────────────────────────────────────────────────────────────────
-    def _gql(query: str, variables: dict | None = None):
-        r = requests.post(
+    async def _gql(query: str, variables: dict | None = None):
+        r = await asyncio.to_thread(
+            requests.post,
             ENDPOINT,
             headers=HEADERS,
             data=json.dumps({"query": query, "variables": variables or {}}),
@@ -98,7 +100,7 @@ async def handler(context: ToolContext):
     """
 
     # ---- 1. create skeleton product + hero image ----
-    draft = _gql(
+    draft = await _gql(
         PRODUCT_CREATE,
         {
             "product": {
@@ -132,7 +134,7 @@ async def handler(context: ToolContext):
     sku = f"{base}-{sku}"
 
     # ---- 2. set price + SKU on the default variant ----
-    _gql(
+    await _gql(
         VARIANTS_UPDATE,
         {
             "productId": product_id,
@@ -148,7 +150,7 @@ async def handler(context: ToolContext):
 
     # ---- 3. set on‑hand inventory at first active location ----
     location_id = f"gid://shopify/Location/{location_id}"
-    _gql(
+    await _gql(
         SET_QTY,
         {
             "input": {
@@ -168,7 +170,7 @@ async def handler(context: ToolContext):
 
     # ---- 4. publish to Online Store, so no manual merch action is needed ----
     if context.args.get("auto_publish"):
-        online_pub = _gql(PUBS)["publications"]["nodes"][0]["id"]
-        _gql(PUBLISH, {"id": product_id, "pub": online_pub})
+        online_pub = (await _gql(PUBS))["publications"]["nodes"][0]["id"]
+        await _gql(PUBLISH, {"id": product_id, "pub": online_pub})
 
     return {"output": [{"url": store_url}]}

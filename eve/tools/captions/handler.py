@@ -81,7 +81,9 @@ async def handler(context: ToolContext):
     if not creator_name:
         # Fetch available creators from API and select random one
         try:
-            creators_response = _api_request("POST", "/api/ads/list-creators")
+            creators_response = await asyncio.to_thread(
+                _api_request, "POST", "/api/ads/list-creators"
+            )
             available_creators = creators_response.get("supportedCreators", [])
             if available_creators:
                 creator_name = random.choice(available_creators)
@@ -116,7 +118,9 @@ async def handler(context: ToolContext):
         payload["webhookId"] = webhook_id
 
     # Submit video generation request
-    submit_response = _api_request("POST", "/api/ads/submit", payload)
+    submit_response = await asyncio.to_thread(
+        _api_request, "POST", "/api/ads/submit", payload
+    )
     operation_id = submit_response.get("operationId")
 
     if not operation_id:
@@ -139,7 +143,9 @@ async def handler(context: ToolContext):
     for attempt in range(max_attempts):
         # Check job status
         status_payload = {"operationId": operation_id}
-        status_response = _api_request("POST", "/api/ads/poll", status_payload)
+        status_response = await asyncio.to_thread(
+            _api_request, "POST", "/api/ads/poll", status_payload
+        )
 
         state = status_response.get("state", "unknown")
 

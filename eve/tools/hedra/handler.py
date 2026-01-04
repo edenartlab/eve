@@ -55,21 +55,25 @@ async def handler(context: ToolContext):
     HEDRA_API_KEY = os.getenv("HEDRA_API_KEY")
     session = Session(api_key=HEDRA_API_KEY)
 
+    async def _session_request(method: str, url: str, **kwargs):
+        request_fn = getattr(session, method)
+        return await asyncio.to_thread(request_fn, url, **kwargs)
+
     # Create temp files with appropriate extensions
     temp_image = tempfile.NamedTemporaryFile(suffix=".png", delete=False)
     temp_audio = tempfile.NamedTemporaryFile(suffix=".mp3", delete=False)
 
     try:
         # Download files using utils
-        image = utils.download_file(
-            context.args["image"], temp_image.name, overwrite=True
+        image = await asyncio.to_thread(
+            utils.download_file, context.args["image"], temp_image.name, overwrite=True
         )
-        audio_file = utils.download_file(
-            context.args["audio"], temp_audio.name, overwrite=True
+        audio_file = await asyncio.to_thread(
+            utils.download_file, context.args["audio"], temp_audio.name, overwrite=True
         )
 
         logger.info("testing against %s", session.base_url)
-        models = session.get("/models").json()
+        models = (await _session_request("get", "/models")).json()
 
         # Use Hedra Character 3 model for audio-based talking heads (supports auto duration)
         # Otherwise fall back to first model
@@ -90,7 +94,8 @@ async def handler(context: ToolContext):
             if durations == ["auto"]:
                 logger.info("Model supports auto duration from audio")
 
-        image_response = session.post(
+        image_response = await _session_request(
+            "post",
             "/assets",
             json={"name": os.path.basename(image), "type": "image"},
         )
@@ -102,17 +107,25 @@ async def handler(context: ToolContext):
             )
         image_id = image_response.json()["id"]
         with open(image, "rb") as f:
-            session.post(
-                f"/assets/{image_id}/upload", files={"file": f}
+            (
+                await _session_request(
+                    "post", f"/assets/{image_id}/upload", files={"file": f}
+                )
             ).raise_for_status()
         logger.info("uploaded image %s", image_id)
 
-        audio_id = session.post(
-            "/assets", json={"name": os.path.basename(audio_file), "type": "audio"}
+        audio_id = (
+            await _session_request(
+                "post",
+                "/assets",
+                json={"name": os.path.basename(audio_file), "type": "audio"},
+            )
         ).json()["id"]
         with open(audio_file, "rb") as f:
-            session.post(
-                f"/assets/{audio_id}/upload", files={"file": f}
+            (
+                await _session_request(
+                    "post", f"/assets/{audio_id}/upload", files={"file": f}
+                )
             ).raise_for_status()
         logger.info("uploaded audio %s", audio_id)
 
@@ -133,7 +146,7 @@ async def handler(context: ToolContext):
             logger.info(f"Using explicit duration: {duration_seconds}s")
         else:
             # Get audio duration
-            audio_duration = get_audio_duration(audio_file)
+            audio_duration = await asyncio.to_thread(get_audio_duration, audio_file)
             if audio_duration is not None:
                 duration_seconds = audio_duration
                 logger.info(f"Using audio duration: {duration_seconds}s")
@@ -180,7 +193,9 @@ async def handler(context: ToolContext):
         }
 
         logger.info(f"Sending generation request: {generation_request_data}")
-        response = session.post("/generations", json=generation_request_data)
+        response = await _session_request(
+            "post", "/generations", json=generation_request_data
+        )
         generation_response = response.json()
         logger.info(f"Generation response: {generation_response}")
 
@@ -193,7 +208,9 @@ async def handler(context: ToolContext):
 
         generation_id = generation_response["id"]
         while True:
-            status_response = session.get(f"/generations/{generation_id}/status").json()
+            status_response = (
+                await _session_request("get", f"/generations/{generation_id}/status")
+            ).json()
             status = status_response["status"]
 
             # --- Check for completion or error to break the loop ---

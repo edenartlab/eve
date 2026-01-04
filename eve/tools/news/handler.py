@@ -1,3 +1,4 @@
+import asyncio
 import os
 
 import requests
@@ -11,7 +12,7 @@ async def handler(context: ToolContext):
     category = context.args["subject"]
     url = f"https://newsapi.org/v2/top-headlines?country=us&category={category}&apiKey={NEWSAPI_API_KEY}"
 
-    response = requests.get(url)
+    response = await asyncio.to_thread(requests.get, url)
     news = response.json()
     articles = [a for a in news["articles"] if a["title"] != "[Removed]"]
 
