@@ -9,6 +9,7 @@ from loguru import logger
 from eve.agent.agent import Agent
 from eve.agent.deployments.discord_gateway import convert_usernames_to_discord_mentions
 from eve.agent.session.models import Deployment, Session
+from eve.mongo import MongoDocumentNotFound
 from eve.tool import ToolContext
 
 DISCORD_MAX_LENGTH = 2000
@@ -67,9 +68,15 @@ async def handler(context: ToolContext):
     agent = Agent.from_mongo(context.agent)
 
     # Try to find Discord V3 deployment first, then fallback to legacy Discord
-    deployment = Deployment.load(agent=agent.id, platform="discord_v3")
+    try:
+        deployment = Deployment.load(agent=agent.id, platform="discord_v3")
+    except MongoDocumentNotFound:
+        deployment = None
     if not deployment:
-        deployment = Deployment.load(agent=agent.id, platform="discord")
+        try:
+            deployment = Deployment.load(agent=agent.id, platform="discord")
+        except MongoDocumentNotFound:
+            deployment = None
     if not deployment:
         raise Exception("No valid Discord deployments found")
 
