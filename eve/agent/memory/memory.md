@@ -5,6 +5,73 @@
 
 ---
 
+## Current System Reference (Production Context)
+
+> **Note**: This section summarizes the current working implementation documented in `memory_current.md`. Understanding this context is essential for a successful migration to the new architecture.
+
+### What's Currently Working in Production
+
+**Memory Types (Current → New Mapping)**:
+| Current Type | Storage | New Equivalent |
+|--------------|---------|----------------|
+| `episode` | SessionMemory (FIFO, 8 items) | Session reflections |
+| `directive` | SessionMemory → UserMemory consolidation | User reflections |
+| `fact` | SessionMemory (FIFO, 100 items per shard) | Facts (RAG) |
+| `suggestion` | SessionMemory → AgentMemory consolidation | Agent reflections |
+
+**Production Trigger Thresholds** (currently working well):
+```python
+MEMORY_FORMATION_MSG_INTERVAL = 45      # Messages between formations
+MEMORY_FORMATION_TOKEN_INTERVAL = 1000  # ~1k tokens triggers formation
+NEVER_FORM_MEMORIES_LESS_THAN_N_MESSAGES = 4  # Minimum before attempting
+CONSIDER_COLD_AFTER_MINUTES = 10        # Session inactivity threshold
+```
+
+**Production Word Limits** (tuned values):
+```python
+SESSION_EPISODE_MEMORY_MAX_WORDS = 50   # Per episode item
+SESSION_DIRECTIVE_MEMORY_MAX_WORDS = 25 # Per directive item
+SESSION_SUGGESTION_MEMORY_MAX_WORDS = 35 # Per suggestion item
+SESSION_FACT_MEMORY_MAX_WORDS = 30      # Per fact item
+USER_MEMORY_BLOB_MAX_WORDS = 400        # User consolidated blob
+AGENT_MEMORY_BLOB_MAX_WORDS = 1000      # Agent shard consolidated blob
+```
+
+**Existing Collections** (for migration awareness):
+- `memory_sessions` - Raw extracted memories (SessionMemory model)
+- `memory_user` - Consolidated user blobs (UserMemory model)
+- `memory_agent` - Agent shards with consolidated blobs (AgentMemory model)
+
+**Key Production Patterns to Preserve**:
+1. **Async memory formation** - Never blocks user-facing responses
+2. **Cold session processing** - Background job processes inactive sessions (10+ min idle with ≥4 messages)
+3. **Character weighting** - `messages_to_text()` weights sources: USER=1.0, TOOL=0.5, AGENT=0.2, OTHER=0.5
+4. **Sync across sessions** - Memory context synced every 5 minutes across active sessions
+5. **Session caching** - `memory_context` cached on session object, refreshed on staleness check
+
+**Current LLM Models**:
+```python
+MEMORY_LLM_MODEL_FAST = "gpt-5-mini"    # For extraction
+MEMORY_LLM_MODEL_SLOW = "gpt-5.1"       # For consolidation
+```
+
+**Consolidation Triggers** (current values, consider for new system):
+```python
+MAX_USER_MEMORIES_BEFORE_CONSOLIDATION = 5   # Directives before consolidation
+MAX_AGENT_MEMORIES_BEFORE_CONSOLIDATION = 16 # Suggestions before consolidation
+MAX_N_EPISODES_TO_REMEMBER = 8              # Session episode FIFO limit
+MAX_FACTS_PER_SHARD = 100                   # Facts FIFO limit (per shard)
+```
+
+**Known Issues Being Addressed by New Architecture**:
+1. Multiple LLM calls per formation (1 + N for N shards) → New: 2 sequential calls max
+2. No semantic deduplication for facts → New: mem0-inspired ADD/UPDATE/DELETE/NONE
+3. No session-level consolidation → New: Session reflections consolidate too
+4. Hardcoded extraction prompts for user memory → New: Unified reflection extraction
+5. No vector/RAG retrieval → New: MongoDB Atlas vector search
+
+---
+
 ## Table of Contents
 1. [Core Concepts](#1-core-concepts)
 2. [Memory Types: Facts vs Reflections](#2-memory-types-facts-vs-reflections)
@@ -1331,27 +1398,108 @@ CONSOLIDATED_INDEXES = [
 
 ## 10. Implementation Plan
 
-### Phase 1: Core Models & Fact Extraction
+The implementation is split into two major phases:
+- **Phase 1 (1.1-1.4)**: Reflections, Consolidation & Always-in-Context Memory
+- **Phase 2 (2.1-2.4)**: Facts & RAG System
 
-**Goal**: Create models and fact extraction (no reflections yet, no RAG retrieval yet).
+This ordering prioritizes the always-in-context memory system first, allowing us to validate reflections and consolidation before adding the complexity of facts, embeddings, and RAG retrieval.
+
+---
+
+### Phase 1: Reflections, Consolidation & Always-in-Context Memory
+
+#### Phase 1.1: Core Models & Reflection Extraction
+
+**Goal**: Create core models and reflection extraction with memory context awareness.
 
 **Files**:
 ```
 eve/agent/memory2/
 ├── __init__.py
-├── models.py              # Fact, Reflection, ConsolidatedMemory
+├── models.py              # Reflection, ConsolidatedMemory (Fact model stubbed)
 ├── constants.py           # Thresholds, word limits
-├── fact_extraction.py     # LLM call for facts (no memory context)
+├── reflection_extraction.py   # LLM call for reflections (needs memory context)
+└── reflection_storage.py      # Store reflections in buffer
+```
+
+**Deliverables**:
+- Reflection model
+- ConsolidatedMemory model
+- Reflection extraction prompt (includes consolidated blob + recent reflections)
+- Hierarchical extraction: agent → user → session
+- Buffer management (unabsorbed reflections)
+
+#### Phase 1.2: Consolidation
+
+**Goal**: Implement consolidation when buffer threshold exceeded.
+
+**Files**:
+```
+├── consolidation.py       # Consolidation LLM call
+└── consolidated_storage.py  # ConsolidatedMemory management
+```
+
+**Deliverables**:
+- Consolidation prompt and LLM call
+- Buffer threshold checks (agent: 10, user: 5, session: 8)
+- Word limit enforcement (agent: 1000, user: 400, session: 300)
+- Error-safe consolidation (never lose reflections)
+- Mark reflections as absorbed after consolidation
+
+#### Phase 1.3: Always-in-Context Assembly
+
+**Goal**: Assemble memory context for prompt injection.
+
+**Files**:
+```
+├── context_assembly.py    # assemble_always_in_context_memory()
+```
+
+**Deliverables**:
+- XML context builder
+- Agent/user/session blob assembly
+- Recent unabsorbed reflections inclusion
+- Cache-friendly design (can cache in session object)
+
+#### Phase 1.4: Reflection Integration & Testing
+
+**Goal**: Wire reflections into the agent system and validate end-to-end.
+
+**Files**:
+```
+├── formation.py           # maybe_form_memories() - reflection extraction orchestration
+├── service.py             # High-level MemoryService facade (reflection methods)
+```
+
+**Deliverables**:
+- Memory formation trigger (async, after agent response)
+- Context injection into agent prompts
+- End-to-end testing of reflection → buffer → consolidation → context flow
+- Validation that consolidation preserves important information
+
+---
+
+### Phase 2: Facts & RAG System
+
+#### Phase 2.1: Fact Extraction & Storage
+
+**Goal**: Add fact extraction and vector storage (no RAG retrieval yet).
+
+**Files**:
+```
+├── models.py              # Add Fact model (update existing)
+├── fact_extraction.py     # LLM call for facts (no memory context needed)
 └── fact_storage.py        # Store facts with embeddings
 ```
 
 **Deliverables**:
 - Fact model with embedding support
-- Fact extraction prompt and LLM call
+- Fact extraction prompt and LLM call (fast/cheap model)
 - Embedding generation (text-embedding-3-small)
 - Basic storage (hash check for exact duplicates)
+- Scope assignment: user and/or agent (no session scope)
 
-### Phase 1.5: Facts Management (Deduplication & Conflict Resolution)
+#### Phase 2.2: Facts Management (Deduplication & Conflict Resolution)
 
 **Goal**: Add semantic deduplication and conflict resolution for facts (mem0-inspired).
 
@@ -1367,51 +1515,7 @@ eve/agent/memory2/
 - Version tracking for updated facts
 - Optimization: skip LLM call when no similar facts found
 
-### Phase 2: Reflection Extraction & Buffer
-
-**Goal**: Add reflection extraction with memory context awareness.
-
-**Files**:
-```
-├── reflection_extraction.py   # LLM call for reflections (needs memory context)
-└── reflection_storage.py      # Store reflections in buffer
-```
-
-**Deliverables**:
-- Reflection model
-- Reflection extraction prompt (includes consolidated blob + recent reflections)
-- Buffer management (unabsorbed reflections)
-
-### Phase 3: Consolidation
-
-**Goal**: Implement consolidation when buffer threshold exceeded.
-
-**Files**:
-```
-├── consolidation.py       # Consolidation LLM call
-└── consolidated_storage.py  # ConsolidatedMemory management
-```
-
-**Deliverables**:
-- Consolidation prompt and LLM call
-- Buffer threshold checks
-- Error-safe consolidation (never lose reflections)
-
-### Phase 4: Always-in-Context Assembly
-
-**Goal**: Assemble memory context for prompt injection.
-
-**Files**:
-```
-├── context_assembly.py    # assemble_always_in_context_memory()
-```
-
-**Deliverables**:
-- XML context builder
-- Agent/user/session blob assembly
-- Recent reflections inclusion
-
-### Phase 5: RAG Retrieval
+#### Phase 2.3: RAG Retrieval
 
 **Goal**: Implement RAG search pipeline (standalone, toggle-able).
 
@@ -1422,27 +1526,28 @@ eve/agent/memory2/
 ```
 
 **Deliverables**:
-- Semantic search ($vectorSearch)
+- Semantic search ($vectorSearch with pre-filtering)
 - Text search (Atlas Search)
-- RRF fusion
+- Reciprocal Rank Fusion (RRF)
 - Access tracking updates
-- Tool call interface
+- Tool call interface for agent
 
-### Phase 6: Integration & Migration
+#### Phase 2.4: Full Integration & Migration
 
-**Goal**: Wire everything together, migrate existing data.
+**Goal**: Wire facts into the memory formation pipeline, complete integration.
 
 **Files**:
 ```
-├── formation.py           # maybe_form_memories() - orchestrates both LLM calls
-├── service.py             # High-level MemoryService facade
+├── formation.py           # Update: orchestrate facts → reflections sequentially
 └── migration.py           # One-time migration script
 ```
 
 **Deliverables**:
-- Unified memory formation (parallel fact + reflection extraction)
-- MemoryService facade
-- Migration from old system
+- Sequential extraction: facts first, then reflections (with newly formed facts passed)
+- Pass newly_formed_facts to reflection extraction (deduplication)
+- RAG toggle (independent of always-in-context)
+- Migration from old memory system
+- Full end-to-end validation
 
 ---
 
