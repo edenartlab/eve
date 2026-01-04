@@ -103,7 +103,8 @@ async def handler(context: ToolContext):
             },
         }
 
-        init_response = requests.post(
+        init_response = await asyncio.to_thread(
+            requests.post,
             "https://open.tiktokapis.com/v2/post/publish/video/init/",
             headers={
                 "Authorization": f"Bearer {access_token}",
@@ -127,7 +128,8 @@ async def handler(context: ToolContext):
             "Content-Range": f"bytes 0-{len(video_file) - 1}/{len(video_file)}",
         }
 
-        upload_response = requests.put(
+        upload_response = await asyncio.to_thread(
+            requests.put,
             upload_url,
             headers=upload_headers,
             data=video_file,
@@ -248,7 +250,8 @@ async def _refresh_token(refresh_token: str) -> Dict[str, Any]:
             "refresh_token": refresh_token,
         }
 
-        response = requests.post(
+        response = await asyncio.to_thread(
+            requests.post,
             "https://open.tiktokapis.com/v2/oauth/token/",
             headers={"Content-Type": "application/x-www-form-urlencoded"},
             data=refresh_payload,
@@ -321,7 +324,8 @@ async def _get_tiktok_username(access_token: str) -> str:
     """
     try:
         # Try the basic user info endpoint first
-        user_response = requests.get(
+        user_response = await asyncio.to_thread(
+            requests.get,
             "https://open.tiktokapis.com/v2/user/info/",
             headers={
                 "Authorization": f"Bearer {access_token}",
@@ -373,7 +377,8 @@ async def _try_get_video_url_from_display_api(
             return None
 
         # Get user videos from Display API
-        display_response = requests.get(
+        display_response = await asyncio.to_thread(
+            requests.get,
             "https://open.tiktokapis.com/v2/video/list/",
             headers={
                 "Authorization": f"Bearer {access_token}",
@@ -413,7 +418,8 @@ async def _check_publish_status_with_retry(
 
     for attempt in range(max_retries):
         try:
-            status_response = requests.post(
+            status_response = await asyncio.to_thread(
+                requests.post,
                 "https://open.tiktokapis.com/v2/post/publish/status/fetch/",
                 headers={
                     "Authorization": f"Bearer {access_token}",

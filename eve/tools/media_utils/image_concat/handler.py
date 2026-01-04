@@ -1,3 +1,5 @@
+import asyncio
+
 from PIL import Image
 
 from eve.tool import ToolContext
@@ -5,7 +7,7 @@ from eve.tool import ToolContext
 # from ... import utils
 
 
-async def handler(context: ToolContext):
+def _handler_sync(context: ToolContext):
     from .... import utils
 
     image_urls = context.args.get("images")
@@ -36,3 +38,7 @@ async def handler(context: ToolContext):
     combined_image.save(result_filename)
 
     return {"output": result_filename}
+
+
+async def handler(context: ToolContext):
+    return await asyncio.to_thread(_handler_sync, context)

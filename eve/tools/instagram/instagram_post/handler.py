@@ -1,3 +1,4 @@
+import asyncio
 import os
 import time
 from typing import Optional
@@ -21,7 +22,7 @@ def _normalize_token(token: Optional[str]) -> Optional[str]:
     return normalized or None
 
 
-def _wait_for_media_ready(
+async def _wait_for_media_ready(
     *, api_base: str, creation_id: str, auth_params: dict, headers: dict, timeout_s: int
 ) -> None:
     """
@@ -32,7 +33,8 @@ def _wait_for_media_ready(
     last_payload = None
 
     while time.time() < deadline:
-        resp = requests.get(
+        resp = await asyncio.to_thread(
+            requests.get,
             f"{api_base}/{creation_id}",
             params={"fields": "status_code,status", **auth_params},
             headers=headers,
@@ -47,7 +49,7 @@ def _wait_for_media_ready(
             if status == "ERROR":
                 raise Exception(f"IG media container failed processing: {payload!r}")
 
-        time.sleep(2)
+        await asyncio.sleep(2)
 
     raise Exception(
         f"Timed out waiting for IG media to be ready (creation_id={creation_id}). Last status: {last_payload!r}"
@@ -110,7 +112,8 @@ async def handler(context: ToolContext):
 
     # If still missing, try to resolve via Graph using the user token
     if token and not ig_user_id:
-        resp = requests.get(
+        resp = await asyncio.to_thread(
+            requests.get,
             f"{api_base}/me",
             params={"fields": "user_id,username,id", **auth_params},
             headers=headers,
@@ -126,7 +129,8 @@ async def handler(context: ToolContext):
         )
 
     # Step 1: create media container
-    media_resp = requests.post(
+    media_resp = await asyncio.to_thread(
+        requests.post,
         f"{api_base}/{ig_user_id}/media",
         data={"image_url": image_url, "caption": caption},
         params=auth_params,
@@ -139,7 +143,7 @@ async def handler(context: ToolContext):
     if not creation_id:
         raise Exception("No creation_id returned from IG media creation")
 
-    _wait_for_media_ready(
+    await _wait_for_media_ready(
         api_base=api_base,
         creation_id=creation_id,
         auth_params=auth_params,
@@ -148,7 +152,8 @@ async def handler(context: ToolContext):
     )
 
     # Step 2: publish
-    publish_resp = requests.post(
+    publish_resp = await asyncio.to_thread(
+        requests.post,
         f"{api_base}/{ig_user_id}/media_publish",
         data={"creation_id": creation_id},
         params=auth_params,
@@ -163,7 +168,8 @@ async def handler(context: ToolContext):
     # Step 3: fetch permalink
     permalink = None
     media_url = None
-    info_resp = requests.get(
+    info_resp = await asyncio.to_thread(
+        requests.get,
         f"{api_base}/{publish_id}",
         params={"fields": "permalink,media_url,caption", **auth_params},
         headers=headers,

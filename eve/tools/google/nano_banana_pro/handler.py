@@ -41,7 +41,8 @@ async def generate_content_with_retry(
 
     for attempt in range(max_retries + 1):
         try:
-            response = client.models.generate_content(
+            response = await asyncio.to_thread(
+                client.models.generate_content,
                 model=model,
                 contents=contents,
                 config=config,
@@ -119,7 +120,7 @@ async def handler(context: ToolContext):
     # Add any input images first
     if args.get("image_input"):
         for image_url in args["image_input"]:
-            image_bytes, mime_type = download_image(image_url)
+            image_bytes, mime_type = await asyncio.to_thread(download_image, image_url)
             parts.append(
                 genai.types.Part(
                     inline_data=genai.types.Blob(mime_type=mime_type, data=image_bytes)

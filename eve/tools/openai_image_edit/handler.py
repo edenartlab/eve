@@ -1,3 +1,4 @@
+import asyncio
 import base64
 import json
 import os
@@ -212,15 +213,15 @@ async def handler(context: ToolContext):
 
     try:
         # Process the first image (OpenAI edit API only supports one image)
-        image_bytes, image_filename, image_mime = preprocess_image(
-            image_paths[0], is_mask=False
+        image_bytes, image_filename, image_mime = await asyncio.to_thread(
+            preprocess_image, image_paths[0], is_mask=False
         )
 
         # Process mask if provided
         mask_bytes = None
         if mask_path:
-            mask_bytes, mask_filename, mask_mime = preprocess_image(
-                mask_path, is_mask=True
+            mask_bytes, mask_filename, mask_mime = await asyncio.to_thread(
+                preprocess_image, mask_path, is_mask=True
             )
 
         # Prepare API call parameters
@@ -256,7 +257,7 @@ async def handler(context: ToolContext):
             api_params["user"] = str(context.user)
 
         # Make the API call
-        response = client.images.edit(**api_params)
+        response = await asyncio.to_thread(client.images.edit, **api_params)
 
         # Process the response
         output = []

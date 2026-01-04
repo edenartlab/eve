@@ -21,7 +21,8 @@ class GCPTool(Tool):
 
     @Tool.handle_start_task
     async def async_start_task(self, task: Task):
-        handler_id = submit_job(
+        handler_id = await asyncio.to_thread(
+            submit_job,
             gcr_image_uri=self.gcr_image_uri,
             machine_type=self.machine_type,
             gpu=self.gpu,
@@ -117,7 +118,7 @@ def submit_job(gcr_image_uri, machine_type, gpu, gpu_count, task_id):
 async def poll_job_status(handler_id):
     while True:
         # job = await aiplatform.CustomJob.get_async(handler_id)
-        job = aiplatform.CustomJob.get(handler_id)
+        job = await asyncio.to_thread(aiplatform.CustomJob.get, handler_id)
         status = job.state
         if status is None:
             status_str = "UNKNOWN"
@@ -146,7 +147,7 @@ async def cancel_job(handler_id):
         job_id = f"{job_prefix}{handler_id}"
         aiplatform = get_ai_platform_client()
         # job = await aiplatform.CustomJob.get_async(job_id)
-        job = aiplatform.CustomJob.get(job_id)
+        job = await asyncio.to_thread(aiplatform.CustomJob.get, job_id)
         await job.cancel_async()
         return True
     except Exception as e:
