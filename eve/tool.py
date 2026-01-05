@@ -830,7 +830,7 @@ def get_api_files(root_dir: str = None) -> List[str]:
             if "inactive_workflows" in root:
                 continue
 
-            if "api.yaml" in files and "test.json" in files:
+            if "api.yaml" in files:
                 api_file = os.path.join(root, "api.yaml")
                 key = os.path.relpath(root).split("/")[-1]
                 if "legacy" in root:

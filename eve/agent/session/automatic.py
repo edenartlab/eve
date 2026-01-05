@@ -126,7 +126,7 @@ async def run_automatic_session_step(session: Session) -> None:
     For multi-agent sessions with agent_sessions:
     - Each agent has their own private workspace (agent_session)
     - The selected agent receives bulk message updates from parent
-    - Agent does private work then posts to parent via post_to_chatroom tool
+    - Agent does private work then posts to parent via chat tool
     """
     from eve.agent.session.conductor import conductor_select_actor
 
@@ -177,11 +177,14 @@ async def run_automatic_session_step(session: Session) -> None:
             from eve.agent.session.setup import create_eden_message_json
 
             # Generate summary and save as CONDUCTOR_FINISH eden message
-            finish_response = await conductor_finish_session(session)
+            finish_response, finish_llm_call_id = await conductor_finish_session(
+                session
+            )
             create_eden_message_json(
                 session_id=session.id,
                 message_type=EdenMessageType.CONDUCTOR_FINISH,
                 content=finish_response.model_dump_json(),
+                llm_call_id=finish_llm_call_id,
             )
             # Pause the session
             session.update(status="paused")
@@ -197,17 +200,17 @@ async def run_automatic_session_step(session: Session) -> None:
             agent_session_id = session.agent_sessions.get(str(actor.id))
             if agent_session_id:
                 logger.info(f"[AUTO] Creating turn notification for {actor.username}")
-                # Include reminder to use post_to_chatroom
+                # Include reminder to use chat tool
                 if conductor_response.hint:
                     hint_content = f"""🎯 IT'S YOUR TURN!
 
 {conductor_response.hint}
 
-⚠️ IMPORTANT: You MUST use the post_to_chatroom tool to respond. Your response will not be seen by others unless you post it."""
+⚠️ IMPORTANT: You MUST use the chat tool to respond. Your response will not be seen by others unless you post it."""
                 else:
                     hint_content = """🎯 IT'S YOUR TURN!
 
-⚠️ IMPORTANT: You MUST use the post_to_chatroom tool to respond. Your response will not be seen by others unless you post it."""
+⚠️ IMPORTANT: You MUST use the chat tool to respond. Your response will not be seen by others unless you post it."""
                 hint_message = ChatMessage(
                     session=[agent_session_id],  # Only to this agent's workspace
                     sender=ObjectId("000000000000000000000000"),
@@ -292,11 +295,14 @@ async def run_automatic_session_step(session: Session) -> None:
                 from eve.agent.session.setup import create_eden_message_json
 
                 # Generate summary and save as CONDUCTOR_FINISH eden message
-                finish_response = await conductor_finish_session(session)
+                finish_response, finish_llm_call_id = await conductor_finish_session(
+                    session
+                )
                 create_eden_message_json(
                     session_id=session.id,
                     message_type=EdenMessageType.CONDUCTOR_FINISH,
                     content=finish_response.model_dump_json(),
+                    llm_call_id=finish_llm_call_id,
                 )
                 # Pause the session
                 session.update(status="paused")
@@ -380,7 +386,9 @@ async def _initialize_conductor_for_session(session: Session) -> None:
 
     # Generate personalized contexts via conductor
     logger.info("[AUTO] Calling conductor_initialize_session...")
-    init_response = await conductor_initialize_session(session, agents)
+    init_response, init_llm_call_id = await conductor_initialize_session(
+        session, agents
+    )
     logger.info(
         f"[AUTO] Conductor generated {len(init_response.agent_contexts)} contexts"
     )
@@ -391,6 +399,7 @@ async def _initialize_conductor_for_session(session: Session) -> None:
         session_id=session.id,
         message_type=EdenMessageType.CONDUCTOR_INIT,
         content=init_response.model_dump_json(),
+        llm_call_id=init_llm_call_id,
     )
     logger.info("[AUTO] Saved CONDUCTOR_INIT eden message")
 

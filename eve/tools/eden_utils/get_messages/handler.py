@@ -12,7 +12,7 @@ from eve.user import User
 from eve.utils import prepare_result
 
 # Tools that should include args in the output
-TOOLS_WITH_ARGS = {"tweet", "discord_post", "farcaster_cast", "post_to_chatroom"}
+TOOLS_WITH_ARGS = {"tweet", "discord_post", "farcaster_cast", "chat"}
 
 message_template = Template("""[{{timestamp}}] {{username}}: {{content}}""")
 

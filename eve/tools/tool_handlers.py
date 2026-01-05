@@ -65,7 +65,7 @@ HANDLER_PATHS = {
     "printify": "printify.handler",
     "tiktok_post": "tiktok.tiktok_post.handler",
     "session_post": "session_post.handler",
-    "post_to_chatroom": "post_to_chatroom.handler",
+    "chat": "chat.handler",
     "email_send": "email.email_send.handler",
     "gmail_send": "gmail.gmail_send.handler",
     # Google Calendar tools

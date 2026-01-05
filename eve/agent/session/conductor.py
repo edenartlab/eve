@@ -12,6 +12,7 @@ from datetime import datetime, timezone
 from typing import List, Optional
 
 import pytz
+from bson import ObjectId
 from loguru import logger
 from pydantic import BaseModel, Field
 
@@ -225,23 +226,26 @@ def _get_recent_messages(
     """Get the most recent messages from the session.
 
     Filters out internal conductor messages (CONDUCTOR_TURN, CONDUCTOR_HINT)
-    so the conductor only sees actual chatroom activity, not its own reasoning.
+    and private messages (PRIVATE_MESSAGE) so the conductor only sees
+    actual public chatroom activity, not its own reasoning or secret DMs.
     """
     from eve.agent.session.models import EdenMessageType
 
     messages = list(ChatMessage.find({"session": session.id}))
 
-    # Filter out conductor's own turn/hint messages - these are internal
-    # and should not influence the conductor's view of what actually happened
+    # Filter out conductor's own turn/hint messages and private DMs
+    # - These are internal and should not influence the conductor's view
+    # - Private messages are secret between agents and should not be visible
     filtered = []
     for msg in messages:
-        # Skip CONDUCTOR_TURN and CONDUCTOR_HINT eden messages
+        # Skip internal conductor messages and private DMs
         if msg.eden_message_data:
             msg_type = msg.eden_message_data.message_type
             if msg_type in (
                 EdenMessageType.CONDUCTOR_TURN,
                 EdenMessageType.CONDUCTOR_HINT,
                 EdenMessageType.CONDUCTOR_FINISH,
+                EdenMessageType.PRIVATE_MESSAGE,  # Hide private DMs from conductor
             ):
                 continue
         filtered.append(msg)
@@ -457,11 +461,12 @@ First explain your reasoning, then select the speaker.
             f"Invalid speaker '{output.speaker}'. Valid: {list(agents.keys())}"
         )
 
-    # Save as CONDUCTOR_TURN eden message
+    # Save as CONDUCTOR_TURN eden message with llm_call reference
     create_eden_message_json(
         session_id=session.id,
         message_type=EdenMessageType.CONDUCTOR_TURN,
         content=output.model_dump_json(),
+        llm_call_id=llm_call.id if llm_call else None,
     )
     logger.info("[CONDUCTOR] Saved CONDUCTOR_TURN eden message")
 
@@ -604,7 +609,7 @@ CONDUCTOR_INIT_TEMPLATE = """<AGENT_SPEC name="ConductorInit" version="1.0">
 async def conductor_initialize_session(
     session: Session,
     agents: dict,
-) -> ConductorInitResponse:
+) -> tuple[ConductorInitResponse, Optional[ObjectId]]:
     """Generate personalized contexts for each agent at session start.
 
     The conductor parses the user's scenario to identify:
@@ -621,7 +626,7 @@ async def conductor_initialize_session(
         agents: Dict mapping username to Agent object
 
     Returns:
-        ConductorInitResponse with contexts for each agent
+        Tuple of (ConductorInitResponse with contexts for each agent, LLMCall ObjectId or None)
     """
     logger.info(f"[CONDUCTOR_INIT] Initializing session {session.id}")
     logger.info(f"[CONDUCTOR_INIT] Agents: {list(agents.keys())}")
@@ -749,7 +754,7 @@ User's Scenario:
             f"[CONDUCTOR_INIT] Context for {ac.agent_username}: {ac.context[:100]}..."
         )
 
-    return output
+    return output, llm_call.id if llm_call else None
 
 
 # =============================================================================
@@ -772,7 +777,9 @@ CONDUCTOR_FINISH_TEMPLATE = """<AGENT_SPEC name="ConductorFinish" version="1.0">
 </AGENT_SPEC>"""
 
 
-async def conductor_finish_session(session: Session) -> ConductorFinishResponse:
+async def conductor_finish_session(
+    session: Session,
+) -> tuple[ConductorFinishResponse, Optional[ObjectId]]:
     """Generate session summary and pause the session.
 
     Called when the conductor decides to end the session (finish=true)
@@ -782,7 +789,7 @@ async def conductor_finish_session(session: Session) -> ConductorFinishResponse:
         session: The session to finish
 
     Returns:
-        ConductorFinishResponse with summary and outcome
+        Tuple of (ConductorFinishResponse with summary and outcome, LLMCall ObjectId or None)
     """
     logger.info(f"[CONDUCTOR_FINISH] Finishing session {session.id}")
 
@@ -848,4 +855,4 @@ Be concise but comprehensive. This summary will be visible to all participants.
     logger.info(f"[CONDUCTOR_FINISH] Summary: {output.summary[:200]}...")
     logger.info(f"[CONDUCTOR_FINISH] Outcome: {output.outcome}")
 
-    return output
+    return output, llm_call.id if llm_call else None

@@ -221,6 +221,8 @@ class EdenMessageType(Enum):
     CONDUCTOR_TURN = "conductor_turn"  # Turn selection decision
     CONDUCTOR_HINT = "conductor_hint"  # Hint for selected speaker
     CONDUCTOR_FINISH = "conductor_finish"  # Session summary
+    # Private messaging for multi-agent sessions
+    PRIVATE_MESSAGE = "private_message"  # Agent-to-agent private DMs
 
 
 class EdenMessageAgentData(BaseModel):
@@ -232,7 +234,10 @@ class EdenMessageAgentData(BaseModel):
 
 class EdenMessageData(BaseModel):
     message_type: EdenMessageType
-    agents: Optional[List[EdenMessageAgentData]] = None
+    agents: Optional[List[EdenMessageAgentData]] = (
+        None  # Recipients for PRIVATE_MESSAGE
+    )
+    sender: Optional[EdenMessageAgentData] = None  # Sender for PRIVATE_MESSAGE
     error: Optional[str] = None
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
