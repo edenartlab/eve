@@ -1,0 +1,11 @@
+{
+    "video": "https://edenartlab-prod-data.s3.us-east-1.amazonaws.com/sample_video.mp4",
+    "background": "https://edenartlab-prod-data.s3.us-east-1.amazonaws.com/background_frame.png",
+    "threshold": 10,
+    "boost": 1.1,
+    "feather_radius": 4,
+    "diff_mode": "luminance",
+    "output_mode": "additive",
+    "preview": false,
+    "crf": 18
+}

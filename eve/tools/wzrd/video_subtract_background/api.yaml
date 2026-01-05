@@ -1,0 +1,87 @@
+name: video_subtract_background
+description: Subtract background from a video to isolate bright creatures/elements for VJ projection
+tip: |-
+  Processes a video frame-by-frame using background subtraction to extract bright
+  elements (creatures, effects) from AI-generated content. Uses streaming FFmpeg
+  for memory efficiency. Requires a reference background image.
+cost_estimate: 100
+output_type: video
+active: true
+handler: local
+visible: true
+parameters:
+  video:
+    type: string
+    label: Input Video
+    description: URL or path to the input video file
+    required: true
+  background:
+    type: string
+    label: Background Image
+    description: URL or path to the background reference frame image
+    required: true
+  threshold:
+    type: integer
+    label: Threshold
+    description: Difference threshold (0-255). Pixels below this are considered background.
+    tip: Lower values capture more subtle differences, higher values only capture major changes.
+    default: 10
+    minimum: 0
+    maximum: 255
+    required: false
+  boost:
+    type: float
+    label: Brightness Boost
+    description: Brightness boost multiplier for extracted elements
+    tip: Values above 1.0 brighten the extracted creature/elements.
+    default: 1.1
+    minimum: 0.5
+    maximum: 3.0
+    required: false
+  feather_radius:
+    type: integer
+    label: Feather Radius
+    description: Edge feather radius in pixels for smoother edges
+    tip: Set to 0 for hard edges, higher values create softer transitions.
+    default: 4
+    minimum: 0
+    maximum: 20
+    required: false
+  diff_mode:
+    type: string
+    label: Difference Mode
+    description: Color space for computing differences
+    tip: |-
+      luminance: Fastest, perceptually accurate grayscale difference.
+      rgb: Per-channel difference, takes max across RGB.
+      lab: Perceptually uniform LAB color space (requires scikit-image).
+    default: luminance
+    choices: [luminance, rgb, lab]
+    choices_labels: [Luminance, RGB, LAB]
+    required: false
+  output_mode:
+    type: string
+    label: Output Mode
+    description: Output format for the extracted elements
+    tip: |-
+      additive: RGB on black background (H.264 MP4).
+      alpha: RGBA with transparency (ProRes 4444 MOV).
+    default: additive
+    choices: [additive, alpha]
+    choices_labels: [Additive (RGB), Alpha (RGBA)]
+    required: false
+  preview:
+    type: boolean
+    label: Generate Preview
+    description: Also generate a preview video with composite overlay
+    default: false
+    required: false
+  crf:
+    type: integer
+    label: CRF Quality
+    description: FFmpeg CRF quality (0-51, lower is better). Only applies to additive mode.
+    tip: Default of 18 provides high quality. Use lower values for less compression.
+    default: 18
+    minimum: 0
+    maximum: 51
+    required: false
