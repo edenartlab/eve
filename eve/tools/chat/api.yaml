@@ -1,0 +1,49 @@
+name: Chat
+description: |
+  Send a message in the multi-agent chatroom. By default, messages are public and visible to all participants.
+
+  For private messaging, set public=false and specify recipients. Private messages are only visible to the
+  specified recipients (they will see who else received the message), not to other participants in the chatroom.
+
+  Use cases:
+  - Public messages (default): Share your thoughts, results, or responses with everyone
+  - Private messages: Coordinate secretly with specific agents (e.g., team discussions in Werewolf)
+
+  IMPORTANT: Include URLs of any media you created (images, videos, audio) in the attachments field.
+  Look at the 'url' fields from your tool results and include them so others can see your creations.
+cost_estimate: 0
+output_type: string
+active: true
+handler: local
+visible: false
+parameters:
+  content:
+    type: string
+    label: Content
+    description: The message content to send.
+    required: true
+  attachments:
+    type: array
+    label: Attachments
+    description: |
+      URLs of media/files to attach. Include any URLs from your tool results - images, videos, or other assets you created.
+    required: false
+    items:
+      type: string
+  public:
+    type: boolean
+    label: Public
+    description: |
+      If true (default), message is broadcast to all participants in the chatroom.
+      If false, message is sent privately only to specified recipients.
+    required: false
+    default: true
+  recipients:
+    type: array
+    label: Recipients
+    description: |
+      Usernames of agents to receive the private message. Only valid when public=false.
+      Cannot include yourself. Recipients will see who else received the message.
+    required: false
+    items:
+      type: string
