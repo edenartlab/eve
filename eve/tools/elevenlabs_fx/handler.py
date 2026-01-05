@@ -1,3 +1,4 @@
+import asyncio
 import os
 from tempfile import NamedTemporaryFile
 from typing import Iterator
@@ -18,25 +19,27 @@ async def handler(context: ToolContext):
 
     if context.args.get("enhance_prompt"):
         try:
-            prompt = enhance_prompt(prompt)
+            prompt = await asyncio.to_thread(enhance_prompt, prompt)
         except Exception as e:
             logger.error(f"Error enhancing prompt: {e}")
 
     async def generate_with_params():
-        audio_generator = eleven.text_to_sound_effects.convert(
-            text=prompt,
-            duration_seconds=context.args["duration"],
-        )
-        return audio_generator
+        def _generate():
+            audio_generator = eleven.text_to_sound_effects.convert(
+                text=prompt,
+                duration_seconds=context.args["duration"],
+            )
+            if isinstance(audio_generator, Iterator):
+                return b"".join(audio_generator)
+            return audio_generator
+
+        return await asyncio.to_thread(_generate)
 
     audio_generator = await utils.async_exponential_backoff(
         generate_with_params, max_attempts=3, initial_delay=1
     )
 
-    if isinstance(audio_generator, Iterator):
-        audio = b"".join(audio_generator)
-    else:
-        audio = audio_generator
+    audio = audio_generator
 
     # save to file
     audio_file = NamedTemporaryFile(delete=False)

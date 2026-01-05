@@ -544,6 +544,7 @@ class Tool(Document, ABC):
             public: bool = False,
             mock: bool = False,
             is_client_platform: bool = False,
+            metadata: Optional[Dict[str, Any]] = None,
         ):
             try:
                 user = User.from_mongo(user_id)
@@ -610,6 +611,7 @@ class Tool(Document, ABC):
                 public=public,
                 paying_user=paying_user.id,
                 handler_id=pre_handler_id,  # Include if pre-generated
+                metadata=metadata,
             )
             task.save()
             sentry_sdk.add_breadcrumb(
@@ -719,6 +721,7 @@ class Tool(Document, ABC):
         args: Dict = None,
         mock: bool = False,
         public: bool = False,
+        metadata: Optional[Dict[str, Any]] = None,
     ):
         return asyncio.run(
             self.async_start_task(
@@ -730,6 +733,7 @@ class Tool(Document, ABC):
                 args,
                 mock,
                 public,
+                metadata,
             )
         )
 
@@ -826,7 +830,7 @@ def get_api_files(root_dir: str = None) -> List[str]:
             if "inactive_workflows" in root:
                 continue
 
-            if "api.yaml" in files and "test.json" in files:
+            if "api.yaml" in files:
                 api_file = os.path.join(root, "api.yaml")
                 key = os.path.relpath(root).split("/")[-1]
                 if "legacy" in root:

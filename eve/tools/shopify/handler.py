@@ -2,7 +2,7 @@ import base64
 import json
 import uuid
 
-import requests
+import httpx
 
 from eve.agent.agent import Agent
 from eve.agent.session.models import Deployment
@@ -37,12 +37,14 @@ async def handler(context: ToolContext):
     # ────────────────────────────────────────────────────────────────
     # GraphQL Helper
     # ────────────────────────────────────────────────────────────────
-    def _gql(query: str, variables: dict | None = None):
-        r = requests.post(
+    async def _gql(
+        client: httpx.AsyncClient, query: str, variables: dict | None = None
+    ):
+        r = await client.post(
             ENDPOINT,
             headers=HEADERS,
-            data=json.dumps({"query": query, "variables": variables or {}}),
-            timeout=30,
+            content=json.dumps({"query": query, "variables": variables or {}}),
+            timeout=30.0,
         )
         r.raise_for_status()
         data = r.json()
@@ -97,78 +99,84 @@ async def handler(context: ToolContext):
     }
     """
 
-    # ---- 1. create skeleton product + hero image ----
-    draft = _gql(
-        PRODUCT_CREATE,
-        {
-            "product": {
-                "title": context.args.get("title"),
-                "descriptionHtml": context.args.get("description"),
-                "status": "ACTIVE",
-            },
-            "media": [
+    async with httpx.AsyncClient() as client:
+        # ---- 1. create skeleton product + hero image ----
+        draft = (
+            await _gql(
+                client,
+                PRODUCT_CREATE,
                 {
-                    "alt": context.args.get("alt_text"),
-                    "mediaContentType": "IMAGE",
-                    "originalSource": context.args.get("image"),
-                }
-            ],
-        },
-    )["productCreate"]
+                    "product": {
+                        "title": context.args.get("title"),
+                        "descriptionHtml": context.args.get("description"),
+                        "status": "ACTIVE",
+                    },
+                    "media": [
+                        {
+                            "alt": context.args.get("alt_text"),
+                            "mediaContentType": "IMAGE",
+                            "originalSource": context.args.get("image"),
+                        }
+                    ],
+                },
+            )
+        )["productCreate"]
 
-    if draft["userErrors"]:
-        raise RuntimeError(draft["userErrors"])
+        if draft["userErrors"]:
+            raise RuntimeError(draft["userErrors"])
 
-    product_id = draft["product"]["id"]
-    variant_id = draft["product"]["variants"]["nodes"][0]["id"]
-    item_id = draft["product"]["variants"]["nodes"][0]["inventoryItem"]["id"]
-    handle = draft["product"]["handle"]
-    store_url = f"https://{store_name}.myshopify.com/products/{handle}"
+        product_id = draft["product"]["id"]
+        variant_id = draft["product"]["variants"]["nodes"][0]["id"]
+        item_id = draft["product"]["variants"]["nodes"][0]["inventoryItem"]["id"]
+        handle = draft["product"]["handle"]
+        store_url = f"https://{store_name}.myshopify.com/products/{handle}"
 
-    # make a sku from the slug
-    base = "".join(e for e in context.args.get("title") if e.isalnum() or e == " ")
-    base = base.upper().replace(" ", "-")[:10]
-    sku = base64.b32encode(uuid.uuid4().bytes)[:4].decode("ascii")
-    sku = f"{base}-{sku}"
+        # make a sku from the slug
+        base = "".join(e for e in context.args.get("title") if e.isalnum() or e == " ")
+        base = base.upper().replace(" ", "-")[:10]
+        sku = base64.b32encode(uuid.uuid4().bytes)[:4].decode("ascii")
+        sku = f"{base}-{sku}"
 
-    # ---- 2. set price + SKU on the default variant ----
-    _gql(
-        VARIANTS_UPDATE,
-        {
-            "productId": product_id,
-            "variants": [
-                {
-                    "id": variant_id,
-                    "price": context.args.get("price"),
-                    "inventoryItem": {"sku": sku},
-                }
-            ],
-        },
-    )
-
-    # ---- 3. set on‑hand inventory at first active location ----
-    location_id = f"gid://shopify/Location/{location_id}"
-    _gql(
-        SET_QTY,
-        {
-            "input": {
-                "name": "available",  # or "on_hand"
-                "reason": "initial_stock",  # any non‑empty string
-                "quantities": [
+        # ---- 2. set price + SKU on the default variant ----
+        await _gql(
+            client,
+            VARIANTS_UPDATE,
+            {
+                "productId": product_id,
+                "variants": [
                     {
-                        "inventoryItemId": item_id,
-                        "locationId": location_id,
-                        "quantity": context.args.get("quantity"),
-                        # "compareQuantity": 0  # optional: CAS check
+                        "id": variant_id,
+                        "price": context.args.get("price"),
+                        "inventoryItem": {"sku": sku},
                     }
                 ],
-            }
-        },
-    )
+            },
+        )
 
-    # ---- 4. publish to Online Store, so no manual merch action is needed ----
-    if context.args.get("auto_publish"):
-        online_pub = _gql(PUBS)["publications"]["nodes"][0]["id"]
-        _gql(PUBLISH, {"id": product_id, "pub": online_pub})
+        # ---- 3. set on‑hand inventory at first active location ----
+        loc_id = f"gid://shopify/Location/{location_id}"
+        await _gql(
+            client,
+            SET_QTY,
+            {
+                "input": {
+                    "name": "available",  # or "on_hand"
+                    "reason": "initial_stock",  # any non‑empty string
+                    "quantities": [
+                        {
+                            "inventoryItemId": item_id,
+                            "locationId": loc_id,
+                            "quantity": context.args.get("quantity"),
+                            # "compareQuantity": 0  # optional: CAS check
+                        }
+                    ],
+                }
+            },
+        )
+
+        # ---- 4. publish to Online Store, so no manual merch action is needed ----
+        if context.args.get("auto_publish"):
+            online_pub = (await _gql(client, PUBS))["publications"]["nodes"][0]["id"]
+            await _gql(client, PUBLISH, {"id": product_id, "pub": online_pub})
 
     return {"output": [{"url": store_url}]}

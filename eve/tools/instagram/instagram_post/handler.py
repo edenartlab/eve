@@ -1,8 +1,8 @@
+import asyncio
 import os
-import time
 from typing import Optional
 
-import requests
+import httpx
 from loguru import logger
 
 from eve.agent.agent import Agent
@@ -21,24 +21,32 @@ def _normalize_token(token: Optional[str]) -> Optional[str]:
     return normalized or None
 
 
-def _wait_for_media_ready(
-    *, api_base: str, creation_id: str, auth_params: dict, headers: dict, timeout_s: int
+async def _wait_for_media_ready(
+    *,
+    client: httpx.AsyncClient,
+    api_base: str,
+    creation_id: str,
+    auth_params: dict,
+    headers: dict,
+    timeout_s: int,
 ) -> None:
     """
     Instagram can return error 9007 ("media not ready") if we publish too quickly.
     Poll container status until FINISHED (or ERROR/timeout).
     """
+    import time
+
     deadline = time.time() + timeout_s
     last_payload = None
 
     while time.time() < deadline:
-        resp = requests.get(
+        resp = await client.get(
             f"{api_base}/{creation_id}",
             params={"fields": "status_code,status", **auth_params},
             headers=headers,
-            timeout=15,
+            timeout=15.0,
         )
-        if resp.ok:
+        if resp.is_success:
             payload = resp.json() or {}
             last_payload = payload
             status = payload.get("status_code") or payload.get("status")
@@ -47,7 +55,7 @@ def _wait_for_media_ready(
             if status == "ERROR":
                 raise Exception(f"IG media container failed processing: {payload!r}")
 
-        time.sleep(2)
+        await asyncio.sleep(2)
 
     raise Exception(
         f"Timed out waiting for IG media to be ready (creation_id={creation_id}). Last status: {last_payload!r}"
@@ -108,71 +116,73 @@ async def handler(context: ToolContext):
     headers = {"Authorization": f"Bearer {token}"} if token else {}
     auth_params = {"access_token": token} if token else {}
 
-    # If still missing, try to resolve via Graph using the user token
-    if token and not ig_user_id:
-        resp = requests.get(
-            f"{api_base}/me",
-            params={"fields": "user_id,username,id", **auth_params},
+    async with httpx.AsyncClient() as client:
+        # If still missing, try to resolve via Graph using the user token
+        if token and not ig_user_id:
+            resp = await client.get(
+                f"{api_base}/me",
+                params={"fields": "user_id,username,id", **auth_params},
+                headers=headers,
+                timeout=15.0,
+            )
+            if resp.is_success:
+                data = resp.json() or {}
+                ig_user_id = data.get("user_id") or data.get("id") or ig_user_id
+
+        if not token or not ig_user_id:
+            raise Exception(
+                "Missing Instagram token or ig_user_id. Ensure INSTAGRAM_ACCESS_TOKEN is set or deployment has Instagram secrets."
+            )
+
+        # Step 1: create media container
+        media_resp = await client.post(
+            f"{api_base}/{ig_user_id}/media",
+            data={"image_url": image_url, "caption": caption},
+            params=auth_params,
             headers=headers,
-            timeout=15,
+            timeout=30.0,
         )
-        if resp.ok:
-            data = resp.json() or {}
-            ig_user_id = data.get("user_id") or data.get("id") or ig_user_id
+        if not media_resp.is_success:
+            raise Exception(f"Failed to create IG media: {media_resp.text}")
+        creation_id = media_resp.json().get("id")
+        if not creation_id:
+            raise Exception("No creation_id returned from IG media creation")
 
-    if not token or not ig_user_id:
-        raise Exception(
-            "Missing Instagram token or ig_user_id. Ensure INSTAGRAM_ACCESS_TOKEN is set or deployment has Instagram secrets."
+        await _wait_for_media_ready(
+            client=client,
+            api_base=api_base,
+            creation_id=creation_id,
+            auth_params=auth_params,
+            headers=headers,
+            timeout_s=int(os.getenv("INSTAGRAM_PUBLISH_WAIT_TIMEOUT_S", "90")),
         )
 
-    # Step 1: create media container
-    media_resp = requests.post(
-        f"{api_base}/{ig_user_id}/media",
-        data={"image_url": image_url, "caption": caption},
-        params=auth_params,
-        headers=headers,
-        timeout=30,
-    )
-    if not media_resp.ok:
-        raise Exception(f"Failed to create IG media: {media_resp.text}")
-    creation_id = media_resp.json().get("id")
-    if not creation_id:
-        raise Exception("No creation_id returned from IG media creation")
+        # Step 2: publish
+        publish_resp = await client.post(
+            f"{api_base}/{ig_user_id}/media_publish",
+            data={"creation_id": creation_id},
+            params=auth_params,
+            headers=headers,
+            timeout=30.0,
+        )
+        if not publish_resp.is_success:
+            raise Exception(f"Failed to publish IG media: {publish_resp.text}")
 
-    _wait_for_media_ready(
-        api_base=api_base,
-        creation_id=creation_id,
-        auth_params=auth_params,
-        headers=headers,
-        timeout_s=int(os.getenv("INSTAGRAM_PUBLISH_WAIT_TIMEOUT_S", "90")),
-    )
+        publish_id = publish_resp.json().get("id")
 
-    # Step 2: publish
-    publish_resp = requests.post(
-        f"{api_base}/{ig_user_id}/media_publish",
-        data={"creation_id": creation_id},
-        params=auth_params,
-        headers=headers,
-        timeout=30,
-    )
-    if not publish_resp.ok:
-        raise Exception(f"Failed to publish IG media: {publish_resp.text}")
-
-    publish_id = publish_resp.json().get("id")
-
-    # Step 3: fetch permalink
-    permalink = None
-    media_url = None
-    info_resp = requests.get(
-        f"{api_base}/{publish_id}",
-        params={"fields": "permalink,media_url,caption", **auth_params},
-        headers=headers,
-        timeout=30,
-    )
-    if info_resp.ok:
-        data = info_resp.json()
-        permalink = data.get("permalink")
-        media_url = data.get("media_url")
+        # Step 3: fetch permalink
+        permalink = None
+        media_url = None
+        info_resp = await client.get(
+            f"{api_base}/{publish_id}",
+            params={"fields": "permalink,media_url,caption", **auth_params},
+            headers=headers,
+            timeout=30.0,
+        )
+        if info_resp.is_success:
+            data = info_resp.json()
+            permalink = data.get("permalink")
+            media_url = data.get("media_url")
 
     logger.info(f"Instagram post published: {publish_id}")
 

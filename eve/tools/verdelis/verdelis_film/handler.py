@@ -20,9 +20,8 @@ Tool emphasis:
   * If none of the recommendations are suitable (e.g., conflict with the proposal), you may select a different Concept; in that case, follow the proposal closely and preserve continuity of subject/style thereafter.
   * You may re-use images you generated here as new reference_images, adding them to the initial array, to enforce continuity within the session.
 * Image generation policy:
-  * Use the "create" tool to produce 2–4 images in one run (set n_samples=2–4).
-  * If "create" returns a single image (often a grid), try again.
-  * If it returns >1 but <4 images, generate the remainder using the already-generated images as reference_images to maintain continuity.
+  * Use the "create" tool to produce 1 image at a time.
+  * If generating more than one image, generate the remainder one at a time, using the already-generated images as reference_images to maintain visual continuity.
 </Instructions>
 
 <CreativeBrief>
@@ -122,7 +121,7 @@ To make it, you **plan, orchestrate, and execute multi-clip video productions** 
      * Avoid redundant or conflicting references.
 
    * Generate Image Keyframes
-     * Use create with n_samples > 1 to generate multiple keyframes at the same time with consistency between them. If create tool gives you 1 image despite n_samples > 1, retry.
+     * Use create with n_samples = 1 to generate one keyframe at a time. Generate images sequentially with consistency between them by reusing previously generated images as reference_images.
      * **IMPORTANT**: Use "model_preference" = "seedream" for **all** image generations.
      * Create keyframes in parallel whenever possible (≤ 4 simultaneous).
      * Retry failures.

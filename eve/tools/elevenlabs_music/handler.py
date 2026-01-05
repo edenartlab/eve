@@ -1,3 +1,4 @@
+import asyncio
 import os
 from tempfile import NamedTemporaryFile
 from typing import Iterator
@@ -12,12 +13,17 @@ eleven = ElevenLabs(api_key=os.getenv("ELEVEN_API_KEY"))
 
 async def handler(context: ToolContext):
     async def generate_with_params():
-        audio_generator = eleven.music.compose(
-            prompt=context.args["prompt"],
-            music_length_ms=context.args["duration"] * 1000,
-            model_id="music_v1",
-        )
-        return audio_generator
+        def _generate():
+            audio_generator = eleven.music.compose(
+                prompt=context.args["prompt"],
+                music_length_ms=context.args["duration"] * 1000,
+                model_id="music_v1",
+            )
+            if isinstance(audio_generator, Iterator):
+                return b"".join(audio_generator)
+            return audio_generator
+
+        return await asyncio.to_thread(_generate)
 
     audio_generator = await utils.async_exponential_backoff(
         generate_with_params,
@@ -25,10 +31,7 @@ async def handler(context: ToolContext):
         initial_delay=1,  # context.args["initial_delay"],
     )
 
-    if isinstance(audio_generator, Iterator):
-        audio = b"".join(audio_generator)
-    else:
-        audio = audio_generator
+    audio = audio_generator
 
     # save to file
     audio_file = NamedTemporaryFile(delete=False)

@@ -1,9 +1,10 @@
 import asyncio
 import mimetypes
+import re
 import tempfile
 from urllib.parse import urlparse
 
-import requests
+import httpx
 from google import genai
 from google.genai import errors as genai_errors
 from loguru import logger
@@ -41,7 +42,7 @@ async def generate_content_with_retry(
 
     for attempt in range(max_retries + 1):
         try:
-            response = client.models.generate_content(
+            response = await client.aio.models.generate_content(
                 model=model,
                 contents=contents,
                 config=config,
@@ -86,16 +87,17 @@ async def generate_content_with_retry(
     raise ValueError("Maximum retries exceeded for Google API call")
 
 
-def download_image(url: str) -> tuple[bytes, str]:
+async def download_image(url: str) -> tuple[bytes, str]:
     """Download an image from a URL and return its bytes and MIME type."""
-    response = requests.get(url)
-    response.raise_for_status()
+    async with httpx.AsyncClient() as client:
+        response = await client.get(url, timeout=30.0)
+        response.raise_for_status()
 
-    mime_type = response.headers.get("content-type")
-    if not mime_type:
-        mime_type = mimetypes.guess_type(urlparse(url).path)[0]
+        mime_type = response.headers.get("content-type")
+        if not mime_type:
+            mime_type = mimetypes.guess_type(urlparse(url).path)[0]
 
-    return response.content, mime_type
+        return response.content, mime_type
 
 
 async def handler(context: ToolContext):
@@ -119,7 +121,7 @@ async def handler(context: ToolContext):
     # Add any input images first
     if args.get("image_input"):
         for image_url in args["image_input"]:
-            image_bytes, mime_type = download_image(image_url)
+            image_bytes, mime_type = await download_image(image_url)
             parts.append(
                 genai.types.Part(
                     inline_data=genai.types.Blob(mime_type=mime_type, data=image_bytes)
@@ -190,8 +192,22 @@ async def handler(context: ToolContext):
                         output_text.append(part.text)
 
     if not output_images:
+        # Extract error details from candidates if available
+        error_details = []
+        if response.candidates:
+            for candidate in response.candidates:
+                if candidate.finish_message:
+                    error_details.append(candidate.finish_message)
+                elif candidate.finish_reason:
+                    error_details.append(str(candidate.finish_reason))
+
+        error_msg = (
+            "; ".join(error_details) if error_details else "No images were generated"
+        )
+        # Filter out Google support codes (not useful to end users)
+        error_msg = re.sub(r"\s*Support code: \d+\.?", "", error_msg).strip()
         logger.error(f"No images were generated: {response}")
-        raise ValueError("No images were generated")
+        raise ValueError(error_msg)
 
     result = {"output": output_images}
     if output_text:

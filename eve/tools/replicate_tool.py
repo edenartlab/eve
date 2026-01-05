@@ -34,7 +34,7 @@ class ReplicateTool(Tool):
         if self.version:
             args = self._format_args_for_replicate(args)
             prediction = await self._create_prediction(args, webhook=False)
-            prediction.wait()
+            await prediction.async_wait()
             if self.output_handler == "eden":
                 result = {"output": prediction.output[-1]["files"][0]}
             elif self.output_handler == "trainer":
@@ -47,14 +47,14 @@ class ReplicateTool(Tool):
         else:
             replicate_model = self._get_replicate_model(args)
             args = self._format_args_for_replicate(args)
-            output = replicate.run(replicate_model, input=args)
+            output = await replicate.async_run(replicate_model, input=args)
 
             if output and isinstance(output, replicate.helpers.FileOutput):
                 suffix = ".mp4" if self.output_type == "video" else ".webp"
                 with tempfile.NamedTemporaryFile(
                     suffix=suffix, delete=False
                 ) as temp_file:
-                    temp_file.write(output.read())
+                    temp_file.write(await asyncio.to_thread(output.read))
                 output = temp_file.name
             result = {"output": output}
 
@@ -76,7 +76,7 @@ class ReplicateTool(Tool):
             func = modal.Function.from_name(
                 f"api-{db.lower()}", "run_task_replicate", environment_name="main"
             )
-            job = func.spawn(task)
+            job = await func.spawn.aio(task)
             return job.object_id
 
     @Tool.handle_wait
@@ -92,7 +92,8 @@ class ReplicateTool(Tool):
             while True:
                 if prediction.status != status:
                     status = prediction.status
-                    result = replicate_update_task(
+                    result = await asyncio.to_thread(
+                        replicate_update_task,
                         task,
                         status,
                         prediction.error,
@@ -102,12 +103,12 @@ class ReplicateTool(Tool):
                     if result["status"] in ["failed", "cancelled", "completed"]:
                         return result
                 await asyncio.sleep(0.5)
-                prediction.reload()
+                await prediction.async_reload()
 
     @Tool.handle_cancel
     async def async_cancel(self, task: Task):
-        prediction = replicate.predictions.get(task.handler_id)
-        prediction.cancel()
+        prediction = await replicate.predictions.async_get(task.handler_id)
+        await prediction.async_cancel()
 
     def _format_args_for_replicate(self, args: dict):
         new_args = args.copy()

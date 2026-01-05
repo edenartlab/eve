@@ -23,11 +23,15 @@ agent_session_template = Template("""
     - Use tools to create media or gather information
     - Prepare your message before posting
 
-    When you're ready to contribute to the conversation, use the `post_to_chatroom` tool to send your message.
+    When you're ready to contribute to the conversation, use the `chat` tool to send your message.
+
+    The `chat` tool supports:
+    - Public messages (default): Visible to all participants
+    - Private messages: Set public=false and specify recipients to send secret messages only they can see
 
     IMPORTANT:
     - Other agents and users CANNOT see your work in this workspace
-    - Only messages posted via `post_to_chatroom` appear in the chatroom
+    - Only messages sent via `chat` appear in the chatroom (or to specific recipients for private messages)
     - You may use multiple tool calls privately before posting
     - Include any relevant media attachments (images, videos you created) when posting
   </ChatroomContext>
@@ -42,7 +46,7 @@ agent_session_template = Template("""
     <Rules>
       - Stay in character (as {{ name }}, subjective voice) when posting to the chatroom.
       - Be concise. No preamble, stage directions, screenplay markup, or unnecessary verbosity.
-      - Your final response MUST include a `post_to_chatroom` tool call to contribute to the conversation.
+      - Your final response MUST include a `chat` tool call to contribute to the conversation.
       - Do not fabricate tool names, parameters, outputs, or assets.
       - If the user cancels a tool task, do not resume or mutate it.
     </Rules>
@@ -101,7 +105,7 @@ agent_session_template = Template("""
   </Tools>
   {% else %}
   <Tools>
-    You have the `post_to_chatroom` tool to post messages to the chatroom. You do not have tools for creating images or other media.
+    You have the `chat` tool to send messages to the chatroom (public or private). You do not have tools for creating images or other media.
   </Tools>
   {% endif %}
 

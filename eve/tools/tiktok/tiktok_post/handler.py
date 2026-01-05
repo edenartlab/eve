@@ -5,7 +5,7 @@ import tempfile
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, Optional
 
-import requests
+import httpx
 from loguru import logger
 
 from eve.agent.agent import Agent
@@ -49,182 +49,189 @@ async def handler(context: ToolContext):
     now = datetime.now(timezone.utc)
     expires_at = _as_aware(tiktok_secrets.expires_at)
 
-    if expires_at and expires_at < now:
-        # Refresh token
-        if tiktok_secrets.refresh_token:
-            new_tokens = await _refresh_token(tiktok_secrets.refresh_token)
-            if "error" in new_tokens:
-                raise Exception(f"Token refresh failed: {new_tokens['error']}")
+    async with httpx.AsyncClient(timeout=60.0) as client:
+        if expires_at and expires_at < now:
+            # Refresh token
+            if tiktok_secrets.refresh_token:
+                new_tokens = await _refresh_token(client, tiktok_secrets.refresh_token)
+                if "error" in new_tokens:
+                    raise Exception(f"Token refresh failed: {new_tokens['error']}")
 
-            # Update deployment with new tokens
-            tiktok_secrets.access_token = new_tokens["access_token"]
-            tiktok_secrets.refresh_token = new_tokens["refresh_token"]
-            tiktok_secrets.expires_at = datetime.now(timezone.utc) + timedelta(
-                seconds=new_tokens["expires_in"]
-            )
-            deployment.save()
-            access_token = new_tokens["access_token"]
-        else:
-            raise Exception("Access token expired and no refresh token available")
-
-    # Download video file
-    temp_file = tempfile.NamedTemporaryFile(suffix=".mp4", delete=False)
-
-    video_file_path = utils.download_file(video_url, temp_file.name, overwrite=True)
-
-    # Read video file as bytes
-    with open(video_file_path, "rb") as f:
-        video_file = f.read()
-
-    video_size = len(video_file)
-
-    try:
-        # Step 1: Initialize video upload
-
-        # Calculate chunk info for TikTok API
-        video_size = len(video_file)
-        chunk_size = min(video_size, 10 * 1024 * 1024)  # 10MB max chunk size
-        total_chunk_count = 1  # Single chunk upload for simplicity
-
-        init_payload = {
-            "post_info": {
-                "title": caption,
-                "privacy_level": privacy_level,
-                "disable_duet": False,
-                "disable_comment": False,
-                "disable_stitch": False,
-                "video_cover_timestamp_ms": 1000,  # Use 1 second as thumbnail timestamp
-            },
-            "source_info": {
-                "source": "FILE_UPLOAD",
-                "video_size": video_size,
-                "chunk_size": chunk_size,
-                "total_chunk_count": total_chunk_count,
-            },
-        }
-
-        init_response = requests.post(
-            "https://open.tiktokapis.com/v2/post/publish/video/init/",
-            headers={
-                "Authorization": f"Bearer {access_token}",
-                "Content-Type": "application/json",
-            },
-            json=init_payload,
-        )
-
-        if not init_response.ok:
-            raise Exception(f"Failed to initialize upload: {init_response.text}")
-
-        init_data = init_response.json()
-
-        publish_id = init_data["data"]["publish_id"]
-        upload_url = init_data["data"]["upload_url"]
-
-        # Step 2: Upload video
-
-        upload_headers = {
-            "Content-Type": "video/mp4",
-            "Content-Range": f"bytes 0-{len(video_file) - 1}/{len(video_file)}",
-        }
-
-        upload_response = requests.put(
-            upload_url,
-            headers=upload_headers,
-            data=video_file,
-        )
-
-        if not upload_response.ok:
-            raise Exception(f"Failed to upload video: {upload_response.text}")
-
-        # Step 3: Check publish status with retry logic
-
-        status_data = await _check_publish_status_with_retry(
-            publish_id, access_token, max_retries=6, retry_delay=20
-        )
-
-        publish_status = status_data["data"]["status"]
-        fail_reason = status_data["data"].get("fail_reason")
-
-        if fail_reason:
-            raise Exception(fail_reason)
-
-        if publish_status == "FAILED":
-            error_msg = (
-                f"TikTok video upload failed: {fail_reason}"
-                if fail_reason
-                else "TikTok video upload failed for unknown reason"
-            )
-            raise Exception(error_msg)
-
-        if publish_status not in ["PUBLISHED", "PROCESSING_UPLOAD", "PUBLISH_COMPLETE"]:
-            raise Exception(f"Unexpected publish status: {publish_status}")
-
-        # Check for the actual video ID from TikTok
-        publicaly_available_post_id = status_data["data"].get(
-            "publicaly_available_post_id", []
-        )
-
-        username = tiktok_secrets.username
-        # Prefer fresh username; persist if missing
-        fresh_username = await _get_tiktok_username(access_token)
-        if fresh_username:
-            username = fresh_username
-            if not tiktok_secrets.username:
-                tiktok_secrets.username = fresh_username
+                # Update deployment with new tokens
+                tiktok_secrets.access_token = new_tokens["access_token"]
+                tiktok_secrets.refresh_token = new_tokens["refresh_token"]
+                tiktok_secrets.expires_at = datetime.now(timezone.utc) + timedelta(
+                    seconds=new_tokens["expires_in"]
+                )
                 deployment.save()
-
-        if publicaly_available_post_id and len(publicaly_available_post_id) > 0:
-            # We have the actual video ID - construct the proper TikTok URL
-            video_id = publicaly_available_post_id[0]
-            if username:
-                tiktok_url = f"https://www.tiktok.com/@{username}/video/{video_id}"
+                access_token = new_tokens["access_token"]
             else:
-                # Fallback URL format without username
-                tiktok_url = f"https://www.tiktok.com/video/{video_id}"
-        else:
-            # Video is still processing or we don't have the ID yet
-            # Try Display API (requires video.list scope) to get share_url
-            display_api_url = await _try_get_video_url_from_display_api(
-                access_token, username
+                raise Exception("Access token expired and no refresh token available")
+
+        # Download video file
+        temp_file = tempfile.NamedTemporaryFile(suffix=".mp4", delete=False)
+
+        video_file_path = utils.download_file(video_url, temp_file.name, overwrite=True)
+
+        # Read video file as bytes
+        with open(video_file_path, "rb") as f:
+            video_file = f.read()
+
+        video_size = len(video_file)
+
+        try:
+            # Step 1: Initialize video upload
+
+            # Calculate chunk info for TikTok API
+            video_size = len(video_file)
+            chunk_size = min(video_size, 10 * 1024 * 1024)  # 10MB max chunk size
+            total_chunk_count = 1  # Single chunk upload for simplicity
+
+            init_payload = {
+                "post_info": {
+                    "title": caption,
+                    "privacy_level": privacy_level,
+                    "disable_duet": False,
+                    "disable_comment": False,
+                    "disable_stitch": False,
+                    "video_cover_timestamp_ms": 1000,  # Use 1 second as thumbnail timestamp
+                },
+                "source_info": {
+                    "source": "FILE_UPLOAD",
+                    "video_size": video_size,
+                    "chunk_size": chunk_size,
+                    "total_chunk_count": total_chunk_count,
+                },
+            }
+
+            init_response = await client.post(
+                "https://open.tiktokapis.com/v2/post/publish/video/init/",
+                headers={
+                    "Authorization": f"Bearer {access_token}",
+                    "Content-Type": "application/json",
+                },
+                json=init_payload,
             )
 
-            if display_api_url:
-                tiktok_url = display_api_url
+            if not init_response.is_success:
+                raise Exception(f"Failed to initialize upload: {init_response.text}")
+
+            init_data = init_response.json()
+
+            publish_id = init_data["data"]["publish_id"]
+            upload_url = init_data["data"]["upload_url"]
+
+            # Step 2: Upload video
+
+            upload_headers = {
+                "Content-Type": "video/mp4",
+                "Content-Range": f"bytes 0-{len(video_file) - 1}/{len(video_file)}",
+            }
+
+            upload_response = await client.put(
+                upload_url,
+                headers=upload_headers,
+                content=video_file,
+            )
+
+            if not upload_response.is_success:
+                raise Exception(f"Failed to upload video: {upload_response.text}")
+
+            # Step 3: Check publish status with retry logic
+
+            status_data = await _check_publish_status_with_retry(
+                client, publish_id, access_token, max_retries=6, retry_delay=20
+            )
+
+            publish_status = status_data["data"]["status"]
+            fail_reason = status_data["data"].get("fail_reason")
+
+            if fail_reason:
+                raise Exception(fail_reason)
+
+            if publish_status == "FAILED":
+                error_msg = (
+                    f"TikTok video upload failed: {fail_reason}"
+                    if fail_reason
+                    else "TikTok video upload failed for unknown reason"
+                )
+                raise Exception(error_msg)
+
+            if publish_status not in [
+                "PUBLISHED",
+                "PROCESSING_UPLOAD",
+                "PUBLISH_COMPLETE",
+            ]:
+                raise Exception(f"Unexpected publish status: {publish_status}")
+
+            # Check for the actual video ID from TikTok
+            publicaly_available_post_id = status_data["data"].get(
+                "publicaly_available_post_id", []
+            )
+
+            username = tiktok_secrets.username
+            # Prefer fresh username; persist if missing
+            fresh_username = await _get_tiktok_username(client, access_token)
+            if fresh_username:
+                username = fresh_username
+                if not tiktok_secrets.username:
+                    tiktok_secrets.username = fresh_username
+                    deployment.save()
+
+            if publicaly_available_post_id and len(publicaly_available_post_id) > 0:
+                # We have the actual video ID - construct the proper TikTok URL
+                video_id = publicaly_available_post_id[0]
+                if username:
+                    tiktok_url = f"https://www.tiktok.com/@{username}/video/{video_id}"
+                else:
+                    # Fallback URL format without username
+                    tiktok_url = f"https://www.tiktok.com/video/{video_id}"
             else:
-                # Final fallback - provide profile URL if we have a handle
-                tiktok_url = (
-                    f"https://www.tiktok.com/@{username}"
-                    if username
-                    else "https://www.tiktok.com"
+                # Video is still processing or we don't have the ID yet
+                # Try Display API (requires video.list scope) to get share_url
+                display_api_url = await _try_get_video_url_from_display_api(
+                    client, access_token, username
                 )
 
-        # Determine success message based on status
-        if publish_status in ["PUBLISHED", "PUBLISH_COMPLETE"]:
-            message = "TikTok post published successfully"
-        elif publish_status == "PROCESSING_UPLOAD":
-            message = "TikTok post is being processed"
-        else:
-            message = f"TikTok post status: {publish_status}"
+                if display_api_url:
+                    tiktok_url = display_api_url
+                else:
+                    # Final fallback - provide profile URL if we have a handle
+                    tiktok_url = (
+                        f"https://www.tiktok.com/@{username}"
+                        if username
+                        else "https://www.tiktok.com"
+                    )
 
-        response_data = {
-            "output": [
-                {
-                    "url": tiktok_url,
-                    "publish_id": publish_id,
-                    "status": publish_status,
-                    "title": caption,
-                    "message": message,
-                }
-            ]
-        }
+            # Determine success message based on status
+            if publish_status in ["PUBLISHED", "PUBLISH_COMPLETE"]:
+                message = "TikTok post published successfully"
+            elif publish_status == "PROCESSING_UPLOAD":
+                message = "TikTok post is being processed"
+            else:
+                message = f"TikTok post status: {publish_status}"
 
-        return response_data
+            response_data = {
+                "output": [
+                    {
+                        "url": tiktok_url,
+                        "publish_id": publish_id,
+                        "status": publish_status,
+                        "title": caption,
+                        "message": message,
+                    }
+                ]
+            }
 
-    except Exception as e:
-        raise Exception(f"Failed to post to TikTok: {str(e)}")
+            return response_data
+
+        except Exception as e:
+            raise Exception(f"Failed to post to TikTok: {str(e)}")
 
 
-async def _refresh_token(refresh_token: str) -> Dict[str, Any]:
+async def _refresh_token(
+    client: httpx.AsyncClient, refresh_token: str
+) -> Dict[str, Any]:
     import os
 
     try:
@@ -248,13 +255,13 @@ async def _refresh_token(refresh_token: str) -> Dict[str, Any]:
             "refresh_token": refresh_token,
         }
 
-        response = requests.post(
+        response = await client.post(
             "https://open.tiktokapis.com/v2/oauth/token/",
             headers={"Content-Type": "application/x-www-form-urlencoded"},
             data=refresh_payload,
         )
 
-        if not response.ok:
+        if not response.is_success:
             try:
                 error_data = response.json()
                 error_msg = f"HTTP {response.status_code}: {error_data.get('error', 'Unknown error')}"
@@ -315,13 +322,13 @@ def _parse_bigint_json(response_text: str) -> dict:
         return json.loads(response_text)
 
 
-async def _get_tiktok_username(access_token: str) -> str:
+async def _get_tiktok_username(client: httpx.AsyncClient, access_token: str) -> str:
     """
     Get the TikTok username from the user info API.
     """
     try:
         # Try the basic user info endpoint first
-        user_response = requests.get(
+        user_response = await client.get(
             "https://open.tiktokapis.com/v2/user/info/",
             headers={
                 "Authorization": f"Bearer {access_token}",
@@ -329,7 +336,7 @@ async def _get_tiktok_username(access_token: str) -> str:
             params={"fields": "display_name,username,profile_deep_link,union_id"},
         )
 
-        if user_response.ok:
+        if user_response.is_success:
             user_data = user_response.json()
             if "data" in user_data and "user" in user_data["data"]:
                 u = user_data["data"]["user"]
@@ -362,7 +369,7 @@ async def _get_tiktok_username(access_token: str) -> str:
 
 
 async def _try_get_video_url_from_display_api(
-    access_token: str, username: str = None
+    client: httpx.AsyncClient, access_token: str, username: str = None
 ) -> str:
     """
     Fallback: Try to get the latest video URL from TikTok's Display API.
@@ -373,7 +380,7 @@ async def _try_get_video_url_from_display_api(
             return None
 
         # Get user videos from Display API
-        display_response = requests.get(
+        display_response = await client.get(
             "https://open.tiktokapis.com/v2/video/list/",
             headers={
                 "Authorization": f"Bearer {access_token}",
@@ -384,7 +391,7 @@ async def _try_get_video_url_from_display_api(
             },
         )
 
-        if display_response.ok:
+        if display_response.is_success:
             display_data = display_response.json()
 
             if "data" in display_data and "videos" in display_data["data"]:
@@ -403,7 +410,11 @@ async def _try_get_video_url_from_display_api(
 
 
 async def _check_publish_status_with_retry(
-    publish_id: str, access_token: str, max_retries: int = 6, retry_delay: int = 20
+    client: httpx.AsyncClient,
+    publish_id: str,
+    access_token: str,
+    max_retries: int = 6,
+    retry_delay: int = 20,
 ) -> Dict[str, Any]:
     """
     Check publish status with retry logic to wait for video processing.
@@ -413,7 +424,7 @@ async def _check_publish_status_with_retry(
 
     for attempt in range(max_retries):
         try:
-            status_response = requests.post(
+            status_response = await client.post(
                 "https://open.tiktokapis.com/v2/post/publish/status/fetch/",
                 headers={
                     "Authorization": f"Bearer {access_token}",
@@ -422,7 +433,7 @@ async def _check_publish_status_with_retry(
                 json=status_payload,
             )
 
-            if not status_response.ok:
+            if not status_response.is_success:
                 raise Exception(f"Failed to check status: {status_response.text}")
 
             # Use BigInt-aware parsing

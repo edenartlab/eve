@@ -58,6 +58,7 @@ def create_eden_message_json(
     session_id: ObjectId,
     message_type: EdenMessageType,
     content: str,
+    llm_call_id: Optional[ObjectId] = None,
 ) -> ChatMessage:
     """Create an eden message with JSON content (for conductor outputs).
 
@@ -65,6 +66,7 @@ def create_eden_message_json(
         session_id: The session to attach the message to
         message_type: The type of conductor message (CONDUCTOR_INIT, CONDUCTOR_TURN, etc.)
         content: JSON string content (typically from model_dump_json())
+        llm_call_id: Optional reference to the LLMCall that generated this message
 
     Returns:
         The created ChatMessage
@@ -75,6 +77,7 @@ def create_eden_message_json(
         role="eden",
         content=content,
         eden_message_data=EdenMessageData(message_type=message_type),
+        llm_call=llm_call_id,
     )
     eden_message.save()
     return eden_message
@@ -145,15 +148,16 @@ def create_agent_sessions(
         workspace_context = f"""CRITICAL WORKSPACE INSTRUCTIONS:
 This is your private workspace for the chatroom '{parent_session.title or 'Untitled'}'.
 
-⚠️ IMPORTANT: You MUST use the post_to_chatroom tool to participate in the conversation.
+⚠️ IMPORTANT: You MUST use the chat tool to participate in the conversation.
 - NOTHING you write here is visible to other participants
-- Other participants can ONLY see messages you post via post_to_chatroom
-- When it's your turn, you MUST call post_to_chatroom with your response
+- Other participants can ONLY see messages you send via chat (public messages)
+- You can also send private messages to specific agents using chat with public=false
+- When it's your turn, you MUST call chat with your response
 - If you don't post, the conversation cannot progress
 
 You receive messages from other participants as CHAT MESSAGE NOTIFICATIONS.
-Each notification includes the sender's name and a Message ID.
-When you see a notification that it's your turn, respond by using post_to_chatroom immediately."""
+Private messages will be marked with 🔒 and show the sender and recipients.
+When you see a notification that it's your turn, respond by using chat immediately."""
 
         agent_session = Session(
             owner=parent_session.owner,
@@ -214,14 +218,16 @@ def create_agent_sessions_with_contexts(
 CRITICAL WORKSPACE INSTRUCTIONS:
 This is your private workspace for the chatroom '{parent_session.title or 'Untitled'}'.
 
-⚠️ IMPORTANT: You MUST use the post_to_chatroom tool to participate in the conversation.
+⚠️ IMPORTANT: You MUST use the chat tool to participate in the conversation.
 - NOTHING you write here is visible to other participants
-- Other participants can ONLY see messages you post via post_to_chatroom
-- When it's your turn, you MUST call post_to_chatroom with your response
+- Other participants can ONLY see messages you send via chat (public messages)
+- You can also send private messages to specific agents using chat with public=false
+- When it's your turn, you MUST call chat with your response
 - If you don't post, the conversation cannot progress
 
 You receive messages from other participants as CHAT MESSAGE NOTIFICATIONS.
-When you see a notification that it's your turn, respond by using post_to_chatroom immediately."""
+Private messages will be marked with 🔒 and show the sender and recipients.
+When you see a notification that it's your turn, respond by using chat immediately."""
 
         logger.info(
             f"[SETUP] Creating agent_session for {agent.username}, "

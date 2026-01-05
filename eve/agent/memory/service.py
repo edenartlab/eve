@@ -8,6 +8,19 @@ from bson import ObjectId
 
 from .backends import MemoryBackend, MongoMemoryBackend
 
+# =============================================================================
+# MEMORY SYSTEM TOGGLE
+# =============================================================================
+# Toggle between memory systems:
+#   - True  = memory v2 (eve/agent/memory2) - new reflection/facts based system
+#   - False = memory v1 (eve/agent/memory)  - original memory system
+#
+# The session module (eve/agent/session) imports `memory_service` from here,
+# so this single toggle controls the entire application's memory backend.
+# =============================================================================
+
+USE_MEMORY_V2 = False
+
 if TYPE_CHECKING:  # pragma: no cover
     from eve.agent import Agent
     from eve.agent.session.models import Session
@@ -75,4 +88,14 @@ class MemoryService:
         )
 
 
-memory_service = MemoryService()
+def _create_backend() -> MemoryBackend:
+    """Create the appropriate backend based on USE_MEMORY_V2 toggle above."""
+    if USE_MEMORY_V2:
+        from eve.agent.memory2.backend import Memory2Backend
+
+        return Memory2Backend()
+    return MongoMemoryBackend()
+
+
+# Global singleton - this is imported by eve/agent/session modules
+memory_service = MemoryService(backend=_create_backend())

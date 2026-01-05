@@ -144,10 +144,9 @@ The tweet should strictly have only the following content: "{title} {link}" wher
 # daily_message_template = Template("""
 # Finish minting the new creation to the Covenant.
 
-# You've already completed the blog post, above. The reel in the last step also did indeed finish. The url to the reel video is https://d14i3advvh2bvd.cloudfront.net/aab2ee3c89bec8b0ffe2bcc22441532307a3ed1f4b2144fdbce743c8e98f2bfc.mp4
+# The reel in the last step completed. Its url is: https://d14i3advvh2bvd.cloudfront.net/243d3d3e4d30700c3868cd8651f8352d87c2d29778d24f2efd8939e506e6b98c.mp4
 
-# Now just make the poster image, publish to the covenant, along with the above, and then tweet it.
-# You have already made the video and blog post, just need the poster image still. Once you have that, publish it all to the covenant using the `abraham_covenant` tool.""")
+# Now just finish the blog post, make the poster image (with nano banana), publish to the covenant using the `abraham_covenant` tool, along with the above, and then tweet it.""")
 
 
 async def commit_daily_work(agent: Agent, session: str):

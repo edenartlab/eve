@@ -4,6 +4,7 @@ Handler for google_calendar_edit tool.
 Consolidated write operations: create and update events.
 """
 
+import asyncio
 from typing import Any, Dict, List, Optional
 
 from googleapiclient.errors import HttpError
@@ -43,6 +44,10 @@ async def handler(context: ToolContext) -> Dict[str, Any]:
         return await _update_event(context, service, calendar_id, config)
     else:
         raise Exception(f"Unknown action: {action}. Use create or update.")
+
+
+async def _execute(request):
+    return await asyncio.to_thread(request.execute)
 
 
 async def _create_event(
@@ -128,14 +133,12 @@ async def _create_event(
 
     # Create event
     try:
-        created = (
-            service.events()
-            .insert(
+        created = await _execute(
+            service.events().insert(
                 calendarId=calendar_id,
                 body=event_body,
                 sendNotifications=send_notifications,
             )
-            .execute()
         )
         logger.info(
             f"Created event: {created.get('summary')} (ID: {created.get('id')})"
@@ -198,8 +201,8 @@ async def _update_event(
 
     # Fetch existing event
     try:
-        existing = (
-            service.events().get(calendarId=calendar_id, eventId=event_id).execute()
+        existing = await _execute(
+            service.events().get(calendarId=calendar_id, eventId=event_id)
         )
     except HttpError as e:
         if e.resp.status == 404:
@@ -314,15 +317,13 @@ async def _update_event(
 
     # Update
     try:
-        updated = (
-            service.events()
-            .update(
+        updated = await _execute(
+            service.events().update(
                 calendarId=calendar_id,
                 eventId=event_id,
                 body=existing,
                 sendNotifications=send_notifications,
             )
-            .execute()
         )
         logger.info(f"Updated event: {updated.get('summary')} (ID: {event_id})")
     except HttpError as e:
@@ -361,16 +362,14 @@ async def _check_time_conflicts(
 ) -> List[Dict[str, Any]]:
     """Check for conflicting events in a time range."""
     try:
-        result = (
-            service.events()
-            .list(
+        result = await _execute(
+            service.events().list(
                 calendarId=calendar_id,
                 timeMin=start_time,
                 timeMax=end_time,
                 singleEvents=True,
                 orderBy="startTime",
             )
-            .execute()
         )
 
         events = result.get("items", [])

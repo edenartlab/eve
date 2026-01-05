@@ -1,6 +1,6 @@
 import os
 
-import requests
+import httpx
 
 from eve.tool import ToolContext
 
@@ -11,8 +11,10 @@ async def handler(context: ToolContext):
     category = context.args["subject"]
     url = f"https://newsapi.org/v2/top-headlines?country=us&category={category}&apiKey={NEWSAPI_API_KEY}"
 
-    response = requests.get(url)
-    news = response.json()
+    async with httpx.AsyncClient() as client:
+        response = await client.get(url, timeout=30.0)
+        news = response.json()
+
     articles = [a for a in news["articles"] if a["title"] != "[Removed]"]
 
     news_summary = "# News Summary:\n\n"

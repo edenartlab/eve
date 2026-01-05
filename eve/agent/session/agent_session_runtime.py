@@ -2,7 +2,7 @@
 
 Handles the private workspace flow:
 1. Build LLM context (messages are already distributed via real-time distribution)
-2. Run LLM + tool processing until post_to_chatroom
+2. Run LLM + tool processing until agent uses 'chat' tool
 
 This module bridges the gap between the parent chatroom session and each
 agent's private workspace (agent_session). Messages from other agents are
@@ -39,7 +39,7 @@ async def run_agent_session_turn(
        via real-time distribution)
     3. Runs the prompt loop until the agent posts to chatroom
 
-    The agent works privately until they call post_to_chatroom,
+    The agent works privately until they call the chat tool,
     which posts to the parent session and distributes to other agent_sessions.
 
     Note: This uses PromptSessionRuntime directly (not orchestrator) because
@@ -135,11 +135,8 @@ async def run_agent_session_turn(
         update_count += 1
         logger.info(f"[AGENT_SESSION] Update #{update_count}: type={update.type}")
 
-        # Check if agent posted to parent via tool
-        if (
-            update.type == UpdateType.TOOL_COMPLETE
-            and update.tool_name == "post_to_chatroom"
-        ):
+        # Check if agent posted to parent via chat tool
+        if update.type == UpdateType.TOOL_COMPLETE and update.tool_name == "chat":
             posted_to_parent = True
             logger.info(f"[AGENT_SESSION] >>> {actor.username} posted to chatroom <<<")
 
@@ -258,10 +255,7 @@ async def run_agent_session_turn_streaming(
         update_count += 1
         yield update
 
-        if (
-            update.type == UpdateType.TOOL_COMPLETE
-            and update.tool_name == "post_to_chatroom"
-        ):
+        if update.type == UpdateType.TOOL_COMPLETE and update.tool_name == "chat":
             posted_to_parent = True
             logger.info(
                 f"[AGENT_SESSION_STREAM] >>> {actor.username} posted to chatroom <<<"

@@ -45,6 +45,9 @@ class DiscordMessage(Document):
     processed: bool = False
     first_seen_at: datetime = None
     last_seen_at: datetime = None
+    # Optional attribution for webhook-sent messages
+    source_agent_id: Optional[str] = None
+    source_deployment_id: Optional[str] = None
 
     def __init__(self, **data):
         if "first_seen_at" not in data:

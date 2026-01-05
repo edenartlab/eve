@@ -110,6 +110,15 @@ eden_notification_template = Template("""
 {{ content }}
 """)
 
+private_message_notification_template = Template("""
+│ 🔒 PRIVATE MESSAGE
+│ From: {{ sender_username }}
+│ To: {{ recipient_list }}
+│ Message ID: {{ message_id }}
+├─────────────────────────────────────
+{{ content }}
+""")
+
 
 def find_mentioned_agents(content: str, agents: List[Agent]) -> List[Agent]:
     """Find agents mentioned in the message content.
@@ -281,8 +290,9 @@ def convert_message_roles(messages: List[ChatMessage], actor_id: ObjectId):
                     # Trigger was deleted, use original content
                     pass
 
-            # Wrap in SystemMessage tags
-            current_dt = datetime.now(timezone.utc).strftime("%Y %b %-d, %-I:%M%p")
+            # Wrap in SystemMessage tags - use message's createdAt, not current time
+            message_dt = message.createdAt or datetime.now(timezone.utc)
+            current_dt = message_dt.strftime("%Y %b %-d, %-I:%M%p")
             wrapped_content = f'<SystemMessage current_date_time="{current_dt}">{content}</SystemMessage>'
 
             eden_as_user = message.model_copy(
@@ -391,24 +401,60 @@ def label_message_channels(messages: List[ChatMessage], session: "Session" = Non
             )
 
         elif channel_type == "eden" and message.sender:
-            sender = user_map.get(message.sender)
-            # For eden, sender could be a user or agent - look up agent if not found
-            sender_username = "Unknown"
-            if sender:
-                sender_username = sender.username or "Unknown"
-            else:
-                # Try to find agent (they share the users collection)
-                agent_sender = Agent.from_mongo(message.sender)
-                if agent_sender:
-                    sender_username = agent_sender.username or "Unknown"
+            # Check for PRIVATE_MESSAGE type first
+            if (
+                message.eden_message_data
+                and message.eden_message_data.message_type
+                == EdenMessageType.PRIVATE_MESSAGE
+            ):
+                # Get sender from eden_message_data.sender
+                sender_username = "Unknown"
+                if message.eden_message_data.sender:
+                    sender_username = message.eden_message_data.sender.name
 
-            message.content = eden_notification_template.render(
-                username=sender_username,
-                message_id=message.channel.key
-                if message.channel and message.channel.key
-                else "Unknown",
-                content=message.content,
-            )
+                # Build recipient list, replacing current agent with "You"
+                # For agent_sessions, session.agents[0] is the viewing agent
+                current_agent_id = (
+                    session.agents[0] if session and session.agents else None
+                )
+                recipient_names = []
+                if message.eden_message_data.agents:
+                    for agent_data in message.eden_message_data.agents:
+                        if current_agent_id and agent_data.id == current_agent_id:
+                            recipient_names.append("You")
+                        else:
+                            recipient_names.append(agent_data.name)
+
+                message.content = private_message_notification_template.render(
+                    sender_username=sender_username,
+                    recipient_list=", ".join(recipient_names)
+                    if recipient_names
+                    else "Unknown",
+                    message_id=message.channel.key
+                    if message.channel and message.channel.key
+                    else "Unknown",
+                    content=message.content,
+                )
+            else:
+                # Standard eden notification (public messages)
+                sender = user_map.get(message.sender)
+                # For eden, sender could be a user or agent - look up agent if not found
+                sender_username = "Unknown"
+                if sender:
+                    sender_username = sender.username or "Unknown"
+                else:
+                    # Try to find agent (they share the users collection)
+                    agent_sender = Agent.from_mongo(message.sender)
+                    if agent_sender:
+                        sender_username = agent_sender.username or "Unknown"
+
+                message.content = eden_notification_template.render(
+                    username=sender_username,
+                    message_id=message.channel.key
+                    if message.channel and message.channel.key
+                    else "Unknown",
+                    content=message.content,
+                )
 
         labeled_messages.append(message)
 
@@ -516,6 +562,9 @@ async def build_system_message(
         session_context=session.context,
         trigger_task=trigger_context.get("prompt") if trigger_context else None,
         trigger_task_name=trigger_context.get("name") if trigger_context else None,
+        trigger_task_schedule=trigger_context.get("schedule")
+        if trigger_context
+        else None,
     )
 
     return ChatMessage(session=[session.id], role="system", content=content)
@@ -791,7 +840,7 @@ async def build_llm_context(
     trigger_context = None
     trigger_selection_limit = None
     if context.trigger:
-        from eve.trigger import Trigger
+        from eve.trigger import Trigger, format_schedule_description
 
         try:
             trigger = Trigger.from_mongo(context.trigger)
@@ -799,7 +848,13 @@ async def build_llm_context(
                 # Substitute dynamic variables in the trigger prompt
                 # e.g., {{discordId}} -> user's Discord ID (or remove line if not set)
                 processed_prompt = substitute_trigger_variables(trigger.prompt, user)
-                trigger_context = {"name": trigger.name, "prompt": processed_prompt}
+                # Format schedule as human-readable text
+                schedule_description = format_schedule_description(trigger.schedule)
+                trigger_context = {
+                    "name": trigger.name,
+                    "prompt": processed_prompt,
+                    "schedule": schedule_description,
+                }
                 trigger_selection_limit = trigger.selection_limit
         except ValueError:
             # Trigger was deleted, continue without trigger context
@@ -888,7 +943,7 @@ async def build_agent_session_system_message(
     """Build system message for an agent_session with chatroom framing.
 
     Uses the agent_session_template which emphasizes the private workspace
-    concept and the need to use post_to_chatroom to contribute.
+    concept and the need to use the chat tool to contribute.
 
     Args:
         agent_session: The agent's private workspace session
@@ -997,10 +1052,10 @@ async def build_agent_session_llm_context(
     auth_user_id = context.acting_user_id or context.initiating_user_id
     tools = actor.get_tools(cache=False, auth_user=auth_user_id)
 
-    # Add post_to_chatroom tool (required for agent_sessions)
-    post_tool = Tool.load("post_to_chatroom")
-    if post_tool:
-        tools["post_to_chatroom"] = post_tool
+    # Add chat tool (required for agent_sessions to post to chatroom)
+    chat_tool = Tool.load("chat")
+    if chat_tool:
+        tools["chat"] = chat_tool
 
     # Build system message with chatroom framing
     system_message = await build_agent_session_system_message(

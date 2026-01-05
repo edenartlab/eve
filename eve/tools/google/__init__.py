@@ -4,7 +4,7 @@ import os
 import tempfile
 from urllib.parse import urlparse
 
-import requests
+import httpx
 
 from google import genai
 from google.genai import errors as genai_errors
@@ -74,20 +74,21 @@ async def veo_handler(args: dict, model: str):
 
     image = args.get("image")
     if image:
-        response = requests.get(image)
-        response.raise_for_status()
-        mime_type = response.headers.get("content-type")
-        if not mime_type:
-            mime_type = mimetypes.guess_type(urlparse(image).path)[0]
-        image = genai.types.Image(image_bytes=response.content, mime_type=mime_type)
-        args_dict["image"] = image
+        async with httpx.AsyncClient() as http_client:
+            response = await http_client.get(image, timeout=30.0)
+            response.raise_for_status()
+            mime_type = response.headers.get("content-type")
+            if not mime_type:
+                mime_type = mimetypes.guess_type(urlparse(image).path)[0]
+            image = genai.types.Image(image_bytes=response.content, mime_type=mime_type)
+            args_dict["image"] = image
 
     if args.get("prompt"):
         args_dict["prompt"] = args.get("prompt")
 
     # ---- start generation with error handling ----
     try:
-        operation = client.models.generate_videos(**args_dict)
+        operation = await client.aio.models.generate_videos(**args_dict)
     except genai_errors.ClientError as e:
         if e.status_code == 429:
             raise ValueError(
@@ -118,7 +119,7 @@ async def veo_handler(args: dict, model: str):
             )
         await asyncio.sleep(2)
         try:
-            operation = client.operations.get(operation)
+            operation = await client.aio.operations.get(operation)
         except genai_errors.ClientError as e:
             if e.status_code == 429:
                 # For polling, wait a bit longer before retrying

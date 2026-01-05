@@ -1,3 +1,4 @@
+import asyncio
 import mimetypes
 import tempfile
 from typing import Any, Dict, List
@@ -22,7 +23,7 @@ def download_image(url: str) -> tuple[bytes, str]:
     return response.content, mime_type
 
 
-def build_content_parts(message: Dict[str, Any]) -> List[Any]:
+async def build_content_parts(message: Dict[str, Any]) -> List[Any]:
     """Build content parts from a message dict."""
     parts = []
 
@@ -33,7 +34,9 @@ def build_content_parts(message: Dict[str, Any]) -> List[Any]:
     # Add image attachments if present
     if message.get("attachments"):
         for attachment_url in message["attachments"]:
-            image_bytes, mime_type = download_image(attachment_url)
+            image_bytes, mime_type = await asyncio.to_thread(
+                download_image, attachment_url
+            )
             parts.append(
                 genai.types.Part(
                     inline_data=genai.types.Blob(mime_type=mime_type, data=image_bytes)
@@ -63,7 +66,7 @@ async def handler(context: ToolContext):
 
     for message in args["messages"]:
         role = message.get("role", "user")
-        parts = build_content_parts(message)
+        parts = await build_content_parts(message)
 
         if parts:
             contents.append(genai.types.Content(role=role, parts=parts))
@@ -89,7 +92,8 @@ async def handler(context: ToolContext):
     generation_config = genai.types.GenerateContentConfig(**config_dict)
 
     # Make the API call
-    response = client.models.generate_content(
+    response = await asyncio.to_thread(
+        client.models.generate_content,
         model="gemini-3-pro-image-preview",
         contents=contents,
         config=generation_config,
