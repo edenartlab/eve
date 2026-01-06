@@ -1,6 +1,7 @@
 from typing import Optional
 
 from eve.agent.session.models import Session, SessionBudget
+from eve.mongo_async import async_update
 
 
 def check_session_budget(session: Session):
@@ -31,4 +32,22 @@ def update_session_budget(
         if turns_spent:
             budget.turns_spent += turns_spent
         session.update(budget=budget.model_dump())
+        session.budget = SessionBudget(**session.budget)
+
+
+async def update_session_budget_async(
+    session: Session,
+    tokens_spent: Optional[int] = None,
+    manna_spent: Optional[float] = None,
+    turns_spent: Optional[int] = None,
+):
+    if session.budget:
+        budget = session.budget
+        if tokens_spent:
+            budget.tokens_spent += tokens_spent
+        if manna_spent:
+            budget.manna_spent += manna_spent
+        if turns_spent:
+            budget.turns_spent += turns_spent
+        await async_update(session, budget=budget.model_dump())
         session.budget = SessionBudget(**session.budget)

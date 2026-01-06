@@ -19,6 +19,7 @@ from eve.agent.memory.memory_models import (
     select_messages,
 )
 from eve.agent.session.models import Session
+from eve.mongo_async import async_update
 from eve.user import User
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -91,7 +92,9 @@ async def _get_episode_memories(
     Returns list of episode memory dicts.
     """
     # Check if we have cached episodes:
-    safe_update_memory_context(session, {})  # Ensure memory_context exists
+    safe_update_memory_context(
+        session, {}, skip_save=True
+    )  # Ensure memory_context exists
     if not force_refresh and session.memory_context.cached_episode_memories is not None:
         return session.memory_context.cached_episode_memories
 
@@ -119,16 +122,17 @@ async def _get_episode_memories(
             for e in episode_memories
         ]
 
-        # Run cache update as background task to avoid blocking
+        # Update cache asynchronously to avoid blocking
+        safe_update_memory_context(
+            session,
+            {
+                "cached_episode_memories": cached_episodes,
+                "episode_memories_timestamp": datetime.now(timezone.utc),
+            },
+            skip_save=True,
+        )
         asyncio.create_task(
-            asyncio.to_thread(
-                safe_update_memory_context,
-                session,
-                {
-                    "cached_episode_memories": cached_episodes,
-                    "episode_memories_timestamp": datetime.now(timezone.utc),
-                },
-            )
+            async_update(session, memory_context=session.memory_context.model_dump())
         )
 
         query_time = time.time() - query_start
@@ -337,7 +341,9 @@ async def assemble_memory_context(
         start_time = time.time()
 
         # Check if we can use cached memory context
-        safe_update_memory_context(session, {})  # Ensure memory_context exists
+        safe_update_memory_context(
+            session, {}, skip_save=True
+        )  # Ensure memory_context exists
         if (
             session.memory_context.cached_memory_context is not None
         ) and not force_refresh:
@@ -368,10 +374,13 @@ async def assemble_memory_context(
 
         # Rebuild memory context
 
-        session_messages = select_messages(session)
-        session_users = list(
-            set([m.sender for m in session_messages if m.role == "user"])
-        )
+        if session.users:
+            session_users = list(set(session.users))
+        else:
+            session_messages = select_messages(session)
+            session_users = list(
+                set([m.sender for m in session_messages if m.role == "user"])
+            )
         max_n_user_memories_to_assemble = 4
 
         # 1. Get user memory (multiple queries if needed)
@@ -419,11 +428,13 @@ async def assemble_memory_context(
                 "agent_memory_timestamp": current_time,
                 "user_memory_timestamp": current_time,
             },
-            skip_save=skip_save,
+            skip_save=True,
         )
 
         if not skip_save:
-            session.save()
+            await async_update(
+                session, memory_context=session.memory_context.model_dump()
+            )
 
         total_time = time.time() - start_time
         _log_debug(

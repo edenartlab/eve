@@ -206,6 +206,15 @@ signal.signal(signal.SIGTERM, handle_shutdown_signal)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup
+    try:
+        from eve.mongo_async import get_async_mongo_client
+
+        mongo_uri = os.getenv("MONGO_URI")
+        if mongo_uri:
+            client = get_async_mongo_client()
+            await client.admin.command("ping")
+    except Exception as e:
+        logging.getLogger(__name__).warning(f"Async Mongo warmup skipped: {e}")
     yield
     # Shutdown - close all SSE connections
     from eve.api.sse_manager import sse_manager

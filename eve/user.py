@@ -5,12 +5,8 @@ from bson import ObjectId
 from loguru import logger
 from pydantic import BaseModel
 
-from .mongo import (
-    Collection,
-    Document,
-    MongoDocumentNotFound,
-    get_collection,
-)
+from .mongo import Collection, Document, MongoDocumentNotFound, get_collection
+from .mongo_async import get_async_collection
 
 
 @Collection("mannas")
@@ -451,6 +447,20 @@ def increment_message_count(user_id: ObjectId) -> None:
 
     users = get_collection(User.collection_name)
     users.update_one(
+        {"_id": user_id},
+        {"$inc": {"stats.messageCount": 1}},
+    )
+
+
+async def async_increment_message_count(user_id: ObjectId) -> None:
+    """
+    Async version of increment_message_count using Motor.
+    """
+    if not user_id:
+        return
+
+    users = get_async_collection(User.collection_name)
+    await users.update_one(
         {"_id": user_id},
         {"$inc": {"stats.messageCount": 1}},
     )

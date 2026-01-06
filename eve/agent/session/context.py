@@ -1,3 +1,4 @@
+import asyncio
 import copy
 import os
 import re
@@ -38,11 +39,12 @@ from eve.agent.session.models import (
     SessionMemoryContext,
     UpdateType,
 )
-from eve.agent.session.tracing import add_breadcrumb
+from eve.agent.session.tracing import add_breadcrumb, trace_async_operation
 from eve.concepts import Concept
 from eve.models import Model
+from eve.mongo_async import async_find_one, async_insert, get_async_collection
 from eve.tool import Tool
-from eve.user import User, increment_message_count
+from eve.user import User, async_increment_message_count
 
 
 def substitute_trigger_variables(prompt: str, user: Optional[User]) -> str:
@@ -612,6 +614,11 @@ async def add_chat_message(
         if (context.acting_user_id or context.initiating_user_id)
         else None
     )
+    initiating_user_id = (
+        ObjectId(str(context.initiating_user_id))
+        if context.initiating_user_id
+        else None
+    )
 
     # Ensure all attachments are on Eden
     attachments = context.message.attachments or []
@@ -658,68 +665,110 @@ async def add_chat_message(
             )
     if pin:
         new_message.pinned = True
-    new_message.save()
-
-    # Distribute to agent_sessions for multi-agent automatic sessions
-    if (
-        session.session_type == "automatic"
-        and session.agent_sessions
-        and len(session.agent_sessions) > 0
-    ):
-        await distribute_message_to_agent_sessions(
-            parent_session=session,
-            message=new_message,
-            exclude_agent_id=None,  # User messages go to all agents
-        )
-
-    # Increment message count for sender
-    if context.initiating_user_id:
-        increment_message_count(ObjectId(str(context.initiating_user_id)))
-
-    # Add user to Session.users for user role messages
-    if context.message.role == "user" and context.initiating_user_id:
-        add_user_to_session(session, ObjectId(str(context.initiating_user_id)))
 
     memory_context = session.memory_context
     memory_context.last_activity = datetime.now(timezone.utc)
     memory_context.messages_since_memory_formation += 1
-    session.update(memory_context=memory_context.model_dump())
-    session.memory_context = SessionMemoryContext(**session.memory_context)
+    memory_context_payload = memory_context.model_dump()
 
-    # Broadcast user message to SSE connections for real-time updates
-    try:
-        from eve.api.sse_manager import sse_manager
-        from eve.user import User
+    should_add_user = context.message.role == "user" and initiating_user_id is not None
+    if should_add_user:
+        current_users = set(session.users or [])
+        session.users = list(current_users | {initiating_user_id})
 
-        # Get full user data for enrichment
-        user = User.from_mongo(context.initiating_user_id)
+    session_id = str(session.id)
+    async with trace_async_operation(
+        "session.add_message_db_ops",
+        session_id=session_id,
+        user_id=str(initiating_user_id) if initiating_user_id else None,
+    ):
+        await async_insert(new_message)
 
-        # increment stats
-        # stats = user.stats
-        # stats["messageCount"] += 1
-        # user.update(stats=stats.model_dump())
+    async def _post_add_message_tasks():
+        tasks = []
 
-        user_data = {
-            "_id": str(user.id),
-            "username": user.username,
-            "name": user.username,  # Use username as name for consistency
-            "userImage": user.userImage,
+        session_update = {
+            "$set": {"memory_context": memory_context_payload},
+            "$currentDate": {"updatedAt": True},
         }
+        if should_add_user:
+            session_update["$addToSet"] = {"users": initiating_user_id}
+        session_collection = get_async_collection(Session.collection_name)
+        tasks.append(session_collection.update_one({"_id": session.id}, session_update))
 
-        message_dict = new_message.model_dump(by_alias=True)
-        # Enrich sender with full user data if available
-        if user_data:
-            message_dict["sender"] = user_data
+        # Distribute to agent_sessions for multi-agent automatic sessions
+        if (
+            session.session_type == "automatic"
+            and session.agent_sessions
+            and len(session.agent_sessions) > 0
+        ):
+            tasks.append(
+                distribute_message_to_agent_sessions(
+                    parent_session=session,
+                    message=new_message,
+                    exclude_agent_id=None,  # User messages go to all agents
+                )
+            )
 
-        user_message_update = {
-            "type": UpdateType.USER_MESSAGE.value,
-            "message": message_dict,
-        }
+        # Increment message count for sender
+        if initiating_user_id:
+            tasks.append(async_increment_message_count(initiating_user_id))
 
-        session_id = str(session.id)
-        await sse_manager.broadcast(session_id, user_message_update)
-    except Exception as e:
-        logger.error(f"Failed to broadcast user message to SSE: {e}")
+        # Broadcast user message to SSE connections for real-time updates
+        try:
+            from eve.api.sse_manager import sse_manager
+
+            if sse_manager.get_connection_count(session_id) > 0:
+
+                async def _safe_user_lookup():
+                    try:
+                        return await async_find_one(User, {"_id": initiating_user_id})
+                    except Exception as e:
+                        logger.error(f"Failed to load user for SSE: {e}")
+                        return None
+
+                user_task = (
+                    asyncio.create_task(_safe_user_lookup())
+                    if initiating_user_id
+                    else None
+                )
+
+                async def _broadcast():
+                    user = await user_task if user_task else None
+                    user_data = None
+                    if user:
+                        user_data = {
+                            "_id": str(user.id),
+                            "username": user.username,
+                            "name": user.username,  # Use username as name for consistency
+                            "userImage": user.userImage,
+                        }
+
+                    message_dict = new_message.model_dump(by_alias=True)
+                    if user_data:
+                        message_dict["sender"] = user_data
+
+                    user_message_update = {
+                        "type": UpdateType.USER_MESSAGE.value,
+                        "message": message_dict,
+                    }
+
+                    await sse_manager.broadcast(session_id, user_message_update)
+
+                tasks.append(_broadcast())
+        except Exception as e:
+            logger.error(f"Failed to broadcast user message to SSE: {e}")
+
+        if tasks:
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+            for result in results:
+                if isinstance(result, Exception):
+                    logger.error(f"Post add_message task failed: {result}")
+
+    asyncio.create_task(_post_add_message_tasks())
+
+    session.memory_context = SessionMemoryContext(**memory_context_payload)
+    session.updatedAt = memory_context.last_activity
 
     return new_message
 

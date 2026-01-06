@@ -3,6 +3,7 @@ Tool loaders - dynamic parameter injection and filtering for platform-specific t
 """
 
 import traceback
+from contextlib import nullcontext
 from typing import Any, Callable, Dict, List, Optional
 
 import sentry_sdk
@@ -145,7 +146,7 @@ def load_lora_docs(models: Optional[List[Dict]], models_collection) -> List[Dict
 
 def load_deployments(agent_id, deployment_class) -> Dict[str, Any]:
     """
-    Load deployments from MongoDB
+    Load deployments from MongoDB (with lazy KMS decryption)
 
     Args:
         agent_id: Agent ObjectId
@@ -156,10 +157,22 @@ def load_deployments(agent_id, deployment_class) -> Dict[str, Any]:
     """
     from bson import ObjectId
 
-    return {
-        deployment.platform.value: deployment
-        for deployment in deployment_class.find({"agent": ObjectId(str(agent_id))})
-    }
+    parent_span = sentry_sdk.Hub.current.scope.span
+
+    deployments_cursor = deployment_class.find({"agent": ObjectId(str(agent_id))})
+
+    construct_span = (
+        parent_span.start_child(
+            op="deployments.load", description="Load deployment documents"
+        )
+        if parent_span
+        else None
+    )
+    with construct_span if construct_span else nullcontext():
+        result = {}
+        for deployment in deployments_cursor:
+            result[deployment.platform.value] = deployment
+        return result
 
 
 def register_tool_loader(tool_name: str):
@@ -240,47 +253,52 @@ def inject_deployment_parameters(
     Returns:
         Updated tools dict
     """
-    for tool_name, tool in tools.items():
-        if tool_name not in TOOL_PARAMETER_LOADERS:
-            continue
+    with sentry_sdk.start_span(
+        op="tools.inject_deployment_parameters",
+        description=f"{len(tools)} tools, {len(deployments)} deployments",
+    ):
+        for tool_name, tool in tools.items():
+            if tool_name not in TOOL_PARAMETER_LOADERS:
+                continue
 
-        # Infer platform from tool name (e.g., "discord_post" -> "discord")
-        platform = tool_name.split("_")[0]
+            platform = tool_name.split("_")[0]
 
-        # Special case: Discord tools can use either "discord" or "discord_v3" deployment
-        if platform == "discord":
-            deployment = deployments.get("discord_v3") or deployments.get("discord")
-        else:
-            deployment = deployments.get(platform)
+            if platform == "discord":
+                deployment = deployments.get("discord_v3") or deployments.get("discord")
+            else:
+                deployment = deployments.get(platform)
 
-        if not deployment:
-            continue
+            if not deployment:
+                continue
 
-        loader = TOOL_PARAMETER_LOADERS[tool_name]
+            loader = TOOL_PARAMETER_LOADERS[tool_name]
 
-        try:
-            param_updates = loader(deployment)
-            if param_updates:
-                tool.update_parameters(param_updates)
-        except Exception as e:
-            logger.error(f"Error loading parameters for {tool_name}: {e}")
-            with sentry_sdk.push_scope() as scope:
-                scope.set_tag("component", "tool_loader")
-                scope.set_tag("tool_name", tool_name)
-                scope.set_tag("platform", platform)
-                if agent_username:
-                    scope.set_tag("agent_username", agent_username)
-                scope.set_context(
-                    "tool_loader_context",
-                    {
-                        "tool_name": tool_name,
-                        "platform": platform,
-                        "agent_username": agent_username,
-                        "error_message": str(e),
-                        "traceback": traceback.format_exc(),
-                    },
-                )
-                sentry_sdk.capture_exception(e)
+            try:
+                with sentry_sdk.start_span(
+                    op="tools.load_parameters", description=tool_name
+                ):
+                    param_updates = loader(deployment)
+                    if param_updates:
+                        tool.update_parameters(param_updates)
+            except Exception as e:
+                logger.error(f"Error loading parameters for {tool_name}: {e}")
+                with sentry_sdk.push_scope() as scope:
+                    scope.set_tag("component", "tool_loader")
+                    scope.set_tag("tool_name", tool_name)
+                    scope.set_tag("platform", platform)
+                    if agent_username:
+                        scope.set_tag("agent_username", agent_username)
+                    scope.set_context(
+                        "tool_loader_context",
+                        {
+                            "tool_name": tool_name,
+                            "platform": platform,
+                            "agent_username": agent_username,
+                            "error_message": str(e),
+                            "traceback": traceback.format_exc(),
+                        },
+                    )
+                    sentry_sdk.capture_exception(e)
 
     return tools
 

@@ -1,5 +1,6 @@
 import json
 import os
+from contextlib import nullcontext
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
@@ -374,6 +375,10 @@ class ChatMessage(Document):
     llm_config: Optional[Dict[str, Any]] = None
     apiKey: Optional[ObjectId] = None
     llm_call: Optional[ObjectId] = None  # Reference to LLMCall document
+
+    # Trace URLs for debugging (populated for assistant messages when available)
+    sentry_trace_url: Optional[str] = None
+    langfuse_trace_url: Optional[str] = None
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
@@ -1039,6 +1044,132 @@ class Session(Document):
         )
 
 
+@Collection("session_runs")
+class SessionRun(Document):
+    """Tracks individual prompt session runs for observability and correlation."""
+
+    # Core identifiers
+    session: ObjectId
+    run_id: str
+    status: Literal["started", "in_progress", "completed", "failed", "cancelled"] = (
+        "started"
+    )
+    environment: str
+
+    # Trace references for correlation
+    sentry_trace_id: Optional[str] = None
+    langfuse_trace_id: Optional[str] = None
+
+    # Timing
+    started_at: datetime
+    completed_at: Optional[datetime] = None
+    duration_ms: Optional[float] = None
+
+    # Actor info
+    agent_id: Optional[ObjectId] = None
+    user_id: Optional[ObjectId] = None
+    api_key_id: Optional[str] = None
+
+    # Metrics
+    total_tokens: Optional[int] = 0
+    prompt_tokens: Optional[int] = 0
+    completion_tokens: Optional[int] = 0
+    cached_tokens: Optional[int] = 0
+    total_cost_usd: Optional[float] = 0.0
+    message_count: int = 0
+    tool_calls_count: int = 0
+
+    # Platform info
+    platform: Optional[
+        Literal["discord", "telegram", "twitter", "farcaster", "gmail", "app"]
+    ] = None
+    is_streaming: bool = False
+
+    # Error tracking
+    error_type: Optional[str] = None
+    error_message: Optional[str] = None
+
+    # Web URLs for debugging
+    sentry_url: Optional[str] = None
+    langfuse_url: Optional[str] = None
+
+    # Additional metadata
+    metadata: Optional[Dict[str, Any]] = Field(default_factory=dict)
+
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
+    def build_trace_urls(self) -> Dict[str, str]:
+        """Build web URLs for viewing traces in Sentry and Langfuse."""
+        import urllib.parse
+
+        urls: Dict[str, str] = {}
+
+        sentry_dsn = os.getenv("SENTRY_DSN", "")
+        sentry_org = os.getenv("SENTRY_ORG", "edenlabs")
+
+        sentry_project_id = None
+        if sentry_dsn:
+            try:
+                parts = sentry_dsn.split("/")
+                if parts:
+                    sentry_project_id = parts[-1]
+            except (IndexError, AttributeError):
+                pass
+
+        if self.sentry_trace_id and sentry_project_id:
+            sentry_trace_hex = self.sentry_trace_id.replace("-", "")
+            params = {
+                "project": sentry_project_id,
+                "source": "traces",
+                "statsPeriod": "30d",
+            }
+            query_string = urllib.parse.urlencode(params)
+            urls["sentry"] = (
+                f"https://{sentry_org}.sentry.io/explore/traces/trace/{sentry_trace_hex}/?{query_string}"
+            )
+
+        langfuse_host = os.getenv("LANGFUSE_HOST", "https://us.cloud.langfuse.com")
+        langfuse_project_id = os.getenv("LANGFUSE_PROJECT_ID")
+
+        if self.langfuse_trace_id and langfuse_project_id:
+            environment_filter = f"environment;stringOptions;;any of;{self.environment}"
+            params = {
+                "filter": environment_filter,
+                "peek": self.langfuse_trace_id,
+            }
+            query_string = urllib.parse.urlencode(params)
+            urls["langfuse"] = (
+                f"{langfuse_host}/project/{langfuse_project_id}/traces?{query_string}"
+            )
+
+        return urls
+
+    @classmethod
+    def ensure_indexes(cls):
+        """Ensure indexes for efficient querying."""
+        collection = cls.get_collection()
+
+        collection.create_index(
+            [("session", 1), ("started_at", -1)],
+            name="session_runs_idx",
+            background=True,
+        )
+
+        collection.create_index(
+            [("status", 1), ("started_at", 1)],
+            name="incomplete_runs_idx",
+            background=True,
+            partialFilterExpression={"status": {"$in": ["started", "in_progress"]}},
+        )
+
+        collection.create_index(
+            [("run_id", 1)],
+            name="run_id_idx",
+            unique=True,
+            background=True,
+        )
+
+
 @dataclass
 class NotificationConfig:
     """Configuration for notifications to send upon session completion"""
@@ -1397,14 +1528,22 @@ class Deployment(Document):
     platform: ClientType
     valid: Optional[bool] = None
     local: Optional[bool] = None
-    secrets: Optional[DeploymentSecrets]
-    config: Optional[DeploymentConfig]
+    secrets: Optional[DeploymentSecrets] = None
+    config: Optional[DeploymentConfig] = None
     encrypted: Optional[bool] = None  # Track if secrets are encrypted
+    encrypted_secrets_cache: Optional[dict] = Field(default=None, exclude=True)
+    decrypted_secrets_cache: Optional[DeploymentSecrets] = Field(
+        default=None, exclude=True
+    )
 
     def __init__(self, **data):
         # Convert string to ClientType enum if needed
         if "platform" in data and isinstance(data["platform"], str):
             data["platform"] = ClientType(data["platform"])
+        if "secrets" in data and isinstance(data["secrets"], dict):
+            if "encryption_metadata" in data["secrets"]:
+                data["encrypted_secrets_cache"] = data["secrets"]
+                data.pop("secrets")
         super().__init__(**data)
 
     def model_dump(self, *args, **kwargs):
@@ -1413,6 +1552,55 @@ class Deployment(Document):
         if "platform" in data and isinstance(data["platform"], ClientType):
             data["platform"] = data["platform"].value
         return data
+
+    def get_secrets(self) -> Optional[DeploymentSecrets]:
+        """Get secrets with lazy decryption."""
+        if self.decrypted_secrets_cache is not None:
+            return self.decrypted_secrets_cache
+
+        if self.encrypted_secrets_cache:
+            from eve.utils.kms_encryption import decrypt_deployment_secrets
+
+            try:
+                import sentry_sdk
+            except ImportError:
+                sentry_sdk = None
+
+            parent_span = sentry_sdk.Hub.current.scope.span if sentry_sdk else None
+            decrypt_span = (
+                parent_span.start_child(
+                    op="kms.decrypt_lazy",
+                    description=f"Lazy decrypt {self.platform} deployment",
+                )
+                if parent_span
+                else None
+            )
+
+            with decrypt_span if decrypt_span else nullcontext():
+                try:
+                    decrypted_dict = decrypt_deployment_secrets(
+                        self.encrypted_secrets_cache
+                    )
+                    if decrypted_dict:
+                        self.decrypted_secrets_cache = DeploymentSecrets(
+                            **decrypted_dict
+                        )
+                        return self.decrypted_secrets_cache
+                except Exception as e:
+                    logger.error(
+                        f"Failed to decrypt {self.platform} deployment secrets on access: {e}"
+                    )
+                    return None
+
+        return self.secrets
+
+    def __getattribute__(self, name):
+        if name == "secrets":
+            value = super().__getattribute__(name)
+            if value is None and super().__getattribute__("encrypted_secrets_cache"):
+                return self.get_secrets()
+            return value
+        return super().__getattribute__(name)
 
     @classmethod
     def convert_to_mongo(cls, schema: dict, **kwargs) -> dict:
@@ -1435,30 +1623,7 @@ class Deployment(Document):
 
     @classmethod
     def convert_from_mongo(cls, schema: dict, **kwargs) -> dict:
-        """Decrypt secrets after loading from MongoDB"""
-        from eve.utils.kms_encryption import (
-            decrypt_deployment_secrets,
-            get_kms_encryption,
-        )
-
-        get_kms_encryption()
-
-        if "secrets" in schema and schema["secrets"]:
-            # Check if secrets are encrypted
-            if (
-                isinstance(schema["secrets"], dict)
-                and "encryption_metadata" in schema["secrets"]
-            ):
-                # Decrypt the secrets
-                try:
-                    decrypted_secrets = decrypt_deployment_secrets(schema["secrets"])
-                    schema["secrets"] = decrypted_secrets
-                except Exception as e:
-                    logger.error(f"Failed to decrypt deployment secrets: {e}")
-                    # Keep encrypted data in schema, will fail validation
-                    # This is better than losing data
-            # else: secrets are not encrypted (backward compatibility)
-
+        """Load from MongoDB - no decryption here, will decrypt lazily."""
         return schema
 
     @classmethod
