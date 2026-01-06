@@ -1059,41 +1059,48 @@ async def build_agent_session_llm_context(
         user = None
         tier = "free"
 
-    # Check if this is the moderator session
-    is_moderator = (
-        parent_session.moderator_session
-        and parent_session.moderator_session == agent_session.id
-    )
-
-    if is_moderator:
-        # Load moderator-specific tools
+    # Check if tools are explicitly overridden in context (e.g., for voting)
+    if context.tools:
         logger.info(
-            "[AGENT_SESSION_CONTEXT] Detected moderator session - loading moderator tools"
+            f"[AGENT_SESSION_CONTEXT] Using tool override from context: {list(context.tools.keys())}"
         )
-        tools = {}
-        for tool_key in [
-            "start_session",
-            "finish_session",
-            "prompt_agent",
-            "conduct_vote",
-            "chat",
-        ]:
-            tool = Tool.load(tool_key)
-            if tool:
-                tools[tool_key] = tool
-            else:
-                logger.warning(
-                    f"[AGENT_SESSION_CONTEXT] Moderator tool not found: {tool_key}"
-                )
+        tools = context.tools
     else:
-        # Get tools for regular agents
-        auth_user_id = context.acting_user_id or context.initiating_user_id
-        tools = actor.get_tools(cache=False, auth_user=auth_user_id)
+        # Check if this is the moderator session
+        is_moderator = (
+            parent_session.moderator_session
+            and parent_session.moderator_session == agent_session.id
+        )
 
-        # Add chat tool (required for agent_sessions to post to chatroom)
-        chat_tool = Tool.load("chat")
-        if chat_tool:
-            tools["chat"] = chat_tool
+        if is_moderator:
+            # Load moderator-specific tools
+            logger.info(
+                "[AGENT_SESSION_CONTEXT] Detected moderator session - loading moderator tools"
+            )
+            tools = {}
+            for tool_key in [
+                "start_session",
+                "finish_session",
+                "prompt_agent",
+                "conduct_vote",
+                "chat",
+            ]:
+                tool = Tool.load(tool_key)
+                if tool:
+                    tools[tool_key] = tool
+                else:
+                    logger.warning(
+                        f"[AGENT_SESSION_CONTEXT] Moderator tool not found: {tool_key}"
+                    )
+        else:
+            # Get tools for regular agents
+            auth_user_id = context.acting_user_id or context.initiating_user_id
+            tools = actor.get_tools(cache=False, auth_user=auth_user_id)
+
+            # Add chat tool (required for agent_sessions to post to chatroom)
+            chat_tool = Tool.load("chat")
+            if chat_tool:
+                tools["chat"] = chat_tool
 
     # Build system message with chatroom framing
     system_message = await build_agent_session_system_message(
@@ -1192,10 +1199,25 @@ async def build_agent_session_llm_context(
     else:
         config = get_default_session_llm_config(tier)
 
+    # Determine tool_choice - respect context override if provided
+    if context.tool_choice:
+        tool_choice = context.tool_choice
+        # Convert string tool name to proper format for forcing a specific tool
+        if tool_choice not in ["auto", "none"]:
+            tool_choice = {
+                "type": "function",
+                "function": {"name": context.tool_choice},
+            }
+        logger.info(
+            f"[AGENT_SESSION_CONTEXT] Using tool_choice override: {tool_choice}"
+        )
+    else:
+        tool_choice = "auto"
+
     return LLMContext(
         messages=messages,
         tools=tools,
-        tool_choice="auto",
+        tool_choice=tool_choice,
         config=config,
         metadata=LLMContextMetadata(
             session_id=f"{os.getenv('DB')}-{str(agent_session.id)}",

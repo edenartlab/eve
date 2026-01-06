@@ -26,6 +26,8 @@ The Moderator Agent:
 import asyncio
 import os
 import traceback
+from datetime import datetime, timedelta, timezone
+from typing import Optional
 
 from bson import ObjectId
 from loguru import logger
@@ -41,6 +43,173 @@ from eve.agent.session.setup import create_moderator_session, get_moderator_agen
 DEFAULT_REPLY_DELAY = 60
 
 
+def get_first_user_message(session: Session) -> Optional[ChatMessage]:
+    """Get the first user message from the parent session.
+
+    For automatic sessions, the scenario/prompt comes from the first user message
+    rather than session.context. This matches how sessions are created from the website.
+
+    Args:
+        session: The parent automatic session
+
+    Returns:
+        The first user message, or None if not found
+    """
+    message_doc = ChatMessage.get_collection().find_one(
+        {
+            "session": session.id,
+            "role": "user",
+        },
+        sort=[("createdAt", 1)],  # Oldest first
+    )
+    if message_doc:
+        logger.info(
+            f"[AUTO] Found message_doc _id type: {type(message_doc.get('_id'))}"
+        )
+        logger.info(f"[AUTO] message_doc keys: {list(message_doc.keys())}")
+        # Just return content since we only need that for planning
+        return type("SimpleMessage", (), {"content": message_doc.get("content", "")})()
+    return None
+
+
+async def generate_moderator_plan(
+    parent_session: Session,
+    first_user_message: str,
+) -> str:
+    """Generate comprehensive moderator instructions from user's initial message.
+
+    This is a one-off LLM call that converts the user's simple request into
+    detailed instructions for how to moderate the session. The output becomes
+    the moderator's session context.
+
+    Args:
+        parent_session: The parent automatic session
+        first_user_message: The user's initial request/scenario
+
+    Returns:
+        Comprehensive moderator instructions to be used as moderator_session.context
+    """
+    import os
+    import uuid
+
+    from eve.agent.llm.llm import async_prompt, get_provider
+    from eve.agent.session.models import (
+        LLMConfig,
+        LLMContext,
+        LLMContextMetadata,
+        LLMTraceMetadata,
+    )
+
+    logger.info("[AUTO] ===== Generating Moderator Plan =====")
+    logger.info(f"[AUTO] User request: {first_user_message[:100]}...")
+
+    # Build agent descriptions with full details
+    agent_descriptions = []
+    for agent_id in parent_session.agents:
+        agent = Agent.from_mongo(agent_id)
+        if agent:
+            desc = f"- **{agent.username}**: {agent.description or 'No description'}"
+            if agent.persona:
+                desc += f"\n  Persona: {agent.persona[:200]}..."
+            agent_descriptions.append(desc)
+
+    agents_text = (
+        "\n".join(agent_descriptions) if agent_descriptions else "No agents found."
+    )
+
+    # Build the planning prompt
+    system_content = """You are planning a multi-agent session. The user has provided a request, and you need to convert it into comprehensive instructions for the session moderator.
+
+Your output will be used as the moderator's context, so write as if you are giving instructions to the moderator (use "you" language).
+
+Generate detailed moderator instructions that include:
+
+1. **Scenario Understanding**: What is this session about? What's the goal?
+
+2. **Agent Initialization**: For each participating agent, what personalized context should they receive to understand their role? Be specific about what each agent should know.
+
+3. **Turn Order Strategy**: How should agents take turns? Is there a specific order or should it be dynamic based on the scenario?
+
+4. **Key Milestones**: What are the key phases or milestones of this session?
+
+5. **Finish Criteria**: When should the session end? What constitutes success?
+
+6. **Special Considerations**: Any rules, constraints, or special handling needed?
+
+Be concise but thorough. The moderator will use these instructions to orchestrate the session."""
+
+    user_content = f"""USER'S REQUEST:
+{first_user_message}
+
+PARTICIPATING AGENTS:
+{agents_text}
+
+Generate the moderator instructions now."""
+
+    # Create ChatMessage objects
+    system_message = ChatMessage(
+        session=[parent_session.id],
+        sender=ObjectId("000000000000000000000000"),
+        role="system",
+        content=system_content,
+    )
+
+    user_message = ChatMessage(
+        session=[parent_session.id],
+        sender=ObjectId("000000000000000000000000"),
+        role="user",
+        content=user_content,
+    )
+
+    # Create LLM context
+    llm_context = LLMContext(
+        messages=[system_message, user_message],
+        tools=[],
+        config=LLMConfig(
+            model="claude-sonnet-4-20250514",
+            fallback_models=["gpt-4o"],
+        ),
+        metadata=LLMContextMetadata(
+            session_id=f"{os.getenv('DB')}-{str(parent_session.id)}",
+            trace_name="moderator_planning",
+            trace_id=str(uuid.uuid4()),
+            generation_name="moderator_planning",
+            trace_metadata=LLMTraceMetadata(
+                session_id=str(parent_session.id),
+            ),
+        ),
+        enable_tracing=False,
+    )
+
+    # Make the one-off LLM call
+    logger.info("[AUTO] Making planning LLM call...")
+    provider = get_provider(llm_context)
+    if provider is None:
+        raise RuntimeError("No LLM provider available for moderator planning")
+
+    result = await async_prompt(llm_context, provider)
+
+    # Extract the text response
+    plan = ""
+    if hasattr(result, "content") and result.content:
+        # result.content could be a string or a list of blocks
+        if isinstance(result.content, str):
+            plan = result.content
+        else:
+            for block in result.content:
+                if hasattr(block, "text"):
+                    plan += block.text
+
+    if not plan:
+        logger.warning("[AUTO] Planning LLM returned empty response, using fallback")
+        plan = first_user_message  # Fallback to original message
+
+    logger.info(f"[AUTO] Generated moderator plan ({len(plan)} chars)")
+    logger.info(f"[AUTO] Plan preview: {plan[:200]}...")
+
+    return plan
+
+
 def is_running_on_modal() -> bool:
     """Check if we're running on Modal."""
     return os.getenv("MODAL_SERVE") == "1"
@@ -50,17 +219,28 @@ def get_reply_delay(session: Session) -> int:
     """Get the reply delay for an automatic session.
 
     Uses session.settings.delay_interval if set, otherwise DEFAULT_REPLY_DELAY.
+    A delay of 0 means instant (no delay).
     """
     if not session.settings:
+        logger.info(
+            f"[AUTO] get_reply_delay: no settings, using default {DEFAULT_REPLY_DELAY}"
+        )
         return DEFAULT_REPLY_DELAY
 
     # Handle both dict (from MongoDB) and SessionSettings object
     if isinstance(session.settings, dict):
-        delay = session.settings.get("delay_interval", 0)
+        delay = session.settings.get("delay_interval")
     else:
-        delay = session.settings.delay_interval
+        delay = getattr(session.settings, "delay_interval", None)
 
-    return delay if delay and delay > 0 else DEFAULT_REPLY_DELAY
+    logger.info(
+        f"[AUTO] get_reply_delay: settings={session.settings}, delay_interval={delay}"
+    )
+
+    # Return delay if explicitly set (including 0), otherwise default
+    if delay is not None:
+        return delay
+    return DEFAULT_REPLY_DELAY
 
 
 async def schedule_next_automatic_run(session_id: str, delay_seconds: int) -> None:
@@ -86,14 +266,38 @@ async def _delayed_automatic_run(session_id: str, delay_seconds: int) -> None:
     logger.info(
         f"[AUTO] _delayed_automatic_run starting for {session_id}, delay={delay_seconds}s"
     )
-    await asyncio.sleep(delay_seconds)
-    logger.info(f"[AUTO] _delayed_automatic_run woke up for {session_id}")
+
+    # Only sleep and set waiting_until if there's actually a delay
+    if delay_seconds > 0:
+        # Set waiting_until so client knows we're in a delay period
+        try:
+            session = Session.from_mongo(session_id)
+            if session:
+                wait_until = datetime.now(timezone.utc) + timedelta(
+                    seconds=delay_seconds
+                )
+                session.update(waiting_until=wait_until)
+                logger.info(
+                    f"[AUTO] >>>>>> SLEEPING FOR {delay_seconds} SECONDS (until {wait_until.isoformat()}) <<<<<<"
+                )
+        except Exception as e:
+            logger.warning(f"[AUTO] Could not set waiting_until: {e}")
+
+        await asyncio.sleep(delay_seconds)
+        logger.info(
+            f"[AUTO] >>>>>> DELAY COMPLETE ({delay_seconds}s), WAKING UP <<<<<<"
+        )
+
+    logger.info(f"[AUTO] _delayed_automatic_run proceeding for {session_id}")
 
     try:
         session = Session.from_mongo(session_id)
         logger.info(
             f"[AUTO] Loaded session {session_id}, status={session.status}, type={session.session_type}"
         )
+        # Clear waiting_until since delay is complete
+        if session.waiting_until:
+            session.update(waiting_until=None)
     except Exception as e:
         logger.error(
             f"[AUTO] Failed to load session {session_id}: {e}\n{traceback.format_exc()}"
@@ -137,7 +341,12 @@ async def run_automatic_session_step(session: Session) -> None:
     """
     from eve.agent.session.agent_session_runtime import run_agent_session_turn
 
+    # Get delay for logging
+    delay = get_reply_delay(session)
     logger.info("[AUTO] ========== run_automatic_session_step START ==========")
+    logger.info(
+        f"[AUTO] >>>>>> NEW MODERATOR TURN STARTING (delay_interval={delay}s) <<<<<<"
+    )
     logger.info(f"[AUTO] Session ID: {session.id}")
     logger.info(f"[AUTO] Session title: {session.title}")
     logger.info(f"[AUTO] Session status: {session.status}")
@@ -156,7 +365,7 @@ async def run_automatic_session_step(session: Session) -> None:
         )
         return
 
-    if session.status in ("paused", "archived"):
+    if session.status in ("paused", "archived", "finished"):
         logger.info(f"[AUTO] Session status is '{session.status}', not running step")
         logger.info(
             "[AUTO] ========== run_automatic_session_step END (skipped) =========="
@@ -171,7 +380,28 @@ async def run_automatic_session_step(session: Session) -> None:
         # Get or create moderator_session
         if not session.moderator_session:
             logger.info("[AUTO] Creating moderator_session...")
-            moderator_session_id = create_moderator_session(session)
+
+            # Get the first user message (this is the user's scenario/request)
+            first_message = get_first_user_message(session)
+            if first_message:
+                logger.info(
+                    f"[AUTO] Found first user message: {first_message.content[:100]}..."
+                )
+                # Use the first user message content as the moderator plan
+                # (Eventually we can use generate_moderator_plan to expand this)
+                moderator_plan = first_message.content
+
+            elif session.context:
+                # Fallback to session.context for backwards compatibility
+                logger.info("[AUTO] No first user message, using session.context")
+                moderator_plan = session.context
+            else:
+                raise Exception(
+                    "Automatic session requires either a first user message or session.context"
+                )
+
+            # Create moderator session with the generated plan
+            moderator_session_id = create_moderator_session(session, moderator_plan)
             session.update(moderator_session=moderator_session_id)
             session.moderator_session = moderator_session_id
             logger.info(f"[AUTO] Created moderator_session: {moderator_session_id}")
@@ -226,7 +456,7 @@ async def run_automatic_session_step(session: Session) -> None:
 
         # Reload session to check if moderator called finish_session
         session.reload()
-        if session.status == "paused":
+        if session.status == "finished":
             logger.info("[AUTO] Moderator finished the session")
             logger.info(
                 "[AUTO] ========== run_automatic_session_step END (finished) =========="
@@ -269,13 +499,13 @@ async def run_automatic_session_step(session: Session) -> None:
                     actor=moderator_agent,
                 )
 
-                # Force pause if moderator didn't finish
+                # Force finish if moderator didn't finish
                 session.reload()
-                if session.status != "paused":
+                if session.status != "finished":
                     logger.warning(
-                        "[AUTO] Moderator didn't finish after budget exhaustion, forcing pause"
+                        "[AUTO] Moderator didn't finish after budget exhaustion, forcing finish"
                     )
-                    session.update(status="paused")
+                    session.update(status="finished")
 
                 logger.info("[AUTO] Session finished due to turn budget exhaustion")
                 logger.info(
@@ -296,7 +526,7 @@ async def run_automatic_session_step(session: Session) -> None:
                 f"[AUTO] Status changed during execution to '{session.status}', not resetting to 'active'"
             )
 
-        # Schedule next step
+        # Schedule next step immediately (delay is now applied inside prompt_agent)
         logger.info("[AUTO] ===== Next Step Scheduling =====")
         session.reload()
         logger.info(
@@ -304,9 +534,9 @@ async def run_automatic_session_step(session: Session) -> None:
         )
 
         if session.status == "active" and session.session_type == "automatic":
-            delay = get_reply_delay(session)
-            logger.info(f"[AUTO] Scheduling next step in {delay}s")
-            await schedule_next_automatic_run(str(session.id), delay)
+            # No delay here - delay is applied after each prompt_agent call
+            logger.info("[AUTO] Scheduling next moderator turn immediately")
+            await schedule_next_automatic_run(str(session.id), delay_seconds=0)
         else:
             logger.info(
                 f"[AUTO] NOT scheduling next step (status={session.status}, type={session.session_type})"
@@ -365,6 +595,12 @@ async def start_automatic_session(session_id: str) -> None:
             f"[AUTO] Session {session_id} is not automatic (type={session.session_type})"
         )
         raise ValueError(f"Session {session_id} is not an automatic session")
+
+    if session.status == "finished":
+        logger.error(f"[AUTO] Session {session_id} is finished and cannot be restarted")
+        raise ValueError(
+            f"Session {session_id} is finished. Create a new session instead."
+        )
 
     if session.status != "active":
         logger.error(

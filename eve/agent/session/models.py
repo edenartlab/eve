@@ -971,7 +971,7 @@ class Session(Document):
     channel: Optional[Channel] = None
     parent_session: Optional[ObjectId] = None
     agents: List[ObjectId] = Field(default_factory=list)
-    status: Literal["active", "paused", "running", "archived"] = "active"
+    status: Literal["active", "paused", "running", "archived", "finished"] = "active"
     messages: List[ObjectId] = Field(default_factory=list)
     memory_context: Optional[SessionMemoryContext] = Field(
         default_factory=SessionMemoryContext
@@ -1003,6 +1003,10 @@ class Session(Document):
 
     # For agent_sessions: track last synced parent message for bulk updates
     last_parent_message_id: Optional[ObjectId] = None
+
+    # For automatic sessions: timestamp when current delay will end
+    # Client can use this to show countdown/progress. None = not waiting.
+    waiting_until: Optional[datetime] = None
 
     @field_validator("agent_sessions", mode="before")
     @classmethod

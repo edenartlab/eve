@@ -279,7 +279,10 @@ def get_moderator_agent_id() -> ObjectId:
     return MODERATOR_AGENT_IDS.get(db_env, MODERATOR_AGENT_IDS["STAGE"])
 
 
-def create_moderator_session(parent_session: Session) -> ObjectId:
+def create_moderator_session(
+    parent_session: Session,
+    moderator_plan: str = None,
+) -> ObjectId:
     """Create the moderator agent's private workspace session.
 
     The moderator agent orchestrates automatic multi-agent sessions using
@@ -287,6 +290,9 @@ def create_moderator_session(parent_session: Session) -> ObjectId:
 
     Args:
         parent_session: The parent automatic session to moderate
+        moderator_plan: Pre-generated comprehensive plan from the planning step.
+                       If provided, this is used as the SESSION CONTEXT instead of
+                       parent_session.context.
 
     Returns:
         ObjectId of the created moderator_session
@@ -307,11 +313,16 @@ def create_moderator_session(parent_session: Session) -> ObjectId:
         if agent:
             agent_descriptions.append(f"- {agent.username}: {agent.description}")
 
+    # Use pre-generated plan if provided, otherwise fall back to parent context
+    session_context = (
+        moderator_plan or parent_session.context or "No specific scenario provided."
+    )
+
     # Build moderator context with session info and responsibilities
     moderator_context = f"""You are the MODERATOR of this multi-agent session.
 
 SESSION CONTEXT:
-{parent_session.context or "No specific scenario provided."}
+{session_context}
 
 PARTICIPATING AGENTS:
 {chr(10).join(agent_descriptions)}

@@ -57,7 +57,7 @@ async def _list_events(
     """List events in a time range."""
     start_time_str = context.args.get("start_time")
     end_time_str = context.args.get("end_time")
-    max_results = min(context.args.get("max_results", 10), 50)
+    max_results = min(int(context.args.get("max_results", 10)), 50)
     include_description = context.args.get("include_description", False)
 
     now = datetime.now(timezone.utc)
