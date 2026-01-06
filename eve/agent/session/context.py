@@ -241,13 +241,16 @@ async def determine_actors(
 
     # ========== AUTOMATIC ==========
     elif session.session_type == "automatic":
-        logger.info("[ACTORS] Automatic - using conductor")
-        from eve.agent.session.conductor import conductor_select_actor
-
-        actor = await conductor_select_actor(session)
-        logger.info(f"[ACTORS] Conductor selected: {actor.username}")
-        session.update(last_actor_id=actor.id)
-        return [actor]
+        # Automatic sessions are now orchestrated by the Moderator agent.
+        # Actor selection happens via the prompt_agent tool, not determine_actors.
+        # If we get here, it means something is calling determine_actors for an
+        # automatic session which shouldn't happen with the new moderator flow.
+        logger.warning(
+            "[ACTORS] Automatic sessions should use the Moderator agent, not determine_actors. "
+            "This path should not be reached with the new moderator-based orchestration."
+        )
+        # Return empty list to avoid breaking anything
+        return []
 
     # Unknown session type
     logger.warning(f"[ACTORS] Unknown session_type: {session.session_type}")
@@ -735,6 +738,9 @@ async def distribute_message_to_agent_sessions(
     ensures it's also added to all OTHER agent_sessions. This enables real-time
     message distribution instead of bulk sync.
 
+    Also distributes to the moderator_session if present, so the moderator
+    can observe all conversation activity.
+
     Args:
         parent_session: The parent chatroom session
         message: The ChatMessage that was just created
@@ -749,6 +755,11 @@ async def distribute_message_to_agent_sessions(
         if exclude_agent_id and agent_id_str == str(exclude_agent_id):
             continue
         target_sessions.append(agent_session_id)
+
+    # Also distribute to moderator_session if present
+    # The moderator needs to see all messages to orchestrate the conversation
+    if parent_session.moderator_session:
+        target_sessions.append(parent_session.moderator_session)
 
     if not target_sessions:
         return
@@ -1048,14 +1059,41 @@ async def build_agent_session_llm_context(
         user = None
         tier = "free"
 
-    # Get tools for the agent
-    auth_user_id = context.acting_user_id or context.initiating_user_id
-    tools = actor.get_tools(cache=False, auth_user=auth_user_id)
+    # Check if this is the moderator session
+    is_moderator = (
+        parent_session.moderator_session
+        and parent_session.moderator_session == agent_session.id
+    )
 
-    # Add chat tool (required for agent_sessions to post to chatroom)
-    chat_tool = Tool.load("chat")
-    if chat_tool:
-        tools["chat"] = chat_tool
+    if is_moderator:
+        # Load moderator-specific tools
+        logger.info(
+            "[AGENT_SESSION_CONTEXT] Detected moderator session - loading moderator tools"
+        )
+        tools = {}
+        for tool_key in [
+            "start_session",
+            "finish_session",
+            "prompt_agent",
+            "conduct_vote",
+            "chat",
+        ]:
+            tool = Tool.load(tool_key)
+            if tool:
+                tools[tool_key] = tool
+            else:
+                logger.warning(
+                    f"[AGENT_SESSION_CONTEXT] Moderator tool not found: {tool_key}"
+                )
+    else:
+        # Get tools for regular agents
+        auth_user_id = context.acting_user_id or context.initiating_user_id
+        tools = actor.get_tools(cache=False, auth_user=auth_user_id)
+
+        # Add chat tool (required for agent_sessions to post to chatroom)
+        chat_tool = Tool.load("chat")
+        if chat_tool:
+            tools["chat"] = chat_tool
 
     # Build system message with chatroom framing
     system_message = await build_agent_session_system_message(

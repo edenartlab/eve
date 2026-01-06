@@ -66,6 +66,11 @@ HANDLER_PATHS = {
     "tiktok_post": "tiktok.tiktok_post.handler",
     "session_post": "session_post.handler",
     "chat": "chat.handler",
+    # Moderator tools for multi-agent session orchestration
+    "start_session": "moderator.start_session.handler",
+    "finish_session": "moderator.finish_session.handler",
+    "prompt_agent": "moderator.prompt_agent.handler",
+    "conduct_vote": "moderator.conduct_vote.handler",
     "email_send": "email.email_send.handler",
     "gmail_send": "gmail.gmail_send.handler",
     # Google Calendar tools
