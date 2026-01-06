@@ -54,9 +54,9 @@ class Manna(Document):
 @Collection("transactions")
 class Transaction(Document):
     manna: ObjectId
-    task: ObjectId
+    task: Optional[ObjectId] = None
     amount: float
-    type: Literal["spend", "refund"]
+    type: Literal["spend", "refund", "daily_topup_mars_college_26"]
 
 
 # todo: add more stats

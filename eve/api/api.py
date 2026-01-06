@@ -33,6 +33,7 @@ from eve.api.api_functions import (
     run,
     run_task,
     run_task_replicate,
+    topup_mars_college_manna_fn,
 )
 from eve.api.api_requests import (
     AgentPromptsExtractionRequest,
@@ -732,6 +733,13 @@ embed_recent_creations_modal = app.function(
 process_cold_sessions_modal = app.function(
     image=image, max_containers=1, schedule=modal.Period(minutes=10), timeout=3600
 )(process_cold_sessions_fn)
+
+topup_mars_college_manna_modal = app.function(
+    image=image,
+    max_containers=1,
+    schedule=modal.Cron("0 6 * * *", timezone="America/Los_Angeles"),
+    timeout=3600,
+)(topup_mars_college_manna_fn)
 
 
 ########################################################

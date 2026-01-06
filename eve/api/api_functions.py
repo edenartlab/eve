@@ -25,6 +25,8 @@ from eve.tools.replicate_tool import replicate_update_task
 from eve.tools.tool_handlers import load_handler
 
 db = os.getenv("DB", "STAGE").upper()
+MARS_COLLEGE_FEATURE_FLAG = "mars_college_26"
+MARS_COLLEGE_DAILY_MANNA_TARGET = 1000
 
 
 # Modal scheduled functions
@@ -64,6 +66,58 @@ async def process_cold_sessions_fn():
         await process_cold_sessions()
     except Exception as e:
         logger.error(f"Error processing cold sessions: {e}")
+        sentry_sdk.capture_exception(e)
+
+
+async def topup_mars_college_manna_fn():
+    """Top up subscription manna daily for Mars College users."""
+    try:
+        from eve.user import Manna, Transaction, User
+
+        users = User.find(
+            {
+                "type": "user",
+                "deleted": {"$ne": True},
+                "featureFlags": MARS_COLLEGE_FEATURE_FLAG,
+            }
+        )
+
+        if not users:
+            logger.info(
+                f"[MARS_COLLEGE_TOPUP] No users with flag {MARS_COLLEGE_FEATURE_FLAG}"
+            )
+            return
+
+        updated_count = 0
+        for user in users:
+            try:
+                manna = Manna.load(user.id)
+                current_balance = manna.subscriptionBalance or 0
+                if current_balance >= MARS_COLLEGE_DAILY_MANNA_TARGET:
+                    continue
+
+                topup_amount = MARS_COLLEGE_DAILY_MANNA_TARGET - current_balance
+                manna.subscriptionBalance = MARS_COLLEGE_DAILY_MANNA_TARGET
+                manna.save()
+
+                Transaction(
+                    manna=manna.id,
+                    amount=topup_amount,
+                    type="daily_topup_mars_college_26",
+                ).save()
+                updated_count += 1
+            except Exception as e:
+                logger.error(
+                    f"[MARS_COLLEGE_TOPUP] Failed for user {user.id}: {e}",
+                    exc_info=True,
+                )
+                sentry_sdk.capture_exception(e)
+
+        logger.info(
+            f"[MARS_COLLEGE_TOPUP] Topped up {updated_count} of {len(users)} users"
+        )
+    except Exception as e:
+        logger.error(f"[MARS_COLLEGE_TOPUP] Error running top-up: {e}")
         sentry_sdk.capture_exception(e)
 
 
