@@ -5,6 +5,7 @@ from eve.tool_constants import (
     CHIBA_TOOLS,
     GIGABRAIN_TOOLS,
     VERDELIS_TOOLS,
+    WZRD_TOOLS,
 )
 
 handlers = {}
@@ -72,14 +73,12 @@ HANDLER_PATHS = {
     "google_calendar_query": "google_calendar.google_calendar_query.handler",
     "google_calendar_edit": "google_calendar.google_calendar_edit.handler",
     "google_calendar_delete": "google_calendar.google_calendar_delete.handler",
-    # WZRD tools (VJ projection mapping)
-    "wzrd_darken_image": "wzrd.wzrd_darken_image.handler",
-    "wzrd_video_subtract_background": "wzrd.wzrd_video_subtract_background.handler",
     # Agent tools are added dynamically below
     **{tool: f"abraham.{tool}.handler" for tool in ABRAHAM_TOOLS},
     **{tool: f"verdelis.{tool}.handler" for tool in VERDELIS_TOOLS},
     **{tool: f"gigabrain.{tool}.handler" for tool in GIGABRAIN_TOOLS},
     **{tool: f"chiba.{tool}.handler" for tool in CHIBA_TOOLS},
+    **{tool: f"wzrd.{tool}.handler" for tool in WZRD_TOOLS},
 }
 
 

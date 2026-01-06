@@ -105,6 +105,7 @@ GIGABRAIN_TOOLS = _discover_tools("gigabrain")
 ABRAHAM_TOOLS = _discover_tools("abraham")
 VERDELIS_TOOLS = _discover_tools("verdelis")
 CHIBA_TOOLS = _discover_tools("chiba")
+WZRD_TOOLS = _discover_tools("wzrd")
 
 DISCORD_TOOLS = ["discord_post", "discord_search", "discord_broadcast_dm"]
 TELEGRAM_TOOLS = ["telegram_post"]

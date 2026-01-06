@@ -108,6 +108,10 @@ def get_agent_specific_tools(
                 "eden_search",
             ]
         )
+    elif username in ("wzrd", "WZRD"):
+        from ..tool_constants import WZRD_TOOLS
+
+        result.extend(WZRD_TOOLS)
 
     # Check for gigabrain tools via tools config toggle
     if tools_config and tools_config.get("gigabrain_tools"):
