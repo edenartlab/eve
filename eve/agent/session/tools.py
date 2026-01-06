@@ -169,10 +169,13 @@ async def async_run_tool_call_with_cancellation(
                 "task": getattr(task, "id", None),
             }
 
-    # Add task.cost and task.id to the result object
+    # Add task.cost, task.id, and status to the result object
     if isinstance(result, dict):
         result["cost"] = getattr(task, "cost", None)
         result["task"] = getattr(task, "id", None)
+        # Ensure status is set for successful completion
+        if "status" not in result:
+            result["status"] = "completed"
 
     return result
 

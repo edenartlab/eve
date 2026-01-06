@@ -346,6 +346,16 @@ async def handle_prompt_session(
     )
     session_id = str(session.id)
 
+    # For automatic sessions that are actively running, just add the message
+    # without running orchestration - the moderator will see it on its next turn
+    if session.session_type == "automatic" and session.status in ("running", "active"):
+        logger.info(
+            f"[PROMPT] Automatic session {session_id} is {session.status}, "
+            "adding message only (no orchestration)"
+        )
+        # Use the message-only handler
+        return await handle_session_message(request, background_tasks)
+
     # Build orchestration request
     orch_request = OrchestrationRequest(
         initiating_user_id=request.user_id,
@@ -686,6 +696,14 @@ async def handle_session_status_update(request):
         logger.info(
             f"[STATUS] Session {session.id}: type={session.session_type}, {old_status} -> {new_status}"
         )
+
+        # Reject attempts to reactivate a finished session
+        if old_status == "finished" and new_status == "active":
+            logger.warning(f"[STATUS] Cannot reactivate finished session {session.id}")
+            return {
+                "success": False,
+                "error": "Cannot reactivate a finished session. Create a new session instead.",
+            }
 
         # Update the status
         session.update(status=new_status)
