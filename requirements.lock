@@ -439,8 +439,10 @@ numpy==2.3.1
     # via imageio
     # via langchain-aws
     # via moviepy
+    # via opencv-python
     # via shapely
     # via transformers
+    # via wzrd
 oauthlib==3.3.1
     # via requests-oauthlib
     # via tweepy
@@ -449,6 +451,8 @@ openai==1.99.9
     # via graphiti-core
     # via instructor
     # via litellm
+opencv-python==4.10.0.84
+    # via wzrd
 opensearch-py==3.0.0
     # via graphiti-core
 orjson==3.11.4
@@ -481,6 +485,7 @@ pillow==11.3.0
     # via imageio
     # via moviepy
     # via pdfplumber
+    # via wzrd
 platformdirs==4.4.0
     # via mkdocs-get-deps
     # via virtualenv
@@ -623,6 +628,7 @@ pyyaml==6.0.2
     # via pyyaml-env-tag
     # via runway
     # via transformers
+    # via wzrd
     # via yamllint
 pyyaml-env-tag==1.1
     # via mkdocs
@@ -825,6 +831,8 @@ websockets==13.1
     # via web3
 wrapt==1.17.2
     # via langfuse
+wzrd @ git+https://github.com/aiXander/WZRD.git@b230f8ff75b33932b6d635b9a03720fdcd1ad44c
+    # via eve
 yamllint==1.37.1
     # via runway
 yarl==1.20.1

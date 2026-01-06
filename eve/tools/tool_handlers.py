@@ -72,6 +72,9 @@ HANDLER_PATHS = {
     "google_calendar_query": "google_calendar.google_calendar_query.handler",
     "google_calendar_edit": "google_calendar.google_calendar_edit.handler",
     "google_calendar_delete": "google_calendar.google_calendar_delete.handler",
+    # WZRD tools (VJ projection mapping)
+    "wzrd_darken_image": "wzrd.wzrd_darken_image.handler",
+    "wzrd_video_subtract_background": "wzrd.wzrd_video_subtract_background.handler",
     # Agent tools are added dynamically below
     **{tool: f"abraham.{tool}.handler" for tool in ABRAHAM_TOOLS},
     **{tool: f"verdelis.{tool}.handler" for tool in VERDELIS_TOOLS},

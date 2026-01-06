@@ -1,4 +1,4 @@
-name: darken_image
+name: wzrd_darken_image
 description: Darken an image for projection mapping by applying gamma compression and brightness scaling
 tip: |-
   Useful for preparing images for VJ projection applications. Lower gamma values

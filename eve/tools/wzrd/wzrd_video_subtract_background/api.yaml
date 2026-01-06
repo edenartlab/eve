@@ -1,4 +1,4 @@
-name: video_subtract_background
+name: wzrd_video_subtract_background
 description: Subtract background from a video to isolate bright creatures/elements for VJ projection
 tip: |-
   Processes a video frame-by-frame using background subtraction to extract bright
