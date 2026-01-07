@@ -20,6 +20,7 @@ parameters:
     description: The action to perform on the display
     required: true
     choices:
+      - nodes
       - status
       - health
       - files
@@ -35,6 +36,7 @@ parameters:
       - cache
       - clear_cache
     choices_labels:
+      - List Display Nodes
       - Get Status
       - Health Check
       - List Cached Files
@@ -101,18 +103,14 @@ parameters:
     label: Name
     description: Optional friendly name for cached content
     required: false
-  kiosk:
+  node:
     type: string
-    label: Kiosk
-    description: Which display kiosk to send the command to
+    label: Node
+    description: Target display node
     required: false
     choices:
-      - mars01.local
-      - mars02.local
-      - mars04.local
-      - mars05.local
+      - macbook
+      - mars-02
     choices_labels:
-      - Mars 01
+      - Macbook
       - Mars 02
-      - Mars 04
-      - Mars 05

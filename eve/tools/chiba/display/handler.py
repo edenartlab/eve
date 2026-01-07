@@ -9,9 +9,9 @@ from eve.tool import ToolContext
 
 async def handler(context: ToolContext):
     """
-    Control the Chiba kiosk display via HTTP API.
+    Control the Chiba display system via HTTP API.
 
-    Supports actions: status, health, files, play, stop, pause, resume,
+    Supports actions: nodes, status, health, files, play, stop, pause, resume,
     next, previous, volume, loop, image_duration, cache, clear_cache
     """
     logger.info(f"[DISPLAY] Received args: {json.dumps(context.args, default=str)}")
@@ -41,13 +41,13 @@ async def handler(context: ToolContext):
         )
         raise ValueError(f"action parameter is required. Received args: {context.args}")
 
-    kiosk = context.args.get("kiosk")
+    node = context.args.get("node")
 
     def build_url(endpoint: str) -> str:
-        """Build URL, optionally routing through specific kiosk."""
-        if kiosk:
+        """Build URL, optionally routing through specific node."""
+        if node:
             # Route to specific node via controller proxy
-            return f"{base_url}/api/nodes/{kiosk}/{endpoint}"
+            return f"{base_url}/api/nodes/{node}/{endpoint}"
         return f"{base_url}/{endpoint}"
 
     def handle_response(response, action_name, request_data=None):
@@ -70,9 +70,18 @@ async def handler(context: ToolContext):
         return response.json()
 
     async with httpx.AsyncClient(timeout=60.0) as client:
-        # === Public Endpoints (GET) ===
+        # === Controller Endpoints ===
 
-        if action == "status":
+        if action == "nodes":
+            # List all connected display nodes
+            response = await client.get(f"{base_url}/api/nodes")
+            result = handle_response(response, "nodes")
+            logger.info(f"[DISPLAY] nodes result: {result}")
+            return {"output": result}
+
+        # === Node Endpoints (GET) ===
+
+        elif action == "status":
             response = await client.get(build_url("status"))
             result = handle_response(response, "status")
             logger.info(f"[DISPLAY] status result: {result}")
@@ -271,6 +280,7 @@ async def handler(context: ToolContext):
 
         else:
             valid_actions = [
+                "nodes",
                 "status",
                 "health",
                 "files",
