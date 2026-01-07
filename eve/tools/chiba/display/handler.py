@@ -19,9 +19,7 @@ async def handler(context: ToolContext):
     base_url = os.getenv("CHIBA_DISPLAY_URL")
     api_key = os.getenv("CHIBA_API_KEY")
 
-    logger.info(
-        f"[DISPLAY] base_url={base_url}, api_key={api_key[:10] if api_key else None}..."
-    )
+    logger.info(f"[DISPLAY] base_url={base_url}, api_key={api_key}")
 
     if not base_url:
         raise ValueError("CHIBA_DISPLAY_URL environment variable not set")
