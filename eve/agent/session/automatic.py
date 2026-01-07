@@ -12,14 +12,22 @@ Status flow:
 The loop:
   1. User sets status to "active" via API
   2. run_automatic_session_step() sets status to "running"
-  3. Conductor selects next speaker, agent generates response
+  3. Moderator agent runs one turn (may prompt agents, conduct votes, etc.)
   4. Status set back to "active", next step scheduled after delay
-  5. Repeat until user pauses or archives
+  5. Repeat until moderator calls finish_session or user pauses/archives
+
+The Moderator Agent:
+  - Has its own private workspace (moderator_session)
+  - Uses specialized tools: start_session, finish_session, prompt_agent, conduct_vote, chat
+  - Orchestrates turn-taking, voting, and session lifecycle
+  - Replaces the old conductor approach with a proper agent-based system
 """
 
 import asyncio
 import os
 import traceback
+from datetime import datetime, timedelta, timezone
+from typing import Optional
 
 from bson import ObjectId
 from loguru import logger
@@ -27,13 +35,179 @@ from loguru import logger
 from eve.agent import Agent
 from eve.agent.session.models import (
     ChatMessage,
-    EdenMessageData,
-    EdenMessageType,
     Session,
 )
+from eve.agent.session.setup import create_moderator_session, get_moderator_agent_id
 
 # Default delay between automatic session steps (seconds)
 DEFAULT_REPLY_DELAY = 60
+
+
+def get_first_user_message(session: Session) -> Optional[ChatMessage]:
+    """Get the first user message from the parent session.
+
+    For automatic sessions, the scenario/prompt comes from the first user message
+    rather than session.context. This matches how sessions are created from the website.
+
+    Args:
+        session: The parent automatic session
+
+    Returns:
+        The first user message, or None if not found
+    """
+    message_doc = ChatMessage.get_collection().find_one(
+        {
+            "session": session.id,
+            "role": "user",
+        },
+        sort=[("createdAt", 1)],  # Oldest first
+    )
+    if message_doc:
+        logger.info(
+            f"[AUTO] Found message_doc _id type: {type(message_doc.get('_id'))}"
+        )
+        logger.info(f"[AUTO] message_doc keys: {list(message_doc.keys())}")
+        # Just return content since we only need that for planning
+        return type("SimpleMessage", (), {"content": message_doc.get("content", "")})()
+    return None
+
+
+async def generate_moderator_plan(
+    parent_session: Session,
+    first_user_message: str,
+) -> str:
+    """Generate comprehensive moderator instructions from user's initial message.
+
+    This is a one-off LLM call that converts the user's simple request into
+    detailed instructions for how to moderate the session. The output becomes
+    the moderator's session context.
+
+    Args:
+        parent_session: The parent automatic session
+        first_user_message: The user's initial request/scenario
+
+    Returns:
+        Comprehensive moderator instructions to be used as moderator_session.context
+    """
+    import os
+    import uuid
+
+    from eve.agent.llm.llm import async_prompt, get_provider
+    from eve.agent.session.models import (
+        LLMConfig,
+        LLMContext,
+        LLMContextMetadata,
+        LLMTraceMetadata,
+    )
+
+    logger.info("[AUTO] ===== Generating Moderator Plan =====")
+    logger.info(f"[AUTO] User request: {first_user_message[:100]}...")
+
+    # Build agent descriptions with full details
+    agent_descriptions = []
+    for agent_id in parent_session.agents:
+        agent = Agent.from_mongo(agent_id)
+        if agent:
+            desc = f"- **{agent.username}**: {agent.description or 'No description'}"
+            if agent.persona:
+                desc += f"\n  Persona: {agent.persona[:200]}..."
+            agent_descriptions.append(desc)
+
+    agents_text = (
+        "\n".join(agent_descriptions) if agent_descriptions else "No agents found."
+    )
+
+    # Build the planning prompt
+    system_content = """You are planning a multi-agent session. The user has provided a request, and you need to convert it into comprehensive instructions for the session moderator.
+
+Your output will be used as the moderator's context, so write as if you are giving instructions to the moderator (use "you" language).
+
+Generate detailed moderator instructions that include:
+
+1. **Scenario Understanding**: What is this session about? What's the goal?
+
+2. **Agent Initialization**: For each participating agent, what personalized context should they receive to understand their role? Be specific about what each agent should know.
+
+3. **Turn Order Strategy**: How should agents take turns? Is there a specific order or should it be dynamic based on the scenario?
+
+4. **Key Milestones**: What are the key phases or milestones of this session?
+
+5. **Finish Criteria**: When should the session end? What constitutes success?
+
+6. **Special Considerations**: Any rules, constraints, or special handling needed?
+
+Be concise but thorough. The moderator will use these instructions to orchestrate the session."""
+
+    user_content = f"""USER'S REQUEST:
+{first_user_message}
+
+PARTICIPATING AGENTS:
+{agents_text}
+
+Generate the moderator instructions now."""
+
+    # Create ChatMessage objects
+    system_message = ChatMessage(
+        session=[parent_session.id],
+        sender=ObjectId("000000000000000000000000"),
+        role="system",
+        content=system_content,
+    )
+
+    user_message = ChatMessage(
+        session=[parent_session.id],
+        sender=ObjectId("000000000000000000000000"),
+        role="user",
+        content=user_content,
+    )
+
+    # Create LLM context
+    llm_context = LLMContext(
+        messages=[system_message, user_message],
+        tools=[],
+        config=LLMConfig(
+            model="claude-sonnet-4-20250514",
+            fallback_models=["gpt-4o"],
+        ),
+        metadata=LLMContextMetadata(
+            session_id=f"{os.getenv('DB')}-{str(parent_session.id)}",
+            trace_name="moderator_planning",
+            trace_id=str(uuid.uuid4()),
+            generation_name="moderator_planning",
+            trace_metadata=LLMTraceMetadata(
+                session_id=str(parent_session.id),
+            ),
+        ),
+        enable_tracing=False,
+    )
+
+    # Make the one-off LLM call
+    logger.info("[AUTO] Making planning LLM call...")
+    provider = get_provider(llm_context)
+    if provider is None:
+        raise RuntimeError("No LLM provider available for moderator planning")
+
+    result = await async_prompt(llm_context, provider)
+
+    # Extract the text response
+    plan = ""
+    if hasattr(result, "content") and result.content:
+        # result.content could be a string or a list of blocks
+        if isinstance(result.content, str):
+            plan = result.content
+        else:
+            for block in result.content:
+                if hasattr(block, "text"):
+                    plan += block.text
+
+    if not plan:
+        logger.warning("[AUTO] Planning LLM returned empty response, using fallback")
+        plan = first_user_message  # Fallback to original message
+
+    logger.info(f"[AUTO] Generated moderator plan ({len(plan)} chars)")
+    logger.info(f"[AUTO] Plan preview: {plan[:200]}...")
+
+    return plan
 
 
 def is_running_on_modal() -> bool:
@@ -45,17 +219,28 @@ def get_reply_delay(session: Session) -> int:
     """Get the reply delay for an automatic session.
 
     Uses session.settings.delay_interval if set, otherwise DEFAULT_REPLY_DELAY.
+    A delay of 0 means instant (no delay).
     """
     if not session.settings:
+        logger.info(
+            f"[AUTO] get_reply_delay: no settings, using default {DEFAULT_REPLY_DELAY}"
+        )
         return DEFAULT_REPLY_DELAY
 
     # Handle both dict (from MongoDB) and SessionSettings object
     if isinstance(session.settings, dict):
-        delay = session.settings.get("delay_interval", 0)
+        delay = session.settings.get("delay_interval")
     else:
-        delay = session.settings.delay_interval
+        delay = getattr(session.settings, "delay_interval", None)
 
-    return delay if delay and delay > 0 else DEFAULT_REPLY_DELAY
+    logger.info(
+        f"[AUTO] get_reply_delay: settings={session.settings}, delay_interval={delay}"
+    )
+
+    # Return delay if explicitly set (including 0), otherwise default
+    if delay is not None:
+        return delay
+    return DEFAULT_REPLY_DELAY
 
 
 async def schedule_next_automatic_run(session_id: str, delay_seconds: int) -> None:
@@ -81,14 +266,38 @@ async def _delayed_automatic_run(session_id: str, delay_seconds: int) -> None:
     logger.info(
         f"[AUTO] _delayed_automatic_run starting for {session_id}, delay={delay_seconds}s"
     )
-    await asyncio.sleep(delay_seconds)
-    logger.info(f"[AUTO] _delayed_automatic_run woke up for {session_id}")
+
+    # Only sleep and set waiting_until if there's actually a delay
+    if delay_seconds > 0:
+        # Set waiting_until so client knows we're in a delay period
+        try:
+            session = Session.from_mongo(session_id)
+            if session:
+                wait_until = datetime.now(timezone.utc) + timedelta(
+                    seconds=delay_seconds
+                )
+                session.update(waiting_until=wait_until)
+                logger.info(
+                    f"[AUTO] >>>>>> SLEEPING FOR {delay_seconds} SECONDS (until {wait_until.isoformat()}) <<<<<<"
+                )
+        except Exception as e:
+            logger.warning(f"[AUTO] Could not set waiting_until: {e}")
+
+        await asyncio.sleep(delay_seconds)
+        logger.info(
+            f"[AUTO] >>>>>> DELAY COMPLETE ({delay_seconds}s), WAKING UP <<<<<<"
+        )
+
+    logger.info(f"[AUTO] _delayed_automatic_run proceeding for {session_id}")
 
     try:
         session = Session.from_mongo(session_id)
         logger.info(
             f"[AUTO] Loaded session {session_id}, status={session.status}, type={session.session_type}"
         )
+        # Clear waiting_until since delay is complete
+        if session.waiting_until:
+            session.update(waiting_until=None)
     except Exception as e:
         logger.error(
             f"[AUTO] Failed to load session {session_id}: {e}\n{traceback.format_exc()}"
@@ -113,30 +322,38 @@ async def _delayed_automatic_run(session_id: str, delay_seconds: int) -> None:
 
 
 async def run_automatic_session_step(session: Session) -> None:
-    """Execute one step of an automatic session.
+    """Execute one step of an automatic session using the Moderator agent.
 
     Flow:
     1. Set status to "running" (prevents duplicate handling)
-    2. Use conductor to select next actor
-    3. If multi-agent with agent_sessions: hand off to agent's private workspace
-    4. Otherwise: run prompt session directly for that actor
-    5. Set status back to "active"
-    6. Schedule next step after delay
+    2. Get or create moderator_session
+    3. Send "Run the next round" message to trigger the moderator
+    4. Run the moderator via run_agent_session_turn
+    5. Check if session was finished (status changed to "paused")
+    6. Handle budget/turn counting
+    7. Set status back to "active" and schedule next step
 
-    For multi-agent sessions with agent_sessions:
-    - Each agent has their own private workspace (agent_session)
-    - The selected agent receives bulk message updates from parent
-    - Agent does private work then posts to parent via chat tool
+    The moderator agent:
+    - On first turn: calls start_session to initialize agent workspaces
+    - On subsequent turns: uses prompt_agent to select and prompt agents
+    - May use conduct_vote for group decisions
+    - Calls finish_session when goals are achieved
     """
-    from eve.agent.session.conductor import conductor_select_actor
+    from eve.agent.session.agent_session_runtime import run_agent_session_turn
 
+    # Get delay for logging
+    delay = get_reply_delay(session)
     logger.info("[AUTO] ========== run_automatic_session_step START ==========")
+    logger.info(
+        f"[AUTO] >>>>>> NEW MODERATOR TURN STARTING (delay_interval={delay}s) <<<<<<"
+    )
     logger.info(f"[AUTO] Session ID: {session.id}")
     logger.info(f"[AUTO] Session title: {session.title}")
     logger.info(f"[AUTO] Session status: {session.status}")
     logger.info(f"[AUTO] Session type: {session.session_type}")
     logger.info(f"[AUTO] Session agents: {session.agents}")
     logger.info(f"[AUTO] Session agent_sessions: {session.agent_sessions}")
+    logger.info(f"[AUTO] Session moderator_session: {session.moderator_session}")
 
     # Prevent duplicate handling
     if session.status == "running":
@@ -148,7 +365,7 @@ async def run_automatic_session_step(session: Session) -> None:
         )
         return
 
-    if session.status in ("paused", "archived"):
+    if session.status in ("paused", "archived", "finished"):
         logger.info(f"[AUTO] Session status is '{session.status}', not running step")
         logger.info(
             "[AUTO] ========== run_automatic_session_step END (skipped) =========="
@@ -160,119 +377,91 @@ async def run_automatic_session_step(session: Session) -> None:
     session.update(status="running")
 
     try:
-        # Select next actor via conductor
-        logger.info("[AUTO] ===== Conductor Selection =====")
-        logger.info("[AUTO] Calling conductor_select_actor...")
-        actor, conductor_response = await conductor_select_actor(session)
-        logger.info(
-            f"[AUTO] Conductor selected actor: {actor.username} (id={actor.id})"
+        # Get or create moderator_session
+        if not session.moderator_session:
+            logger.info("[AUTO] Creating moderator_session...")
+
+            # Get the first user message (this is the user's scenario/request)
+            first_message = get_first_user_message(session)
+            if first_message:
+                logger.info(
+                    f"[AUTO] Found first user message: {first_message.content[:100]}..."
+                )
+                # Use the first user message content as the moderator plan
+                # (Eventually we can use generate_moderator_plan to expand this)
+                moderator_plan = first_message.content
+
+            elif session.context:
+                # Fallback to session.context for backwards compatibility
+                logger.info("[AUTO] No first user message, using session.context")
+                moderator_plan = session.context
+            else:
+                raise Exception(
+                    "Automatic session requires either a first user message or session.context"
+                )
+
+            # Create moderator session with the generated plan
+            moderator_session_id = create_moderator_session(session, moderator_plan)
+            session.update(moderator_session=moderator_session_id)
+            session.moderator_session = moderator_session_id
+            logger.info(f"[AUTO] Created moderator_session: {moderator_session_id}")
+        else:
+            logger.info(
+                f"[AUTO] Using existing moderator_session: {session.moderator_session}"
+            )
+
+        # Load moderator agent
+        moderator_agent_id = get_moderator_agent_id()
+        moderator_agent = Agent.from_mongo(moderator_agent_id)
+        if not moderator_agent:
+            raise Exception(
+                f"Moderator agent not found: {moderator_agent_id}. "
+                f"Ensure the moderator agent exists in the DB={os.getenv('DB', 'STAGE')} database."
+            )
+        logger.info(f"[AUTO] Loaded moderator agent: {moderator_agent.username}")
+
+        # Create "Run the next round" user message to trigger the moderator
+        moderator_session = Session.from_mongo(session.moderator_session)
+        if not moderator_session:
+            raise Exception(f"Moderator session not found: {session.moderator_session}")
+
+        # Build instruction based on whether agent_sessions exist
+        if not session.agent_sessions:
+            instruction = (
+                "Initialize the session. Call start_session with appropriate contexts "
+                "for each agent, then prompt the first agent to begin."
+            )
+        else:
+            instruction = (
+                "Run the next round. Prompt an agent or take appropriate action."
+            )
+
+        round_message = ChatMessage(
+            session=[session.moderator_session],
+            sender=ObjectId(str(session.owner)),
+            role="user",
+            content=instruction,
         )
-        logger.info(f"[AUTO] Conductor hint: {conductor_response.hint}")
-        logger.info(f"[AUTO] Conductor finish: {conductor_response.finish}")
+        round_message.save()
+        logger.info(f"[AUTO] Sent moderator instruction: '{instruction}'")
 
-        # Check if conductor wants to finish the session
-        if conductor_response.finish:
-            logger.info("[AUTO] Conductor requested session finish")
-            from eve.agent.session.conductor import conductor_finish_session
-            from eve.agent.session.setup import create_eden_message_json
+        # Run the moderator's turn
+        logger.info("[AUTO] Running moderator turn...")
+        await run_agent_session_turn(
+            parent_session=session,
+            agent_session_id=session.moderator_session,
+            actor=moderator_agent,
+        )
+        logger.info("[AUTO] Moderator turn completed")
 
-            # Generate summary and save as CONDUCTOR_FINISH eden message
-            finish_response, finish_llm_call_id = await conductor_finish_session(
-                session
-            )
-            create_eden_message_json(
-                session_id=session.id,
-                message_type=EdenMessageType.CONDUCTOR_FINISH,
-                content=finish_response.model_dump_json(),
-                llm_call_id=finish_llm_call_id,
-            )
-            # Pause the session
-            session.update(status="paused")
-            logger.info("[AUTO] Session finished and paused")
+        # Reload session to check if moderator called finish_session
+        session.reload()
+        if session.status == "finished":
+            logger.info("[AUTO] Moderator finished the session")
             logger.info(
                 "[AUTO] ========== run_automatic_session_step END (finished) =========="
             )
             return
-
-        # Create turn notification for selected agent's workspace
-        # Always send this so agent knows it's their turn and must post
-        if session.agent_sessions:
-            agent_session_id = session.agent_sessions.get(str(actor.id))
-            if agent_session_id:
-                logger.info(f"[AUTO] Creating turn notification for {actor.username}")
-                # Include reminder to use chat tool
-                if conductor_response.hint:
-                    hint_content = f"""🎯 IT'S YOUR TURN!
-
-{conductor_response.hint}
-
-⚠️ IMPORTANT: You MUST use the chat tool to respond. Your response will not be seen by others unless you post it."""
-                else:
-                    hint_content = """🎯 IT'S YOUR TURN!
-
-⚠️ IMPORTANT: You MUST use the chat tool to respond. Your response will not be seen by others unless you post it."""
-                hint_message = ChatMessage(
-                    session=[agent_session_id],  # Only to this agent's workspace
-                    sender=ObjectId("000000000000000000000000"),
-                    role="eden",
-                    content=hint_content,
-                    eden_message_data=EdenMessageData(
-                        message_type=EdenMessageType.CONDUCTOR_HINT
-                    ),
-                )
-                hint_message.save()
-                logger.info("[AUTO] Turn notification message saved")
-
-        # Ensure agent_sessions exist for multi-agent sessions
-        # For automatic sessions, this should already be done via conductor init
-        if len(session.agents) > 1 and not session.agent_sessions:
-            logger.warning(
-                f"[AUTO] Multi-agent session {session.id} missing agent_sessions. "
-                "This shouldn't happen - conductor init should have created them."
-            )
-            # Fallback: call conductor init now
-            await _initialize_conductor_for_session(session)
-            session = Session.from_mongo(session.id)
-
-        # Check if this is a multi-agent session with agent_sessions
-        logger.info("[AUTO] ===== Execution Path Decision =====")
-        logger.info(f"[AUTO] Has agent_sessions: {bool(session.agent_sessions)}")
-        logger.info(
-            f"[AUTO] Actor ID in agent_sessions: {str(actor.id) in (session.agent_sessions or {})}"
-        )
-
-        if session.agent_sessions and str(actor.id) in session.agent_sessions:
-            # Use agent_session flow - hand off to agent's private workspace
-            from eve.agent.session.agent_session_runtime import run_agent_session_turn
-
-            agent_session_id = session.agent_sessions[str(actor.id)]
-            logger.info("[AUTO] PATH: Multi-agent with agent_session")
-            logger.info(f"[AUTO] Agent session ID: {agent_session_id}")
-            logger.info("[AUTO] Calling run_agent_session_turn...")
-
-            await run_agent_session_turn(
-                parent_session=session,
-                agent_session_id=agent_session_id,
-                actor=actor,
-            )
-            logger.info(f"[AUTO] run_agent_session_turn completed for {actor.username}")
-
-        else:
-            # Fall back to existing direct flow (single agent or no agent_sessions)
-            logger.info("[AUTO] PATH: Direct flow (single agent or no agent_sessions)")
-            logger.info(f"[AUTO] Agent count: {len(session.agents)}")
-            from eve.agent.session.orchestrator import orchestrate_automatic
-
-            logger.info("[AUTO] Calling orchestrate_automatic...")
-            update_count = 0
-            async for update in orchestrate_automatic(session, actor):
-                update_count += 1
-                update_type = update.get("type", "unknown")
-                logger.debug(f"[AUTO] Update #{update_count}: type={update_type}")
-
-            logger.info(
-                f"[AUTO] orchestrate_automatic completed, {update_count} updates"
-            )
 
         # Increment turn counter after successful execution
         logger.info("[AUTO] ===== Turn Counter Update =====")
@@ -286,26 +475,38 @@ async def run_automatic_session_step(session: Session) -> None:
             )
             logger.info(f"[AUTO] Turns spent: {new_turns}")
 
-            # Check hard turn limit - finish if budget exhausted
+            # Check hard turn limit - send budget warning to moderator
             if session.budget.turn_budget and new_turns >= session.budget.turn_budget:
                 logger.info(
                     f"[AUTO] Turn budget exhausted ({new_turns}/{session.budget.turn_budget})"
                 )
-                from eve.agent.session.conductor import conductor_finish_session
-                from eve.agent.session.setup import create_eden_message_json
+                # Send budget exhaustion message to moderator to trigger finish
+                budget_message = ChatMessage(
+                    session=[session.moderator_session],
+                    sender=ObjectId("000000000000000000000000"),
+                    role="user",
+                    content=(
+                        f"BUDGET EXHAUSTED: Turn {new_turns} of {session.budget.turn_budget}. "
+                        "You must call finish_session NOW to end this session with a summary."
+                    ),
+                )
+                budget_message.save()
 
-                # Generate summary and save as CONDUCTOR_FINISH eden message
-                finish_response, finish_llm_call_id = await conductor_finish_session(
-                    session
+                # Run one more moderator turn to finish
+                await run_agent_session_turn(
+                    parent_session=session,
+                    agent_session_id=session.moderator_session,
+                    actor=moderator_agent,
                 )
-                create_eden_message_json(
-                    session_id=session.id,
-                    message_type=EdenMessageType.CONDUCTOR_FINISH,
-                    content=finish_response.model_dump_json(),
-                    llm_call_id=finish_llm_call_id,
-                )
-                # Pause the session
-                session.update(status="paused")
+
+                # Force finish if moderator didn't finish
+                session.reload()
+                if session.status != "finished":
+                    logger.warning(
+                        "[AUTO] Moderator didn't finish after budget exhaustion, forcing finish"
+                    )
+                    session.update(status="finished")
+
                 logger.info("[AUTO] Session finished due to turn budget exhaustion")
                 logger.info(
                     "[AUTO] ========== run_automatic_session_step END (budget) =========="
@@ -325,7 +526,7 @@ async def run_automatic_session_step(session: Session) -> None:
                 f"[AUTO] Status changed during execution to '{session.status}', not resetting to 'active'"
             )
 
-        # Schedule next step
+        # Schedule next step immediately (delay is now applied inside prompt_agent)
         logger.info("[AUTO] ===== Next Step Scheduling =====")
         session.reload()
         logger.info(
@@ -333,9 +534,9 @@ async def run_automatic_session_step(session: Session) -> None:
         )
 
         if session.status == "active" and session.session_type == "automatic":
-            delay = get_reply_delay(session)
-            logger.info(f"[AUTO] Scheduling next step in {delay}s")
-            await schedule_next_automatic_run(str(session.id), delay)
+            # No delay here - delay is applied after each prompt_agent call
+            logger.info("[AUTO] Scheduling next moderator turn immediately")
+            await schedule_next_automatic_run(str(session.id), delay_seconds=0)
         else:
             logger.info(
                 f"[AUTO] NOT scheduling next step (status={session.status}, type={session.session_type})"
@@ -360,66 +561,18 @@ async def run_automatic_session_step(session: Session) -> None:
         raise
 
 
-async def _initialize_conductor_for_session(session: Session) -> None:
-    """Initialize conductor for a multi-agent automatic session.
-
-    This generates personalized contexts for each agent and creates
-    their private workspace sessions (agent_sessions).
-
-    Called once when an automatic session first becomes active.
-    """
-    from eve.agent.session.conductor import conductor_initialize_session
-    from eve.agent.session.setup import (
-        create_agent_sessions_with_contexts,
-        create_eden_message_json,
-    )
-
-    logger.info(f"[AUTO] ===== Conductor Initialization for {session.id} =====")
-
-    # Load agents
-    agents = {
-        agent.username: agent
-        for agent in [Agent.from_mongo(a) for a in session.agents]
-        if agent
-    }
-    logger.info(f"[AUTO] Loaded agents: {list(agents.keys())}")
-
-    # Generate personalized contexts via conductor
-    logger.info("[AUTO] Calling conductor_initialize_session...")
-    init_response, init_llm_call_id = await conductor_initialize_session(
-        session, agents
-    )
-    logger.info(
-        f"[AUTO] Conductor generated {len(init_response.agent_contexts)} contexts"
-    )
-    logger.info(f"[AUTO] Finish criteria: {init_response.finish_criteria}")
-
-    # Save as CONDUCTOR_INIT eden message
-    create_eden_message_json(
-        session_id=session.id,
-        message_type=EdenMessageType.CONDUCTOR_INIT,
-        content=init_response.model_dump_json(),
-        llm_call_id=init_llm_call_id,
-    )
-    logger.info("[AUTO] Saved CONDUCTOR_INIT eden message")
-
-    # Create agent_sessions with personalized contexts
-    agent_sessions = create_agent_sessions_with_contexts(
-        parent_session=session,
-        agents=session.agents,
-        init_response=init_response,
-    )
-
-    # Update session with agent_sessions
-    session.update(agent_sessions=agent_sessions)
-    logger.info(f"[AUTO] Created agent_sessions: {list(agent_sessions.keys())}")
-    logger.info("[AUTO] ===== Conductor Initialization Complete =====")
+# NOTE: _initialize_conductor_for_session has been removed.
+# The moderator agent now handles initialization via the start_session tool.
+# This is called automatically on the first moderator turn when agent_sessions don't exist.
 
 
 async def start_automatic_session(session_id: str) -> None:
     """Start an automatic session when user sets status to 'active'.
 
     Called by API handler when session status changes to 'active'.
+
+    The moderator agent will be created and initialized on the first step.
+    The moderator handles agent_session creation via the start_session tool.
     """
     logger.info(
         f"[AUTO] ========== start_automatic_session CALLED ========== session_id={session_id}"
@@ -443,6 +596,12 @@ async def start_automatic_session(session_id: str) -> None:
         )
         raise ValueError(f"Session {session_id} is not an automatic session")
 
+    if session.status == "finished":
+        logger.error(f"[AUTO] Session {session_id} is finished and cannot be restarted")
+        raise ValueError(
+            f"Session {session_id} is finished. Create a new session instead."
+        )
+
     if session.status != "active":
         logger.error(
             f"[AUTO] Session {session_id} status is '{session.status}', expected 'active'"
@@ -451,16 +610,9 @@ async def start_automatic_session(session_id: str) -> None:
             f"Session {session_id} status is '{session.status}', expected 'active'"
         )
 
-    # Initialize conductor for multi-agent sessions (if not already done)
-    if len(session.agents) > 1 and not session.agent_sessions:
-        logger.info(
-            f"[AUTO] Multi-agent session {session_id} needs conductor initialization"
-        )
-        await _initialize_conductor_for_session(session)
-        # Reload session to get updated agent_sessions
-        session = Session.from_mongo(session_id)
-
     # Run the first step immediately
+    # The moderator_session will be created on first step
+    # The moderator will call start_session to initialize agent workspaces
     logger.info(f"[AUTO] Starting first step for session {session_id}")
     await run_automatic_session_step(session)
     logger.info(

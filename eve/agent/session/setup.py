@@ -1,4 +1,5 @@
 import asyncio
+import os
 from typing import List, Optional
 
 from bson import ObjectId
@@ -260,6 +261,102 @@ When you see a notification that it's your turn, respond by using chat immediate
         )
 
     return agent_sessions
+
+
+# =============================================================================
+# Moderator Agent Setup
+# =============================================================================
+
+MODERATOR_AGENT_IDS = {
+    "PROD": ObjectId("695b5cc2adf13d2a2d9fa994"),
+    "STAGE": ObjectId("695b5c208f0a6d83eaf98ddc"),
+}
+
+
+def get_moderator_agent_id() -> ObjectId:
+    """Get the moderator agent ID for the current environment."""
+    db_env = os.getenv("DB", "STAGE").upper()
+    return MODERATOR_AGENT_IDS.get(db_env, MODERATOR_AGENT_IDS["STAGE"])
+
+
+def create_moderator_session(
+    parent_session: Session,
+    moderator_plan: str = None,
+) -> ObjectId:
+    """Create the moderator agent's private workspace session.
+
+    The moderator agent orchestrates automatic multi-agent sessions using
+    specialized tools (start_session, finish_session, prompt_agent, conduct_vote).
+
+    Args:
+        parent_session: The parent automatic session to moderate
+        moderator_plan: Pre-generated comprehensive plan from the planning step.
+                       If provided, this is used as the SESSION CONTEXT instead of
+                       parent_session.context.
+
+    Returns:
+        ObjectId of the created moderator_session
+    """
+    moderator_agent_id = get_moderator_agent_id()
+    moderator_agent = Agent.from_mongo(moderator_agent_id)
+
+    if not moderator_agent:
+        raise Exception(
+            f"Moderator agent not found: {moderator_agent_id}. "
+            f"Ensure the moderator agent exists in the DB={os.getenv('DB', 'STAGE')} database."
+        )
+
+    # Build agent descriptions for moderator context
+    agent_descriptions = []
+    for aid in parent_session.agents:
+        agent = Agent.from_mongo(aid)
+        if agent:
+            agent_descriptions.append(f"- {agent.username}: {agent.description}")
+
+    # Use pre-generated plan if provided, otherwise fall back to parent context
+    session_context = (
+        moderator_plan or parent_session.context or "No specific scenario provided."
+    )
+
+    # Build moderator context with session info and responsibilities
+    moderator_context = f"""You are the MODERATOR of this multi-agent session.
+
+SESSION CONTEXT:
+{session_context}
+
+PARTICIPATING AGENTS:
+{chr(10).join(agent_descriptions)}
+
+YOUR RESPONSIBILITIES:
+1. Call start_session FIRST to initialize agent workspaces with personalized contexts
+2. Use prompt_agent to call on agents to speak (synchronous - waits for response)
+3. Use conduct_vote when a group decision is needed
+4. Use chat to announce information to all agents (public=true) or privately to some (public=false, recipients=[...])
+5. Call finish_session when the session's goals are achieved
+
+IMPORTANT RULES:
+- Always wait for agent responses before prompting the next agent
+- Keep track of turn order and ensure fair participation
+- Monitor for finish criteria and end the session when appropriate
+- Be neutral - don't favor any particular agent"""
+
+    moderator_session = Session(
+        owner=parent_session.owner,
+        users=parent_session.users.copy() if parent_session.users else [],
+        agents=[moderator_agent_id],
+        parent_session=parent_session.id,
+        session_type="passive",
+        status="active",
+        title=f"Moderator: {parent_session.title or 'Session'}",
+        context=moderator_context,
+    )
+    moderator_session.save()
+
+    logger.info(
+        f"[SETUP] Created moderator_session {moderator_session.id} for parent {parent_session.id}"
+    )
+
+    return moderator_session.id
 
 
 def setup_session(

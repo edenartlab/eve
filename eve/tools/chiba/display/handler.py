@@ -9,12 +9,11 @@ from eve.tool import ToolContext
 
 async def handler(context: ToolContext):
     """
-    Control the Chiba kiosk display via HTTP API.
+    Control the Chiba display system via HTTP API.
 
-    Supports actions: status, files, play, off, url, cache, sync, sync_and_play,
-    playlist, next, previous, restart, pause, resume, volume, get_volume
+    Supports actions: nodes, status, health, files, play, stop, pause, resume,
+    next, previous, volume, loop, image_duration, cache, clear_cache
     """
-    # Log incoming args for debugging
     logger.info(f"[DISPLAY] Received args: {json.dumps(context.args, default=str)}")
 
     base_url = os.getenv("CHIBA_DISPLAY_URL")
@@ -42,7 +41,14 @@ async def handler(context: ToolContext):
         )
         raise ValueError(f"action parameter is required. Received args: {context.args}")
 
-    kiosk = context.args.get("kiosk")
+    node = context.args.get("node")
+
+    def build_url(endpoint: str) -> str:
+        """Build URL, optionally routing through specific node."""
+        if node:
+            # Route to specific node via controller proxy
+            return f"{base_url}/api/nodes/{node}/{endpoint}"
+        return f"{base_url}/{endpoint}"
 
     def handle_response(response, action_name, request_data=None):
         """Helper to handle response and provide detailed error info."""
@@ -63,35 +69,70 @@ async def handler(context: ToolContext):
             )
         return response.json()
 
-    async with httpx.AsyncClient(timeout=30.0) as client:
-        if action == "status":
-            params = {"kiosk": kiosk} if kiosk else {}
-            response = await client.get(f"{base_url}/status", params=params)
+    async with httpx.AsyncClient(timeout=60.0) as client:
+        # === Controller Endpoints ===
+
+        if action == "nodes":
+            # List all connected display nodes
+            response = await client.get(f"{base_url}/api/nodes")
+            result = handle_response(response, "nodes")
+            logger.info(f"[DISPLAY] nodes result: {result}")
+            return {"output": result}
+
+        # === Node Endpoints (GET) ===
+
+        elif action == "status":
+            response = await client.get(build_url("status"))
             result = handle_response(response, "status")
             logger.info(f"[DISPLAY] status result: {result}")
             return {"output": result}
 
+        elif action == "health":
+            response = await client.get(build_url("health"))
+            result = handle_response(response, "health")
+            logger.info(f"[DISPLAY] health result: {result}")
+            return {"output": result}
+
         elif action == "files":
-            params = {"kiosk": kiosk} if kiosk else {}
-            response = await client.get(f"{base_url}/files", params=params)
+            response = await client.get(build_url("files"))
             result = handle_response(response, "files")
             logger.info(f"[DISPLAY] files result: {result}")
             return {"output": result}
 
+        # === Protected Endpoints (POST) ===
+
         elif action == "play":
-            file = context.args.get("file")
-            if not file:
+            # Unified play endpoint - auto-detects content type from parameters
+            request_data = {}
+
+            # Content source (one of these)
+            if context.args.get("filename"):
+                request_data["filename"] = context.args["filename"]
+            elif context.args.get("url"):
+                request_data["url"] = context.args["url"]
+            elif context.args.get("collection_id"):
+                request_data["collectionId"] = context.args["collection_id"]
+                request_data["db"] = context.args.get("db", os.getenv("DB", "PROD"))
+            elif context.args.get("creation_id"):
+                request_data["creationId"] = context.args["creation_id"]
+                request_data["db"] = context.args.get("db", os.getenv("DB", "PROD"))
+            else:
                 logger.error(
-                    f"[DISPLAY] Missing 'file' for play action. Args: {context.args}"
+                    f"[DISPLAY] No content source for play action. Args: {context.args}"
                 )
                 raise ValueError(
-                    f"file parameter is required for 'play' action. Received args: {context.args}"
+                    "play action requires one of: filename, url, collection_id, or creation_id. "
+                    f"Received args: {context.args}"
                 )
-            request_data = {"file": file}
-            if kiosk:
-                request_data["kiosk"] = kiosk
+
+            # Optional parameters
+            if context.args.get("loop") is not None:
+                request_data["loop"] = context.args["loop"]
+            if context.args.get("name"):
+                request_data["name"] = context.args["name"]
+
             response = await client.post(
-                f"{base_url}/file",
+                build_url("play"),
                 headers=headers,
                 json=request_data,
             )
@@ -99,194 +140,49 @@ async def handler(context: ToolContext):
             logger.info(f"[DISPLAY] play result: {result}")
             return {"output": result}
 
-        elif action == "off":
-            request_data = {"kiosk": kiosk} if kiosk else {}
+        elif action == "stop":
             response = await client.post(
-                f"{base_url}/off", headers=headers, json=request_data
-            )
-            result = handle_response(response, "off", request_data)
-            logger.info(f"[DISPLAY] off result: {result}")
-            return {"output": result}
-
-        elif action == "url":
-            url = context.args.get("url")
-            if not url:
-                logger.error(
-                    f"[DISPLAY] Missing 'url' for url action. Args: {context.args}"
-                )
-                raise ValueError(
-                    f"url parameter is required for 'url' action. Received args: {context.args}"
-                )
-            request_data = {"url": url}
-            if kiosk:
-                request_data["kiosk"] = kiosk
-            response = await client.post(
-                f"{base_url}/url",
+                build_url("stop"),
                 headers=headers,
-                json=request_data,
             )
-            result = handle_response(response, "url", request_data)
-            logger.info(f"[DISPLAY] url result: {result}")
-            return {"output": result}
-
-        elif action == "cache":
-            url = context.args.get("url")
-            if not url:
-                logger.error(
-                    f"[DISPLAY] Missing 'url' for cache action. Args: {context.args}"
-                )
-                raise ValueError(
-                    f"url parameter is required for 'cache' action. Received args: {context.args}"
-                )
-            request_data = {"url": url}
-            if kiosk:
-                request_data["kiosk"] = kiosk
-            response = await client.post(
-                f"{base_url}/cache",
-                headers=headers,
-                json=request_data,
-            )
-            result = handle_response(response, "cache", request_data)
-
-            play_after_cache = context.args.get("play_after_cache", False)
-            if play_after_cache and "filename" in result:
-                play_request = {"file": result["filename"]}
-                if kiosk:
-                    play_request["kiosk"] = kiosk
-                play_response = await client.post(
-                    f"{base_url}/file",
-                    headers=headers,
-                    json=play_request,
-                )
-                result["play_result"] = handle_response(
-                    play_response, "cache+play", play_request
-                )
-
-            logger.info(f"[DISPLAY] cache result: {result}")
-            return {"output": result}
-
-        elif action == "sync":
-            collection_id = context.args.get("collection_id")
-            if not collection_id:
-                logger.error(
-                    f"[DISPLAY] Missing 'collection_id' for sync action. Args: {context.args}"
-                )
-                raise ValueError(
-                    f"collection_id parameter is required for 'sync' action. Received args: {context.args}"
-                )
-            request_data = {
-                "collectionId": collection_id,
-                "db": os.getenv("DB", "STAGE"),
-            }
-            if kiosk:
-                request_data["kiosk"] = kiosk
-            response = await client.post(
-                f"{base_url}/sync",
-                headers=headers,
-                json=request_data,
-            )
-            result = handle_response(response, "sync", request_data)
-            logger.info(f"[DISPLAY] sync result: {result}")
-            return {"output": result}
-
-        elif action == "sync_and_play":
-            collection_id = context.args.get("collection_id")
-            if not collection_id:
-                logger.error(
-                    f"[DISPLAY] Missing 'collection_id' for sync_and_play action. Args: {context.args}"
-                )
-                raise ValueError(
-                    f"collection_id parameter is required for 'sync_and_play' action. Received args: {context.args}"
-                )
-            loop = context.args.get("loop", True)
-            request_data = {
-                "collectionId": collection_id,
-                "loop": loop,
-                "db": os.getenv("DB", "STAGE"),
-            }
-            if kiosk:
-                request_data["kiosk"] = kiosk
-            response = await client.post(
-                f"{base_url}/sync_and_play",
-                headers=headers,
-                json=request_data,
-            )
-            result = handle_response(response, "sync_and_play", request_data)
-            logger.info(f"[DISPLAY] sync_and_play result: {result}")
-            return {"output": result}
-
-        elif action == "playlist":
-            playlist = context.args.get("playlist")
-            if not playlist:
-                logger.error(
-                    f"[DISPLAY] Missing 'playlist' for playlist action. Args: {context.args}"
-                )
-                raise ValueError(
-                    f"playlist parameter is required for 'playlist' action. Received args: {context.args}"
-                )
-            loop = context.args.get("loop", True)
-            request_data = {"items": playlist, "loop": loop}
-            if kiosk:
-                request_data["kiosk"] = kiosk
-            response = await client.post(
-                f"{base_url}/playlist",
-                headers=headers,
-                json=request_data,
-            )
-            result = handle_response(response, "playlist", request_data)
-            logger.info(f"[DISPLAY] playlist result: {result}")
-            return {"output": result}
-
-        elif action == "next":
-            request_data = {"kiosk": kiosk} if kiosk else {}
-            response = await client.post(
-                f"{base_url}/next", headers=headers, json=request_data
-            )
-            result = handle_response(response, "next", request_data)
-            logger.info(f"[DISPLAY] next result: {result}")
-            return {"output": result}
-
-        elif action == "previous":
-            request_data = {"kiosk": kiosk} if kiosk else {}
-            response = await client.post(
-                f"{base_url}/previous", headers=headers, json=request_data
-            )
-            result = handle_response(response, "previous", request_data)
-            logger.info(f"[DISPLAY] previous result: {result}")
-            return {"output": result}
-
-        elif action == "restart":
-            request_data = {"kiosk": kiosk} if kiosk else {}
-            response = await client.post(
-                f"{base_url}/restart", headers=headers, json=request_data
-            )
-            result = handle_response(response, "restart", request_data)
-            logger.info(f"[DISPLAY] restart result: {result}")
+            result = handle_response(response, "stop")
+            logger.info(f"[DISPLAY] stop result: {result}")
             return {"output": result}
 
         elif action == "pause":
-            request_data = {"kiosk": kiosk} if kiosk else {}
             response = await client.post(
-                f"{base_url}/pause", headers=headers, json=request_data
+                build_url("pause"),
+                headers=headers,
             )
-            result = handle_response(response, "pause", request_data)
+            result = handle_response(response, "pause")
             logger.info(f"[DISPLAY] pause result: {result}")
             return {"output": result}
 
         elif action == "resume":
-            request_data = {"kiosk": kiosk} if kiosk else {}
             response = await client.post(
-                f"{base_url}/resume", headers=headers, json=request_data
+                build_url("resume"),
+                headers=headers,
             )
-            result = handle_response(response, "resume", request_data)
+            result = handle_response(response, "resume")
             logger.info(f"[DISPLAY] resume result: {result}")
             return {"output": result}
 
-        elif action == "get_volume":
-            params = {"kiosk": kiosk} if kiosk else {}
-            response = await client.get(f"{base_url}/volume", params=params)
-            result = handle_response(response, "get_volume")
-            logger.info(f"[DISPLAY] get_volume result: {result}")
+        elif action == "next":
+            response = await client.post(
+                build_url("next"),
+                headers=headers,
+            )
+            result = handle_response(response, "next")
+            logger.info(f"[DISPLAY] next result: {result}")
+            return {"output": result}
+
+        elif action == "previous":
+            response = await client.post(
+                build_url("previous"),
+                headers=headers,
+            )
+            result = handle_response(response, "previous")
+            logger.info(f"[DISPLAY] previous result: {result}")
             return {"output": result}
 
         elif action == "volume":
@@ -296,13 +192,12 @@ async def handler(context: ToolContext):
                     f"[DISPLAY] Missing 'level' for volume action. Args: {context.args}"
                 )
                 raise ValueError(
-                    f"level parameter is required for 'volume' action. Received args: {context.args}"
+                    f"level parameter (0-100) is required for 'volume' action. "
+                    f"Received args: {context.args}"
                 )
             request_data = {"level": level}
-            if kiosk:
-                request_data["kiosk"] = kiosk
             response = await client.post(
-                f"{base_url}/volume",
+                build_url("volume"),
                 headers=headers,
                 json=request_data,
             )
@@ -310,8 +205,99 @@ async def handler(context: ToolContext):
             logger.info(f"[DISPLAY] volume result: {result}")
             return {"output": result}
 
+        elif action == "loop":
+            request_data = {}
+            if context.args.get("loop") is not None:
+                request_data["enabled"] = context.args["loop"]
+            # If no loop param provided, API will toggle
+            response = await client.post(
+                build_url("loop"),
+                headers=headers,
+                json=request_data,
+            )
+            result = handle_response(response, "loop", request_data)
+            logger.info(f"[DISPLAY] loop result: {result}")
+            return {"output": result}
+
+        elif action == "image_duration":
+            duration = context.args.get("duration")
+            if duration is None:
+                logger.error(
+                    f"[DISPLAY] Missing 'duration' for image_duration action. Args: {context.args}"
+                )
+                raise ValueError(
+                    f"duration parameter (milliseconds, min 1000) is required for 'image_duration' action. "
+                    f"Received args: {context.args}"
+                )
+            request_data = {"duration": duration}
+            response = await client.post(
+                build_url("image-duration"),
+                headers=headers,
+                json=request_data,
+            )
+            result = handle_response(response, "image_duration", request_data)
+            logger.info(f"[DISPLAY] image_duration result: {result}")
+            return {"output": result}
+
+        elif action == "cache":
+            # Cache content without playing
+            request_data = {}
+
+            if context.args.get("url"):
+                request_data["url"] = context.args["url"]
+            elif context.args.get("collection_id"):
+                request_data["collectionId"] = context.args["collection_id"]
+                request_data["db"] = context.args.get("db", os.getenv("DB", "PROD"))
+            elif context.args.get("creation_id"):
+                request_data["creationId"] = context.args["creation_id"]
+                request_data["db"] = context.args.get("db", os.getenv("DB", "PROD"))
+            else:
+                logger.error(
+                    f"[DISPLAY] No content source for cache action. Args: {context.args}"
+                )
+                raise ValueError(
+                    "cache action requires one of: url, collection_id, or creation_id. "
+                    f"Received args: {context.args}"
+                )
+
+            response = await client.post(
+                build_url("cache"),
+                headers=headers,
+                json=request_data,
+            )
+            result = handle_response(response, "cache", request_data)
+            logger.info(f"[DISPLAY] cache result: {result}")
+            return {"output": result}
+
+        elif action == "clear_cache":
+            response = await client.post(
+                build_url("clear-cache"),
+                headers=headers,
+            )
+            result = handle_response(response, "clear_cache")
+            logger.info(f"[DISPLAY] clear_cache result: {result}")
+            return {"output": result}
+
         else:
+            valid_actions = [
+                "nodes",
+                "status",
+                "health",
+                "files",
+                "play",
+                "stop",
+                "pause",
+                "resume",
+                "next",
+                "previous",
+                "volume",
+                "loop",
+                "image_duration",
+                "cache",
+                "clear_cache",
+            ]
             logger.error(f"[DISPLAY] Unknown action '{action}'. Args: {context.args}")
             raise ValueError(
-                f"Unknown action: {action}. Valid actions: status, files, play, off, url, cache, sync, sync_and_play, playlist, next, previous, restart, pause, resume, get_volume, volume. Received args: {context.args}"
+                f"Unknown action: {action}. Valid actions: {', '.join(valid_actions)}. "
+                f"Received args: {context.args}"
             )
