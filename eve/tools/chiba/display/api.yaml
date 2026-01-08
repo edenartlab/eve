@@ -111,7 +111,7 @@ parameters:
     choices:
       - macbook
       - mars01
-      - mars-02
+      - mars02
       - mars05
       - mars06
     choices_labels:
