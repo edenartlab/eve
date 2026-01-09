@@ -75,6 +75,7 @@ ALL_TOOLS = [
     # audio
     # "ace_step_musicgen",
     "elevenlabs",
+    "elevenlabs_dialogue",
     "vibevoice",
     # "mmaudio",
     # "thinksound",
@@ -156,7 +157,12 @@ CALCULATOR_MCP_TOOLS = ["calculator_calculate"]
 TOOL_SETS = {
     "create_image": ["create", "media_editor", "reel"],  #  "magic_8_ball"
     "create_video": [],  # deprecated
-    "create_audio": ["elevenlabs", "elevenlabs_music", "elevenlabs_fx"],
+    "create_audio": [
+        "elevenlabs",
+        "elevenlabs_dialogue",
+        "elevenlabs_music",
+        "elevenlabs_fx",
+    ],
     "vj_tools": ["texture_flow", "video_FX", "reel"],
     "news": [],  # deprecated
     "manage_collections": ["eden_search", "add_to_collection"],

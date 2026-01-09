@@ -51,6 +51,7 @@ HANDLER_PATHS = {
     "runway3": "runway3.handler",
     "hedra": "hedra.handler",
     "elevenlabs": "elevenlabs.handler",
+    "elevenlabs_dialogue": "elevenlabs_dialogue.handler",
     "elevenlabs_music": "elevenlabs_music.handler",
     "elevenlabs_fx": "elevenlabs_fx.handler",
     "transcription": "transcription.handler",
