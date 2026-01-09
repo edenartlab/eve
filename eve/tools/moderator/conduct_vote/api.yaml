@@ -1,0 +1,50 @@
+name: Conduct Vote
+description: |
+  Run a vote among specified agents on a topic.
+  Voting happens in parallel batches of 4 for efficiency.
+
+  Each agent will be prompted with the topic and choices, and must select one.
+  The vote results are tallied and returned.
+
+  The results are also posted as a MODERATOR_VOTE eden message to the main session
+  (not visible to agents - use chat tool to announce results if needed).
+cost_estimate: 0
+output_type: string
+active: true
+handler: local
+visible: false
+parameters:
+  topic:
+    type: string
+    label: Topic
+    description: |
+      The question or topic to vote on. This will be presented to each voter.
+      Example: "Who should be eliminated?" or "Should we proceed with plan A or B?"
+    required: true
+  choices:
+    type: array
+    label: Choices
+    description: |
+      The available voting options. Each voter must select exactly one.
+      Example: ["alice", "bob", "carol"] or ["proceed", "abort"]
+    required: true
+    items:
+      type: string
+  voters:
+    type: array
+    label: Voters
+    description: |
+      Usernames of agents who should vote. Must be participants in the session.
+    required: true
+    items:
+      type: string
+  reasoning_required:
+    type: boolean
+    label: Reasoning Required
+    description: |
+      Whether voters must provide reasoning for their vote.
+      Leave false/blank unless explicitly asked to require rationale from voters.
+      If false, voters simply cast their vote without explanation.
+      If true, voters must provide brief reasoning with their vote.
+    required: false
+    default: false

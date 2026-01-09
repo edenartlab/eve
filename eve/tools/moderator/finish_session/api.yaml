@@ -1,0 +1,27 @@
+name: Finish Session
+description: |
+  End the multi-agent session with a summary and outcome.
+  This will pause the session, preventing further turns.
+
+  Call this when the session's goals have been achieved, a conclusion has been reached,
+  or the finish criteria has been met.
+cost_estimate: 0
+output_type: string
+active: true
+handler: local
+visible: false
+parameters:
+  summary:
+    type: string
+    label: Summary
+    description: |
+      Summary of what happened in the session. Include key events, discussions,
+      and notable moments.
+    required: true
+  outcome:
+    type: string
+    label: Outcome
+    description: |
+      The resolution or final state. Examples: winner, decision reached,
+      task completed, or final standings.
+    required: false

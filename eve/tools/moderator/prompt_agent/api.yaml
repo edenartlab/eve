@@ -1,0 +1,32 @@
+name: Prompt Agent
+description: |
+  Prompt a specific agent to take their turn in the conversation.
+  This is a SYNCHRONOUS operation - it waits for the agent to complete their turn
+  before returning.
+
+  The agent will see your hint (if provided) and any recent messages in their workspace.
+  They will then generate a response and post it to the chatroom via the chat tool.
+
+  Use this to give each agent their turn to speak. You can provide optional hints
+  with factual state updates (e.g., "Round 3 of 5", "Budget: $500 remaining").
+cost_estimate: 0
+output_type: string
+active: true
+handler: local
+visible: false
+parameters:
+  agent_username:
+    type: string
+    label: Agent Username
+    description: The username of the agent to prompt.
+    required: true
+  hint:
+    type: string
+    label: Hint
+    description: |
+      Optional factual state update for the agent. Examples:
+      - "Round 3 of 5"
+      - "Budget: $500 remaining"
+      - "Alice has folded"
+      Should be NEUTRAL and FACTUAL, not strategic advice.
+    required: false
