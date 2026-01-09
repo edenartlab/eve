@@ -1,6 +1,7 @@
 import os
 import traceback
 import uuid
+from typing import Optional
 
 from bson import ObjectId
 from sentry_sdk import capture_exception
@@ -16,9 +17,12 @@ from eve.agent.session.models import (
 )
 
 
-async def async_title_session(session: Session, initial_message_content: str):
+async def async_title_session(
+    session: Session, initial_message_content: str
+) -> Optional[str]:
     """
-    Generate a title for a session based on the initial message content
+    Generate a title for a session based on the initial message content.
+    Returns the generated title or None if generation fails.
     """
 
     from pydantic import BaseModel, Field
@@ -92,26 +96,28 @@ async def async_title_session(session: Session, initial_message_content: str):
 
         # Parse the response
         if hasattr(result, "content") and result.content:
+            import json
+
+            title = None
             try:
                 # Try to parse as JSON if response_format was used
-                import json
-
                 title_data = json.loads(result.content)
                 if isinstance(title_data, dict) and "title" in title_data:
-                    # session.title = title_data["title"]
-                    session.update(title=title_data["title"])
+                    title = title_data["title"]
                 else:
                     # Fallback to using content directly
-                    # session.title = result.content[:30]  # Limit to 30 chars
-                    session.update(title=result.content[:30])
+                    title = result.content[:30]  # Limit to 30 chars
             except (json.JSONDecodeError, TypeError):
                 # If JSON parsing fails, use content directly
-                # session.title = result.content[:30]  # Limit to 30 chars
-                session.update(title=result.content[:30])
+                title = result.content[:30]  # Limit to 30 chars
 
-            # session.save()
+            if title:
+                session.update(title=title)
+                return title
 
     except Exception as e:
         capture_exception(e)
         traceback.print_exc()
-        return
+        return None
+
+    return None
