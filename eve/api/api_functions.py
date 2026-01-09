@@ -5,6 +5,8 @@ These are Modal functions and helper utilities that are not FastAPI routes.
 
 import os
 import time
+from datetime import datetime, timedelta, timezone
+from urllib.parse import urlparse
 
 import replicate
 import sentry_sdk
@@ -17,8 +19,9 @@ from eve.api.runner_tasks import (
     generate_lora_thumbnails,
     rotate_agent_metadata,
 )
+from eve.data_export import DataExport
 from eve.mongo import get_collection
-from eve.s3 import get_full_url
+from eve.s3 import get_full_url, s3
 from eve.task import Task, task_handler_func
 from eve.tool import Tool, ToolContext
 from eve.tools.replicate_tool import replicate_update_task
@@ -27,6 +30,7 @@ from eve.tools.tool_handlers import load_handler
 db = os.getenv("DB", "STAGE").upper()
 MARS_COLLEGE_FEATURE_FLAG = "mars_college_26"
 MARS_COLLEGE_DAILY_MANNA_TARGET = 1000
+DATA_EXPORT_TTL_HOURS = 48
 
 
 # Modal scheduled functions
@@ -118,6 +122,67 @@ async def topup_mars_college_manna_fn():
         )
     except Exception as e:
         logger.error(f"[MARS_COLLEGE_TOPUP] Error running top-up: {e}")
+        sentry_sdk.capture_exception(e)
+
+
+async def cleanup_expired_exports_fn():
+    """Delete expired data exports from S3 and mark them expired."""
+    try:
+        now = datetime.now(timezone.utc)
+        fallback_cutoff = now - timedelta(hours=DATA_EXPORT_TTL_HOURS)
+        exports = DataExport.find(
+            {
+                "$or": [
+                    {"expires_at": {"$lte": now}},
+                    {
+                        "expires_at": {"$exists": False},
+                        "createdAt": {"$lte": fallback_cutoff},
+                    },
+                    {"expires_at": None, "createdAt": {"$lte": fallback_cutoff}},
+                ],
+                "status": {"$ne": "expired"},
+            }
+        )
+
+        if not exports:
+            return
+
+        for export in exports:
+            try:
+                archive = export.archive or {}
+                key = archive.get("key")
+                bucket = (
+                    archive.get("bucket")
+                    or os.getenv("AWS_EXPORTS_BUCKET_NAME")
+                    or os.getenv("AWS_BUCKET_NAME")
+                    or os.getenv(f"AWS_BUCKET_NAME_{db}")
+                )
+
+                if key and key.startswith("http"):
+                    try:
+                        parsed = urlparse(key)
+                        key = parsed.path.lstrip("/")
+                    except Exception:
+                        key = archive.get("key")
+
+                if bucket and key:
+                    try:
+                        s3.delete_object(Bucket=bucket, Key=key)
+                    except Exception as s3_err:
+                        logger.warning(
+                            f"[EXPORT_CLEANUP] Failed to delete {bucket}/{key}: {s3_err}"
+                        )
+
+                export.status = "expired"
+                export.save()
+            except Exception as export_err:
+                logger.error(
+                    f"[EXPORT_CLEANUP] Failed to process export {export.id}: {export_err}",
+                    exc_info=True,
+                )
+                sentry_sdk.capture_exception(export_err)
+    except Exception as e:
+        logger.error(f"[EXPORT_CLEANUP] Error running export cleanup: {e}")
         sentry_sdk.capture_exception(e)
 
 

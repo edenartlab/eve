@@ -19,11 +19,10 @@ from fastapi.security import APIKeyHeader, HTTPBearer
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from eve import auth, db
-from eve.agent.session.models import (
-    Session,
-)
+from eve.agent.session.models import Session
 from eve.api.api_functions import (
     cancel_stuck_tasks_fn,
+    cleanup_expired_exports_fn,
     cleanup_stale_busy_states,
     cleanup_stuck_triggers,
     embed_recent_creations,
@@ -99,10 +98,7 @@ from eve.concepts import (
     handle_concept_create,
     handle_concept_update,
 )
-from eve.trigger import (
-    Trigger,
-    handle_trigger_run,
-)
+from eve.trigger import Trigger, handle_trigger_run
 
 app_name = f"api-{db.lower()}"
 logging.getLogger("ably").setLevel(logging.WARNING)
@@ -728,6 +724,10 @@ cleanup_stuck_triggers_modal = app.function(
 embed_recent_creations_modal = app.function(
     image=image, max_containers=1, schedule=modal.Period(minutes=5), timeout=600
 )(embed_recent_creations)
+
+cleanup_expired_exports_modal = app.function(
+    image=image, max_containers=1, schedule=modal.Period(hours=1), timeout=600
+)(cleanup_expired_exports_fn)
 
 
 process_cold_sessions_modal = app.function(

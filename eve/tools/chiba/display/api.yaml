@@ -110,7 +110,13 @@ parameters:
     required: false
     choices:
       - macbook
-      - mars-02
+      - mars01
+      - mars02
+      - mars05
+      - mars06
     choices_labels:
       - Macbook
+      - Mars 01
       - Mars 02
+      - Mars 05
+      - Mars 06
