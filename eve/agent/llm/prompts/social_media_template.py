@@ -26,6 +26,8 @@ social_media_template = Template("""
     ✅ Twitter: max 280 chars, up to 4 images OR 1 video{% endif %}{% if has_farcaster %}
     ✅ Farcaster: use reply_to for cast hash{% endif %}{% if has_discord %}
     ✅ Discord: max 2000 chars, use channel_id={{ discord_channel_id }} to post, reply_to for threaded replies{% endif %}
+
+    ⚠️ THREAD CONTINUITY: After your first post, ALWAYS use reply_to to maintain the thread. You can reply to your own posts for tweetstorms or multi-part messages.
   </Workflow>
 
   <Instructions>

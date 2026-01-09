@@ -21,10 +21,26 @@ async def handler(context: ToolContext):
     if not deployment:
         raise Exception("No valid Farcaster deployments found")
 
+    # Auto-set session platform to farcaster if not already set
+    if context.session:
+        session_obj = Session.from_mongo(context.session)
+        if session_obj.platform is None:
+            session_obj.update(platform="farcaster")
+
     # Get parameters from args
     text = context.args.get("text", "")
     embeds = context.args.get("embeds") or []
     parent_hash = context.args.get("reply_to")
+
+    # Enforce reply_to after first cast in session
+    if context.session and not parent_hash:
+        prior_cast = FarcasterEvent.find_one({"session_id": ObjectId(context.session)})
+        if prior_cast:
+            raise Exception(
+                "reply_to is required after your first cast. Use the cast_hash from "
+                "your previous cast or the cast you're responding to. For threads, "
+                "reply to your own previous cast."
+            )
 
     # get parent FID
     parent_fid = None
