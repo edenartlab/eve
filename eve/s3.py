@@ -83,7 +83,7 @@ async def upload_attachments_to_eden(urls: list[str]) -> list[str]:
             eden_urls.append(url)
         else:
             try:
-                s3_url, _ = upload_file_from_url(url)
+                s3_url, _, _ = upload_file_from_url(url)
                 eden_urls.append(s3_url)
             except Exception as e:
                 import logging
@@ -101,9 +101,15 @@ def upload_file_from_url(url, name=None, file_type=None):
 
     AWS_BUCKET_NAME = os.getenv("AWS_BUCKET_NAME")
     if f"{AWS_BUCKET_NAME}.s3." in url and ".amazonaws.com" in url:
-        # file is already uploaded
-        filename = url.split("/")[-1].split(".")[0]
-        return url, filename
+        # file is already uploaded, get its size from S3
+        filename = url.split("/")[-1]
+        name = filename.split(".")[0]
+        try:
+            head_response = s3.head_object(Bucket=AWS_BUCKET_NAME, Key=filename)
+            file_size = head_response.get("ContentLength", 0)
+        except Exception:
+            file_size = 0
+        return url, name, file_size
 
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
@@ -140,7 +146,7 @@ def upload_file(file, name=None, file_type=None):
 
 
 def upload_buffer(buffer, name=None, file_type=None):
-    """Uploads a buffer to an S3 bucket and returns the file URL."""
+    """Uploads a buffer to an S3 bucket and returns the file URL, name, and size."""
 
     assert (
         file_type
@@ -187,6 +193,9 @@ def upload_buffer(buffer, name=None, file_type=None):
             mime_type = "image/png"
         buffer = output.getvalue()
 
+    # Capture file size after any conversions
+    file_size = len(buffer)
+
     # if no name is provided, use sha256 of content
     if not name:
         hasher = hashlib.sha256()
@@ -201,8 +210,10 @@ def upload_buffer(buffer, name=None, file_type=None):
 
     # if file doesn't exist, upload it
     try:
-        s3.head_object(Bucket=bucket_name, Key=filename)
-        return file_url, name
+        head_response = s3.head_object(Bucket=bucket_name, Key=filename)
+        # File exists, get its size from S3 (may differ from buffer if previously uploaded)
+        file_size = head_response.get("ContentLength", file_size)
+        return file_url, name, file_size
     except s3.exceptions.ClientError as e:
         if e.response["Error"]["Code"] == "404":
             s3.upload_fileobj(
@@ -214,7 +225,7 @@ def upload_buffer(buffer, name=None, file_type=None):
         else:
             raise e
 
-    return file_url, name
+    return file_url, name, file_size
 
 
 def upload_PIL_image(image: Image.Image, name=None, file_type=None):

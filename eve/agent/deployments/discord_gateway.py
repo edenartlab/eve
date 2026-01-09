@@ -308,7 +308,7 @@ async def upload_discord_media_to_s3(media_urls: List[str]) -> List[str]:
 
     for url in media_urls:
         try:
-            s3_url, _ = upload_file_from_url(url)
+            s3_url, _, _ = upload_file_from_url(url)
             if s3_url:
                 s3_urls.append(s3_url)
             else:

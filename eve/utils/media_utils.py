@@ -95,10 +95,11 @@ def _generate_and_upload_thumbnail(thumbnail: Image.Image, sha: str, width: int)
 
 
 def upload_media(output, save_thumbnails=True, save_blurhash=True):
-    file_url, sha = s3.upload_file(output)
+    file_url, sha, file_size = s3.upload_file(output)
     filename = file_url.split("/")[-1]
 
     media_attributes, thumbnail = get_media_attributes(output)
+    media_attributes["fileSize"] = file_size
 
     if save_thumbnails and thumbnail:
         # Parallelize thumbnail generation (max 4 workers to avoid OOM)
@@ -131,7 +132,7 @@ def mock_image(args):
     draw.text((5, 5), wrapped_text, fill="black", font=font)
     image = image.resize((512, 512), Image.LANCZOS)
     buffer = PIL_to_bytes(image)
-    url, _ = s3.upload_buffer(buffer)
+    url, _, _ = s3.upload_buffer(buffer)
     return url
 
 

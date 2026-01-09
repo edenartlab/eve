@@ -211,7 +211,7 @@ class User(Document):
         from .s3 import upload_file_from_url
 
         try:
-            s3_url, _ = upload_file_from_url(avatar_url)
+            s3_url, _, _ = upload_file_from_url(avatar_url)
             logger.info(f"Uploaded platform avatar: {s3_url}")
             return s3_url
         except Exception as e:

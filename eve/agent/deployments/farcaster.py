@@ -188,7 +188,7 @@ def upload_to_s3(media_urls: List[str]) -> List[str]:
     uploaded_urls = []
     for media_url in media_urls:
         try:
-            uploaded_url, _ = upload_file_from_url(media_url)
+            uploaded_url, _, _ = upload_file_from_url(media_url)
             uploaded_urls.append(uploaded_url)
         except Exception as e:
             logger.error(f"Error uploading {media_url}: {e}")
