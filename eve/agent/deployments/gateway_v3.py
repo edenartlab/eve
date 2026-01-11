@@ -578,6 +578,87 @@ def parse_mentioned_deployments(
     return mentioned
 
 
+async def resolve_reply_trigger_deployments(
+    message: discord.Message,
+    following_deployments: List[Deployment],
+) -> List[Deployment]:
+    """
+    Resolve deployments to trigger when a user replies to a webhook message.
+
+    If the referenced message was sent via an Eden webhook, map it back to the
+    originating deployment (or agent) so a reply behaves like a role mention.
+    """
+    if not message.reference or not message.reference.message_id:
+        return []
+
+    ref_message = message.reference.resolved
+    if not ref_message:
+        try:
+            ref_message = await message.channel.fetch_message(
+                message.reference.message_id
+            )
+        except Exception as e:
+            logger.debug(f"Failed to fetch referenced message: {e}")
+            return []
+
+    if not ref_message:
+        return []
+
+    is_ref_webhook = getattr(ref_message, "webhook_id", None) is not None
+    if not is_ref_webhook:
+        return []
+
+    ref_message_id = str(ref_message.id)
+    logger.info(f"Reply targets webhook message {ref_message_id}")
+
+    try:
+        discord_msg = DiscordMessage.find_one({"discord_message_id": ref_message_id})
+    except Exception as e:
+        logger.warning(f"Failed to look up DiscordMessage for reply target: {e}")
+        discord_msg = None
+
+    if discord_msg and discord_msg.source_deployment_id:
+        for deployment in following_deployments:
+            if str(deployment.id) == str(discord_msg.source_deployment_id):
+                logger.info(
+                    f"Reply matched deployment {deployment.id} via DiscordMessage"
+                )
+                return [deployment]
+
+    if discord_msg and discord_msg.source_agent_id:
+        matched = [
+            d
+            for d in following_deployments
+            if str(d.agent) == str(discord_msg.source_agent_id)
+        ]
+        if len(matched) == 1:
+            logger.info(f"Reply matched deployment {matched[0].id} via source agent")
+            return matched
+
+    # Best-effort fallback: match webhook display name to a unique agent
+    try:
+        candidates = []
+        ref_author = getattr(ref_message, "author", None)
+        ref_author_name = ref_author.name if ref_author else None
+        if not ref_author_name:
+            return []
+        for deployment in following_deployments:
+            agent = Agent.from_mongo(deployment.agent)
+            if not agent:
+                continue
+            if ref_author_name in {agent.name, agent.username}:
+                candidates.append(deployment)
+        if len(candidates) == 1:
+            logger.info(
+                f"Reply matched deployment {candidates[0].id} via name fallback"
+            )
+            return candidates
+    except Exception as e:
+        logger.warning(f"Failed reply name fallback: {e}")
+
+    return []
+
+
 # ============================================================================
 # PY-CORD BOT
 # ============================================================================
@@ -837,6 +918,12 @@ async def on_message(message: discord.Message):
     mentioned_deployments = parse_mentioned_deployments(message, following_deployments)
     mentioned_ids = {d.id for d in mentioned_deployments}
 
+    # Treat replies to Eden webhook messages like role mentions
+    reply_deployments = await resolve_reply_trigger_deployments(
+        message, following_deployments
+    )
+    reply_ids = {d.id for d in reply_deployments}
+
     # Resolve webhook attribution if available
     source_agent = None
     source_deployment_id = None
@@ -889,7 +976,8 @@ async def on_message(message: discord.Message):
             deployment, effective_channel_id
         )
         was_mentioned = deployment.id in mentioned_ids
-        should_prompt = was_mentioned and has_write_access
+        was_reply_target = deployment.id in reply_ids
+        should_prompt = (was_mentioned or was_reply_target) and has_write_access
         if is_webhook_message:
             should_prompt = False
 
