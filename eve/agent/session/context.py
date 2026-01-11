@@ -689,6 +689,14 @@ async def add_chat_message(
     session.update(memory_context=memory_context.model_dump())
     session.memory_context = SessionMemoryContext(**session.memory_context)
 
+    # Seed hook: Create seed on first user message for opted-in agents
+    if context.message.role == "user":
+        import asyncio
+
+        from eve.utils.seed_utils import maybe_create_session_seed
+
+        asyncio.create_task(maybe_create_session_seed(session, context.message.content))
+
     # Broadcast user message to SSE connections for real-time updates
     try:
         from eve.api.sse_manager import sse_manager

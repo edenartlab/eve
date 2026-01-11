@@ -11,7 +11,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from ..models import Model
 from ..mongo import Collection, get_collection
-from ..tool_constants import TOOL_SETS
+from ..tool_constants import FEATURE_FLAG_TOOL_SETS, TOOL_SETS
 from ..user import Manna, User
 
 
@@ -192,6 +192,11 @@ class Agent(User):
             if not self.tools.get(tool_set):
                 continue
             tools_to_load.extend(set_tools)
+
+        # Load feature-flagged tool sets
+        for feature_flag, flagged_tools in FEATURE_FLAG_TOOL_SETS.items():
+            if feature_flag in (self.featureFlags or []):
+                tools_to_load.extend(flagged_tools)
 
         # Load extra tools
         tools_to_load.extend(extra_tools)

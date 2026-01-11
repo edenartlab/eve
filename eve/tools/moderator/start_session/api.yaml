@@ -1,0 +1,41 @@
+name: Start Session
+description: |
+  Initialize the multi-agent session by generating personalized contexts for each agent.
+  This creates each agent's private workspace (agent_session) with their role, secrets, and objectives.
+
+  Call this tool FIRST when starting a new automatic session. After calling this, you can use
+  prompt_agent to call on specific agents to speak.
+
+  The agent_contexts parameter should include an entry for each agent with:
+  - agent_username: The agent's username
+  - context: Their personalized role, secrets, and objectives for THIS scenario
+cost_estimate: 0
+output_type: string
+active: true
+handler: local
+visible: false
+parameters:
+  shared_understanding:
+    type: string
+    label: Shared Understanding
+    description: |
+      Common knowledge all agents share - game rules, mechanics, constraints, and public objectives.
+      This is NOT agent personas (agents already have those) - this is scenario-specific shared info.
+    required: true
+  agent_contexts:
+    type: array
+    label: Agent Contexts
+    description: |
+      Per-agent personalized contexts. Each entry should have:
+      - agent_username: The username of the agent
+      - context: Their role in THIS scenario, private secrets, objectives, win conditions
+    required: true
+    items:
+      type: object
+  finish_criteria:
+    type: string
+    label: Finish Criteria
+    description: |
+      When should this session end? Examples: "after 10 turns", "when a winner is declared",
+      "when the task is complete", "when all players have been eliminated except one"
+    required: true

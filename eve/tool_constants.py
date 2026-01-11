@@ -75,6 +75,7 @@ ALL_TOOLS = [
     # audio
     # "ace_step_musicgen",
     "elevenlabs",
+    "elevenlabs_dialogue",
     "vibevoice",
     # "mmaudio",
     # "thinksound",
@@ -152,17 +153,24 @@ EDEN_DB_TOOLS = [
 
 CONTEXT7_MCP_TOOLS = ["context7_resolve_library_id"]
 CALCULATOR_MCP_TOOLS = ["calculator_calculate"]
+EDEN_MCP_TOOLS = ["eden_ping", "eden_search_creations"]
 
 TOOL_SETS = {
     "create_image": ["create", "media_editor", "reel"],  #  "magic_8_ball"
     "create_video": [],  # deprecated
-    "create_audio": ["elevenlabs", "elevenlabs_music", "elevenlabs_fx"],
+    "create_audio": [
+        "elevenlabs",
+        "elevenlabs_dialogue",
+        "elevenlabs_music",
+        "elevenlabs_fx",
+    ],
     "vj_tools": ["texture_flow", "video_FX", "reel"],
     "news": [],  # deprecated
     "manage_collections": ["eden_search", "add_to_collection"],
     "social_media_tools": SOCIAL_MEDIA_TOOLS,
     "context7_mcp_tools": CONTEXT7_MCP_TOOLS,
     "calculator_mcp_tools": CALCULATOR_MCP_TOOLS,
+    "eden_mcp_tools": EDEN_MCP_TOOLS,
     "legacy_tools": [
         "legacy_create",
         "legacy_interpolate",
@@ -171,6 +179,10 @@ TOOL_SETS = {
         "legacy_txt2vid",
     ],
     "all_tools": ALL_TOOLS,
+}
+
+FEATURE_FLAG_TOOL_SETS = {
+    "eden_mcp": EDEN_MCP_TOOLS,
 }
 
 BASE_TOOLS = [

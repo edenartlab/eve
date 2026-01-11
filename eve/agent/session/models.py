@@ -1179,7 +1179,7 @@ class DeploymentSettingsDiscord(BaseModel):
     oauth_url: Optional[str] = None
     channel_allowlist: Optional[List[DiscordAllowlistItem]] = None
     read_access_channels: Optional[List[DiscordAllowlistItem]] = None
-    enable_discord_dm: Optional[bool] = False
+    dm_user_allowlist: Optional[List[DiscordAllowlistItem]] = None
 
     # New webhook-based fields
     guild_id: Optional[str] = None

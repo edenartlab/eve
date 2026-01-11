@@ -2,7 +2,8 @@ import logging
 from datetime import datetime, timezone
 
 from eve.agent.agent import Agent
-from eve.agent.session.models import Deployment
+from eve.agent.deployments.twitter_gateway import Tweet
+from eve.agent.session.models import Deployment, Session
 from eve.tool import ToolContext
 from eve.tools.twitter import X
 
@@ -11,6 +12,24 @@ async def handler(context: ToolContext):
     if not context.agent:
         raise Exception("Agent is required")
     agent_obj = Agent.from_mongo(context.agent)
+
+    # Auto-set session platform to twitter if not already set
+    if context.session:
+        session = Session.from_mongo(context.session)
+        if session.platform is None:
+            session.update(platform="twitter")
+
+    # Enforce reply_to after first tweet in session
+    reply_to = context.args.get("reply_to")
+    if context.session and not reply_to:
+        prior_tweet = Tweet.find_one({"session_id": context.session})
+        if prior_tweet:
+            raise Exception(
+                "reply_to is required after your first tweet. Use the tweet ID from "
+                "your previous tweet or the tweet you're responding to. For tweetstorms, "
+                "reply to your own previous tweet."
+            )
+
     deployment = Deployment.load(agent=agent_obj.id, platform="twitter")
     if not deployment:
         raise Exception("No valid twitter deployments found")
@@ -41,8 +60,6 @@ async def handler(context: ToolContext):
 
     # Save Tweet record with Eden session/message linkage
     try:
-        from eve.agent.deployments.twitter_gateway import Tweet
-
         # Fetch tweet details to get conversation_id
         tweet_details = x.get_tweet(tweet_id)
         tweet_data = tweet_details.get("data", {})

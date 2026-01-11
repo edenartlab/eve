@@ -1203,13 +1203,15 @@ class DiscordGatewayClient:
             logger.info(f"[{trace_id}] Channel {channel_id} not in allowlist")
         return is_allowed
 
-    def _check_dm_enabled(self, deployment: Deployment) -> bool:
-        """Check if DM responses are enabled for this deployment"""
-        return (
-            deployment.config
-            and deployment.config.discord
-            and deployment.config.discord.enable_discord_dm
-        )
+    def _check_dm_allowed(self, deployment: Deployment, discord_user_id: str) -> bool:
+        """Check if DM from this user is allowed for this deployment"""
+        if not deployment.config or not deployment.config.discord:
+            return False
+        dm_allowlist = deployment.config.discord.dm_user_allowlist
+        if not dm_allowlist:
+            return False
+        allowed_user_ids = [str(user.id) for user in dm_allowlist]
+        return discord_user_id in allowed_user_ids
 
     async def _handle_direct_message(
         self, data: dict, trace_id: str, deployment: Deployment
@@ -1500,14 +1502,19 @@ class DiscordGatewayClient:
         Handle DM-specific routing logic.
         Returns True if we should continue processing, False if we should exit.
         """
-        if not self._check_dm_enabled(deployment):
+        discord_user_id = data.get("author", {}).get("id", "")
+        if not self._check_dm_allowed(deployment, discord_user_id):
             # Send canned response and exit
-            logger.info(f"[{trace_id}] DM responses disabled, sending canned reply")
+            logger.info(
+                f"[{trace_id}] DM from user {discord_user_id} not in allowlist, sending canned reply"
+            )
             await self._handle_direct_message(data, trace_id, deployment)
             return False
 
-        # DM enabled, continue processing
-        logger.info(f"[{trace_id}] DM responses enabled, processing as normal message")
+        # DM allowed, continue processing
+        logger.info(
+            f"[{trace_id}] DM from user {discord_user_id} allowed, processing as normal message"
+        )
         return True
 
     async def _should_process_channel_logic(

@@ -1,0 +1,46 @@
+name: Eden Creations Search
+description: Search Eden creations using semantic embeddings via MCP.
+cost_estimate: 0
+output_type: string
+active: true
+visible: true
+handler: mcp
+mcp_server_url: ${EDEN_API_URL}/mcp
+mcp_tool_name: eden_search_creations
+mcp_timeout: 30
+mcp_user_token_url: ${EDEN_API_URL}/v2/mcp/token
+mcp_user_token_api_key_env: EDEN_API_KEY
+mcp_user_token_ttl_seconds: 600
+parameters:
+  query:
+    type: string
+    label: Query
+    description: Search text to embed and match against creations.
+    required: true
+  agentId:
+    type: string
+    label: Agent ID
+    description: Optional agent ID to filter creations.
+    required: false
+  userId:
+    type: string
+    label: User ID
+    description: Optional user ID to filter creations.
+    required: false
+  tool:
+    type: string
+    label: Tool
+    description: Optional tool name to filter creations.
+    required: false
+  page:
+    type: integer
+    label: Page
+    description: Page number for pagination.
+    required: false
+    default: 1
+  limit:
+    type: integer
+    label: Limit
+    description: Results per page.
+    required: false
+    default: 20
