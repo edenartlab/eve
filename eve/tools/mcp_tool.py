@@ -2,8 +2,11 @@ import os
 from typing import Any, Dict, Optional
 from urllib.parse import urlencode
 
+import httpx
+from bson import ObjectId
 from pydantic import Field
 
+from ..mongo import get_collection
 from ..task import Task
 from ..tool import Tool, ToolContext, tool_context
 
@@ -19,11 +22,30 @@ class MCPTool(Tool):
     mcp_env_params: Optional[Dict[str, str]] = Field(
         None, description="Environment variable mappings for query params"
     )
+    mcp_bearer_env: Optional[str] = Field(
+        None, description="Environment variable name for bearer token"
+    )
+    mcp_use_user_api_key: bool = Field(
+        False,
+        description="Use the authenticated user's API key as the bearer token",
+    )
     mcp_timeout: int = Field(30, description="Timeout in seconds for MCP requests")
+    mcp_user_token_url: Optional[str] = Field(
+        None, description="URL to mint a short-lived user MCP token"
+    )
+    mcp_user_token_api_key_env: Optional[str] = Field(
+        None, description="Env var containing API key for token minting"
+    )
+    mcp_user_token_ttl_seconds: Optional[int] = Field(
+        None, description="TTL seconds for minted user MCP tokens"
+    )
+
+    def _resolve_server_url(self) -> str:
+        return os.path.expandvars(self.mcp_server_url)
 
     def _build_url_with_auth(self) -> str:
         """Build URL with query parameters from environment variables"""
-        url = self.mcp_server_url
+        url = self._resolve_server_url()
         params = {}
 
         if self.mcp_env_params:
@@ -38,15 +60,94 @@ class MCPTool(Tool):
 
         return url
 
-    async def _call_mcp_tool(self, args: Dict[str, Any]) -> str:
+    def _get_user_api_key(self, user_id: Optional[str]) -> Optional[str]:
+        if not user_id:
+            return None
+        try:
+            user_obj = ObjectId(user_id)
+        except Exception:
+            return None
+
+        api_keys = get_collection("apikeys")
+        api_key_doc = api_keys.find_one(
+            {
+                "user": user_obj,
+                "character": {"$exists": False},
+                "deleted": {"$ne": True},
+            },
+            sort=[("createdAt", -1)],
+        )
+        if not api_key_doc:
+            api_key_doc = api_keys.find_one(
+                {"user": user_obj, "deleted": {"$ne": True}},
+                sort=[("createdAt", -1)],
+            )
+        if not api_key_doc:
+            return None
+        return api_key_doc.get("apiKey")
+
+    async def _fetch_user_token(self, user_id: Optional[str]) -> Optional[str]:
+        if not self.mcp_user_token_url or not user_id:
+            return None
+
+        api_key_env = self.mcp_user_token_api_key_env or "EDEN_API_KEY"
+        api_key = os.getenv(api_key_env)
+        if not api_key:
+            return None
+
+        url = os.path.expandvars(self.mcp_user_token_url)
+        payload: Dict[str, Any] = {"userId": user_id}
+        if self.mcp_user_token_ttl_seconds:
+            payload["ttlSeconds"] = int(self.mcp_user_token_ttl_seconds)
+
+        async with httpx.AsyncClient(timeout=self.mcp_timeout) as client:
+            response = await client.post(
+                url,
+                json=payload,
+                headers={"X-Api-Key": api_key},
+            )
+            response.raise_for_status()
+            data = response.json()
+
+        return data.get("token") or data.get("access_token")
+
+    async def _resolve_bearer_token(self, user_id: Optional[str]) -> Optional[str]:
+        if self.mcp_user_token_url:
+            user_token = await self._fetch_user_token(user_id)
+            if user_token:
+                return user_token
+            raise ValueError("Failed to mint MCP user token")
+
+        if self.mcp_use_user_api_key and user_id:
+            user_key = self._get_user_api_key(user_id)
+            if user_key:
+                return user_key
+
+        if self.mcp_bearer_env:
+            env_value = os.getenv(self.mcp_bearer_env)
+            if env_value:
+                return env_value
+
+        return None
+
+    async def _build_headers(self, user_id: Optional[str]) -> Optional[Dict[str, str]]:
+        bearer = await self._resolve_bearer_token(user_id)
+        if not bearer:
+            return None
+        return {"Authorization": f"Bearer {bearer}"}
+
+    async def _call_mcp_tool(self, args: Dict[str, Any], user_id: Optional[str]) -> str:
         """Call MCP tool using streamable_http"""
         from mcp.client.session import ClientSession
         from mcp.client.streamable_http import streamablehttp_client
 
         url = self._build_url_with_auth()
         formatted_args = self._format_args(args)
+        headers = await self._build_headers(user_id)
 
-        async with streamablehttp_client(url) as (
+        async with streamablehttp_client(
+            url, headers=headers, timeout=self.mcp_timeout
+        ) as (
             read_stream,
             write_stream,
             get_session_id,
@@ -117,14 +218,14 @@ class MCPTool(Tool):
     @Tool.handle_run
     async def async_run(self, context: ToolContext):
         """Execute the MCP tool and return result"""
-        result = await self._call_mcp_tool(context.args)
+        result = await self._call_mcp_tool(context.args, context.user)
         return {"output": result}
 
     @Tool.handle_start_task
     async def async_start_task(self, task: Task, webhook: bool = True):
         """Start an async task"""
         args = self.prepare_args(task.args)
-        result = await self._call_mcp_tool(args)
+        result = await self._call_mcp_tool(args, str(task.user) if task.user else None)
 
         task.update(status="completed", result=[{"output": result}])
 
