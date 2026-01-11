@@ -893,14 +893,20 @@ async def on_message(message: discord.Message):
         if is_webhook_message:
             should_prompt = False
 
-        # For DMs, check if DMs are enabled
+        # For DMs, check if user is in the DM allowlist
         if not guild_id:
-            if not (
-                deployment.config
-                and deployment.config.discord
-                and deployment.config.discord.enable_discord_dm
-            ):
-                # DMs disabled - send redirect message
+            dm_allowlist = (
+                deployment.config.discord.dm_user_allowlist
+                if deployment.config and deployment.config.discord
+                else None
+            )
+            user_allowed = False
+            if dm_allowlist:
+                allowed_user_ids = [str(user.id) for user in dm_allowlist]
+                user_allowed = str(message.author.id) in allowed_user_ids
+
+            if not user_allowed:
+                # User not in DM allowlist - send redirect message
                 try:
                     agent = Agent.from_mongo(deployment.agent)
                     if agent:
@@ -912,7 +918,7 @@ async def on_message(message: discord.Message):
                     logger.error(f"Failed to send DM redirect: {e}")
                 continue
             else:
-                # DMs enabled - always prompt
+                # User in allowlist - always prompt
                 should_prompt = True
 
         # Process the message for this deployment

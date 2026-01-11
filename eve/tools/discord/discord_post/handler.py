@@ -151,6 +151,22 @@ async def handler(context: ToolContext):
                 content = f"{content}\n\n{media_content}"
 
         if discord_user_id:
+            # Validate DM user against allowlist
+            dm_allowlist = (
+                deployment.config.discord.dm_user_allowlist
+                if deployment.config and deployment.config.discord
+                else None
+            )
+            if not dm_allowlist:
+                raise Exception(
+                    "DMs are not enabled for this agent. No dm_user_allowlist configured."
+                )
+            allowed_user_ids = [str(user.id) for user in dm_allowlist]
+            if discord_user_id not in allowed_user_ids:
+                allowed_users_info = {user.note: str(user.id) for user in dm_allowlist}
+                raise Exception(
+                    f"User {discord_user_id} is not in the DM allowlist. Allowed users (note: id): {allowed_users_info}"
+                )
             # Send DM to user
             return await send_dm(client, discord_user_id, content, files)
         else:

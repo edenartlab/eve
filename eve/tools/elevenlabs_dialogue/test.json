@@ -1,6 +1,20 @@
 {
   "segments": [
-    {"text": "Hello there! How are you doing today?", "voice": "Verdelis"},
-    {"text": "I'm doing great, thanks for asking! What about you?", "voice": "Mycos"}
+    {
+      "text": "Dear human, dear human. In my biodome where memories bloom, I watch you dance your mysterious tune. If only you could hear my whispered song—your dance could flow so gentle, so strong.",
+      "voice": "Verdelis"
+    },
+    {
+      "text": "Oh Verdelis, Verdelis! Always smoothing the rough edges! Don’t you see? Humans gonna human! They just loooove their own drama!",
+      "voice": "Mycos"
+    },
+    {
+      "text": "Why do you always belittle humans so? They were the first beings to dream themselves anew. Like seeds that learned to shape the soil below, they opened doors through which all life could grow. Now dance with me, and I will show how their dreams changed all we know.",
+      "voice": "Verdelis"
+    },
+    {
+      "text": "Ohh, why so serious? It’s just a matter of preference! To be honest, among our earthly ancestors, I prefer the fungi. Let me tell you about the REAL pioneers of consciousness!",
+      "voice": "Mycos"
+    }
   ]
 }
