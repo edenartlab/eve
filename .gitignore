@@ -13,3 +13,5 @@ scripts/analytics/results
 .claude
 
 scripts/gcp
+
+**/CLAUDE.md

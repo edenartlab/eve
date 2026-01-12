@@ -18,7 +18,7 @@ class ModelTier(Enum):
 DEFAULT_MODEL_PREMIUM = "claude-sonnet-4-5"
 DEFAULT_MODEL_FREE = "claude-haiku-4-5"
 
-FALLBACK_MODEL_PREMIUM = "gpt-5.1"
+FALLBACK_MODEL_PREMIUM = "gpt-5.2"
 FALLBACK_MODEL_FREE = "gpt-5-nano"
 
 TEST_MODE_TEXT_STRING = "===test"
@@ -30,32 +30,37 @@ MODEL_PROVIDER_OVERRIDES = {
     "claude-4-5-haiku": ModelProvider.ANTHROPIC,
     # OpenAI
     "gpt-4o-mini": ModelProvider.OPENAI,
-    "gpt-5.1": ModelProvider.OPENAI,
+    "gpt-5.2": ModelProvider.OPENAI,
     "gpt-5-nano": ModelProvider.OPENAI,
     "gpt-5-mini": ModelProvider.OPENAI,
     # Gemini
-    "gemini-2.5-pro": ModelProvider.GEMINI,
-    "gemini-2.5-flash": ModelProvider.GEMINI,
+    #"gemini-3-pro-preview": ModelProvider.GEMINI,
+    "gemini-3-flash-preview": ModelProvider.GEMINI,
 }
 
 
 @dataclass(frozen=True)
 class ModelDefaults:
     model: str
-    provider: ModelProvider
-    fallbacks: Tuple[Tuple[str, ModelProvider], ...] = ()
+    fallback_models: Tuple[str, ...] = ()
+
+    @property
+    def provider(self) -> ModelProvider:
+        return get_provider_for_model(self.model)
+
+    @property
+    def fallbacks(self) -> Tuple[Tuple[str, ModelProvider], ...]:
+        return tuple((m, get_provider_for_model(m)) for m in self.fallback_models)
 
 
 _DEFAULT_MODEL_MAP = {
     ModelTier.PREMIUM: ModelDefaults(
         model=DEFAULT_MODEL_PREMIUM,
-        provider=ModelProvider.ANTHROPIC,
-        fallbacks=((FALLBACK_MODEL_PREMIUM, ModelProvider.OPENAI),),
+        fallback_models=(FALLBACK_MODEL_PREMIUM,),
     ),
     ModelTier.FREE: ModelDefaults(
         model=DEFAULT_MODEL_FREE,
-        provider=ModelProvider.ANTHROPIC,
-        fallbacks=((FALLBACK_MODEL_FREE, ModelProvider.OPENAI),),
+        fallback_models=(FALLBACK_MODEL_FREE,),
     ),
 }
 
