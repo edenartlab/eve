@@ -94,6 +94,7 @@ class ToolCall(BaseModel):
     reactions: Optional[List[Reaction]] = None
     error: Optional[str] = None
     child_session: Optional[ObjectId] = None
+    thought_signature: Optional[str] = None  # Gemini thought signature for tool calls
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 

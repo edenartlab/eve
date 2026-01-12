@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import json
 import logging as logger
 import os
 import uuid
@@ -360,7 +361,6 @@ class GoogleProvider(LLMProvider):
 
                 # Try to parse result as JSON, otherwise use as string
                 try:
-                    import json
                     result = json.loads(result_content)
                 except (json.JSONDecodeError, TypeError):
                     result = {"result": result_content}
@@ -398,23 +398,79 @@ class GoogleProvider(LLMProvider):
                             f"Warning: Failed to fetch image {attachment_url}: {e}"
                         )
 
-            # Handle tool call results in assistant messages
+            # Handle tool calls in assistant messages
             if message.role == "assistant" and message.tool_calls:
                 for tc in message.tool_calls:
-                    # Add function call part
-                    parts.append(
-                        genai_types.Part(
-                            function_call=genai_types.FunctionCall(
-                                name=tc.tool,
-                                args=tc.args,
-                            )
+                    # Build the Part with function_call
+                    # Include thought_signature if present (required by Gemini 3 for follow-up requests)
+                    part_kwargs = {
+                        "function_call": genai_types.FunctionCall(
+                            name=tc.tool,
+                            args=tc.args,
                         )
-                    )
+                    }
+                    if tc.thought_signature:
+                        # Decode base64 string back to bytes for the API
+                        try:
+                            thought_sig_bytes = base64.b64decode(tc.thought_signature)
+                            part_kwargs["thought_signature"] = thought_sig_bytes
+                        except Exception:
+                            # If decoding fails, try using as-is
+                            part_kwargs["thought_signature"] = tc.thought_signature
+                    parts.append(genai_types.Part(**part_kwargs))
 
             # Only add content if there are parts
             if parts:
                 role = "user" if message.role == "user" else "model"
                 contents.append(genai_types.Content(role=role, parts=parts))
+
+            # Add function responses AFTER the assistant message
+            # Gemini requires tool results as a separate user message with function_response parts
+            # Following the same pattern as Anthropic/OpenAI: always include function_response
+            # with status info, even for pending tool calls
+            if message.role == "assistant" and message.tool_calls:
+                response_parts = []
+                for tc in message.tool_calls:
+                    # Build response dict with status (matching Anthropic/OpenAI pattern)
+                    response_dict = {"status": tc.status or "pending"}
+
+                    if tc.status == "failed":
+                        response_dict["error"] = tc.error or "Tool execution failed"
+                    elif tc.result is not None:
+                        # Convert result to proper format for Gemini API
+                        try:
+                            if isinstance(tc.result, str):
+                                parsed = json.loads(tc.result)
+                                if isinstance(parsed, list):
+                                    response_dict["result"] = parsed
+                                elif isinstance(parsed, dict):
+                                    response_dict.update(parsed)
+                                else:
+                                    response_dict["result"] = parsed
+                            elif isinstance(tc.result, (dict, list)):
+                                response_dict["result"] = tc.result
+                            else:
+                                response_dict["result"] = str(tc.result)
+                        except (json.JSONDecodeError, TypeError):
+                            response_dict["result"] = str(tc.result)
+
+                    # Ensure all values are JSON-serializable (handles ObjectId, datetime, etc.)
+                    # by round-tripping through JSON with default=str
+                    try:
+                        response_dict = json.loads(json.dumps(response_dict, default=str))
+                    except (TypeError, ValueError):
+                        response_dict = {"status": tc.status or "pending", "error": "Failed to serialize result"}
+
+                    response_parts.append(
+                        genai_types.Part(
+                            function_response=genai_types.FunctionResponse(
+                                name=tc.tool,
+                                response=response_dict,
+                            )
+                        )
+                    )
+                if response_parts:
+                    contents.append(genai_types.Content(role="user", parts=response_parts))
 
         system_instruction = "\n\n".join(system_parts) if system_parts else None
         return system_instruction, contents
@@ -516,12 +572,25 @@ class GoogleProvider(LLMProvider):
                     # Handle function calls
                     func_call = getattr(part, "function_call", None)
                     if func_call:
+                        # Gemini 3 with thinking enabled returns thought_signature (bytes)
+                        # that must be preserved and sent back in follow-up requests
+                        # Encode to base64 for storage as string
+                        thought_sig = getattr(part, "thought_signature", None)
+                        thought_sig_str = None
+                        if thought_sig is not None:
+                            if isinstance(thought_sig, bytes):
+                                thought_sig_str = base64.b64encode(thought_sig).decode(
+                                    "utf-8"
+                                )
+                            else:
+                                thought_sig_str = str(thought_sig)
                         tool_calls.append(
                             ToolCall(
                                 id=f"call_{uuid.uuid4().hex[:24]}",
                                 tool=getattr(func_call, "name", ""),
                                 args=dict(getattr(func_call, "args", {})),
                                 status="pending",
+                                thought_signature=thought_sig_str,
                             )
                         )
 
@@ -545,7 +614,13 @@ class GoogleProvider(LLMProvider):
                     # stored - it provides no value to the UI and causes empty blocks
 
             if candidate.finish_reason:
-                stop_reason = str(candidate.finish_reason)
+                # Extract enum name properly - str(enum) returns "EnumClass.VALUE"
+                # but we need just "VALUE" for comparison
+                finish_reason = candidate.finish_reason
+                if hasattr(finish_reason, "name"):
+                    stop_reason = finish_reason.name
+                else:
+                    stop_reason = str(finish_reason)
                 # Normalize stop reason
                 if stop_reason == "STOP":
                     stop_reason = "stop"
@@ -574,6 +649,12 @@ class GoogleProvider(LLMProvider):
             completion_tokens=completion_tokens,
             total_tokens=total_tokens,
         )
+
+        # If there are tool calls, override stop_reason to "tool_calls"
+        # Gemini 3 returns STOP even when making tool calls, but the runtime
+        # expects "tool_calls" to continue the loop for processing results
+        if tool_calls:
+            stop_reason = "tool_calls"
 
         return LLMResponse(
             content="\n".join(text_segments).strip(),
