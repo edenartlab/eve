@@ -1,9 +1,12 @@
+import logging
 from typing import Any, AsyncGenerator, Callable, List, Optional, Tuple
 
 from eve.agent.llm.constants import MODEL_PROVIDER_OVERRIDES, ModelProvider
 from eve.agent.llm.providers import LLMProvider
 from eve.agent.llm.util import should_force_fake_response, validate_input
 from eve.agent.session.models import LLMContext, LLMResponse, ToolCall
+
+logger = logging.getLogger(__name__)
 
 ProviderFactory = Callable[[LLMContext], Optional[LLMProvider]]
 _provider_factory_override: Optional[ProviderFactory] = None
@@ -32,7 +35,10 @@ class FallbackChainProvider(LLMProvider):
         for provider in self._providers:
             try:
                 return await provider.prompt(context)
-            except Exception as exc:  # pragma: no cover - each provider logs failures
+            except Exception as exc:
+                logger.warning(
+                    f"Provider {provider.__class__.__name__} failed, trying next: {exc}"
+                )
                 last_error = exc
         if last_error:
             raise last_error
@@ -45,7 +51,10 @@ class FallbackChainProvider(LLMProvider):
                 async for chunk in provider.prompt_stream(context):
                     yield chunk
                 return
-            except Exception as exc:  # pragma: no cover - each provider logs failures
+            except Exception as exc:
+                logger.warning(
+                    f"Provider {provider.__class__.__name__} failed (stream), trying next: {exc}"
+                )
                 last_error = exc
         if last_error:
             raise last_error

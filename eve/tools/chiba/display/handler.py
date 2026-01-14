@@ -104,9 +104,7 @@ async def handler(context: ToolContext):
             request_data = {}
 
             # Content source (one of these)
-            if context.args.get("filename"):
-                request_data["filename"] = context.args["filename"]
-            elif context.args.get("url"):
+            if context.args.get("url"):
                 request_data["url"] = context.args["url"]
             elif context.args.get("collection_id"):
                 request_data["collectionId"] = context.args["collection_id"]
@@ -119,7 +117,7 @@ async def handler(context: ToolContext):
                     f"[DISPLAY] No content source for play action. Args: {context.args}"
                 )
                 raise ValueError(
-                    "play action requires one of: filename, url, collection_id, or creation_id. "
+                    "play action requires one of: url, collection_id, or creation_id. "
                     f"Received args: {context.args}"
                 )
 
@@ -128,6 +126,8 @@ async def handler(context: ToolContext):
                 request_data["loop"] = context.args["loop"]
             if context.args.get("name"):
                 request_data["name"] = context.args["name"]
+            if context.args.get("show_intro") is not None:
+                request_data["showIntro"] = context.args["show_intro"]
 
             response = await client.post(
                 build_url("play"),
@@ -276,6 +276,48 @@ async def handler(context: ToolContext):
             logger.info(f"[DISPLAY] clear_cache result: {result}")
             return {"output": result}
 
+        elif action == "append":
+            # Append a single item to current playlist or create new playlist
+            # Build the item from content source parameters
+            item = {}
+
+            if context.args.get("url"):
+                item["url"] = context.args["url"]
+            elif context.args.get("collection_id"):
+                item["collectionId"] = context.args["collection_id"]
+                item["db"] = context.args.get("db", os.getenv("DB", "PROD"))
+            elif context.args.get("creation_id"):
+                item["creationId"] = context.args["creation_id"]
+                item["db"] = context.args.get("db", os.getenv("DB", "PROD"))
+            else:
+                logger.error(
+                    f"[DISPLAY] No content source for append action. Args: {context.args}"
+                )
+                raise ValueError(
+                    "append action requires one of: url, collection_id, or creation_id. "
+                    f"Received args: {context.args}"
+                )
+
+            if context.args.get("name"):
+                item["name"] = context.args["name"]
+
+            request_data = {"items": [item]}
+
+            # Optional parameters for creating new playlist (if none is active)
+            if context.args.get("loop") is not None:
+                request_data["loop"] = context.args["loop"]
+            if context.args.get("show_intro") is not None:
+                request_data["showIntros"] = context.args["show_intro"]
+
+            response = await client.post(
+                build_url("append"),
+                headers=headers,
+                json=request_data,
+            )
+            result = handle_response(response, "append", request_data)
+            logger.info(f"[DISPLAY] append result: {result}")
+            return {"output": result}
+
         else:
             valid_actions = [
                 "nodes",
@@ -293,6 +335,7 @@ async def handler(context: ToolContext):
                 "image_duration",
                 "cache",
                 "clear_cache",
+                "append",
             ]
             logger.error(f"[DISPLAY] Unknown action '{action}'. Args: {context.args}")
             raise ValueError(

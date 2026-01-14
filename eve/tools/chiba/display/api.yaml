@@ -2,11 +2,12 @@ name: display
 description: Control the Chiba display system - play videos/images/URLs on screens, manage playback, control volume, and cache content
 tip: |-
   This tool controls the Chiba display screens. Use it to:
-  - Play content on monitors: cached files, URLs (including YouTube), Eden collections/creations
+  - Play content on monitors: URLs (including YouTube), Eden collections/creations
   - Control playback: pause, resume, stop, next, previous
   - Adjust volume (0-100 scale)
   - Set loop mode and image display duration
   - Cache content for later playback
+  - Append items to the current playlist
   - Check status and list cached files
 cost_estimate: 0
 output_type: string
@@ -35,6 +36,7 @@ parameters:
       - image_duration
       - cache
       - clear_cache
+      - append
     choices_labels:
       - List Display Nodes
       - Get Status
@@ -51,25 +53,21 @@ parameters:
       - Set Image Duration
       - Cache Content
       - Clear Cache
-  filename:
-    type: string
-    label: Filename
-    description: Cached filename to play (for 'play' action)
-    required: false
+      - Append Item to Playlist
   url:
     type: string
     label: URL
-    description: URL to play or cache - supports direct media URLs, YouTube, webpages (for 'play' and 'cache' actions)
+    description: URL to play, cache, or append - supports direct media URLs, YouTube, webpages (for 'play', 'cache', and 'append' actions)
     required: false
   collection_id:
     type: string
     label: Collection ID
-    description: Eden collection ID to play or cache (for 'play' and 'cache' actions)
+    description: Eden collection ID to play, cache, or append (for 'play', 'cache', and 'append' actions)
     required: false
   creation_id:
     type: string
     label: Creation ID
-    description: Eden creation ID to play or cache (for 'play' and 'cache' actions)
+    description: Eden creation ID to play, cache, or append (for 'play', 'cache', and 'append' actions)
     required: false
   db:
     type: string
@@ -103,20 +101,31 @@ parameters:
     label: Name
     description: Optional friendly name for cached content
     required: false
+  show_intro:
+    type: boolean
+    label: Show Intro
+    description: Show intro screen before content (for 'play' action)
+    required: false
   node:
     type: string
     label: Node
-    description: Target display node
+    description: Target display or screen
     required: false
     choices:
-      - macbook
-      - mars01
-      - mars02
-      - mars05
-      - mars06
+      - east1
+      - east2
+      - east3
+      - east4
+      - west1
+      - west2
+      - west3
+      - west4
     choices_labels:
-      - Macbook
-      - Mars 01
-      - Mars 02
-      - Mars 05
-      - Mars 06
+      - East 1
+      - East 2
+      - East 3
+      - East 4
+      - West 1
+      - West 2
+      - West 3
+      - West 4

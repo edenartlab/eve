@@ -1248,7 +1248,7 @@ class DiscordGatewayClient:
                     channel_mentions.append(f"<#{item.id}>")
 
         message_lines = [
-            "Yoo, thanks for reaching out! For now, I can't continue chats in DMs yet...",
+            "If you'd like to DM with me, ask my trainer to add you to my allowlist.",
             f"Chat with me on Eden: {chat_url}",
         ]
         if channel_mentions:
