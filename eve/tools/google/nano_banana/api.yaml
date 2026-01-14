@@ -35,6 +35,12 @@ parameters:
     required: false
     hide_from_user: true
     hide_from_agent: true
+  aspect_ratio:
+    type: string
+    label: Aspect Ratio
+    description: The aspect ratio of the generated image
+    default: 'match_input_image'
+    choices: ['match_input_image','1:1', '3:2', '2:3', '3:4', '4:3', '4:5', '5:4', '9:16', '16:9', '21:9']
   seed:
     type: integer
     label: Seed
