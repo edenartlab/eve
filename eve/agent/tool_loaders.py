@@ -200,7 +200,7 @@ def load_discord_post_parameters(deployment) -> Optional[Dict[str, Any]]:
             },
         }
     except Exception as e:
-        logger.error(f"Error loading discord_post parameters: {e}")
+        logger.error(f"Error loading discord_post parameters...  {e}")
         return None
 
 
