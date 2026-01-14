@@ -9,7 +9,7 @@ tip: |-
 
   Returns audio file plus a transcript with precise timestamps for each segment
   and word-level timing for synchronizing with video/images.
-cost_estimate: 0.05 * segments.map(s => s.text.length).reduce((a, b) => a + b, 0)
+cost_estimate: 20
 thumbnail: app/elevenlabs58.webp
 output_type: audio
 active: true
