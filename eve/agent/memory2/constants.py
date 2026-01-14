@@ -5,7 +5,9 @@ This module contains all configurable thresholds, limits, and prompts for the
 memory system. Values are tuned based on production experience from memory v1.
 """
 
+import re
 from typing import Literal
+
 from eve.agent.session.config import DEFAULT_SESSION_SELECTION_LIMIT
 
 # -----------------------------------------------------------------------------
@@ -17,12 +19,11 @@ LOCAL_DEV = True  # Set to False for production
 # LLM Model Configuration
 # -----------------------------------------------------------------------------
 if LOCAL_DEV:
-    MEMORY_LLM_MODEL_FAST = "gpt-5-mini"
-    MEMORY_LLM_MODEL_SLOW = "gpt-5-mini"
+    MEMORY_LLM_MODEL_FAST = "gemini-3-flash-preview"
+    MEMORY_LLM_MODEL_SLOW = "gemini-3-flash-preview"
 else:
-    MEMORY_LLM_MODEL_FAST = "gpt-5-mini"
-    MEMORY_LLM_MODEL_SLOW = "gpt-5.2"
-
+    MEMORY_LLM_MODEL_FAST = "gemini-3-flash-preview"
+    MEMORY_LLM_MODEL_SLOW = "gemini-3-flash-preview"
 
 # -----------------------------------------------------------------------------
 # Memory Formation Triggers
@@ -374,3 +375,92 @@ This is a working memory - prioritize recent context over older details.
 Keep as a coherent narrative summary, not a list of events.
 Focus on information needed to maintain conversation continuity.""",
 }
+
+# -----------------------------------------------------------------------------
+# LLM Response Parsing Utilities
+# -----------------------------------------------------------------------------
+def extract_json_from_llm_response(text: str) -> str:
+    """
+    Extract JSON from an LLM response, handling various provider formats.
+
+    Different LLM providers return JSON in different ways:
+    - Anthropic: Often clean JSON or uses structured output (parsed attribute)
+    - Gemini: Often wraps in ```json ... ``` markdown code blocks
+    - OpenAI: Various formats depending on mode
+
+    This function handles:
+    1. Markdown code blocks (```json, ```JSON, ```, etc.)
+    2. Code blocks with leading/trailing text
+    3. Clean JSON without any wrapping
+    4. Multiple code blocks (extracts first JSON-like one)
+
+    Args:
+        text: Raw LLM response text
+
+    Returns:
+        Extracted JSON string ready for parsing
+    """
+    if not text:
+        return text
+
+    text = text.strip()
+
+    # Pattern 1: Markdown code block anywhere in the text
+    # Matches ```json, ```JSON, ```, ```javascript, etc.
+    code_block_pattern = r'```(?:json|JSON|javascript|js)?\s*\n?([\s\S]*?)\n?```'
+    matches = re.findall(code_block_pattern, text)
+
+    if matches:
+        # Try each match to find one that looks like JSON
+        for match in matches:
+            content = match.strip()
+            if content.startswith('{') or content.startswith('['):
+                return content
+        # If no match starts with { or [, return the first one anyway
+        return matches[0].strip()
+
+    # Pattern 2: Already clean JSON (starts with { or [)
+    if text.startswith('{') or text.startswith('['):
+        return text
+
+    # Pattern 3: JSON embedded in text (find first { or [ and match to end)
+    # This handles cases like "Here's the response: {...}"
+    json_start = -1
+    for i, char in enumerate(text):
+        if char in '{[':
+            json_start = i
+            break
+
+    if json_start >= 0:
+        # Find matching closing bracket
+        open_char = text[json_start]
+        close_char = '}' if open_char == '{' else ']'
+        depth = 0
+        in_string = False
+        escape_next = False
+
+        for i in range(json_start, len(text)):
+            char = text[i]
+
+            if escape_next:
+                escape_next = False
+                continue
+
+            if char == '\\' and in_string:
+                escape_next = True
+                continue
+
+            if char == '"' and not escape_next:
+                in_string = not in_string
+                continue
+
+            if not in_string:
+                if char == open_char:
+                    depth += 1
+                elif char == close_char:
+                    depth -= 1
+                    if depth == 0:
+                        return text[json_start:i + 1]
+
+    # Fallback: return original text and let JSON parser give specific error
+    return text

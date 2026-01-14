@@ -20,6 +20,7 @@ from eve.agent.memory2.constants import (
     MEMORY_LLM_MODEL_SLOW,
     REFLECTION_EXTRACTION_PROMPT,
     REFLECTION_MAX_WORDS,
+    extract_json_from_llm_response,
 )
 from eve.utils.system_utils import async_exponential_backoff
 from eve.agent.memory2.models import (
@@ -119,12 +120,12 @@ async def extract_reflections(
         )
 
         # Parse response
-        if hasattr(response, "parsed"):
+        if hasattr(response, "parsed") and response.parsed is not None:
             extracted = response.parsed
         else:
-            extracted = ReflectionExtractionResponse.model_validate_json(
-                response.content
-            )
+            # Extract JSON from various LLM response formats
+            json_content = extract_json_from_llm_response(response.content)
+            extracted = ReflectionExtractionResponse.model_validate_json(json_content)
 
         # Convert to simple dict format
         result = {

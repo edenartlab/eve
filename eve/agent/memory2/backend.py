@@ -93,9 +93,10 @@ class Memory2Backend(MemoryBackend):
                 agent_id=agent.id,
                 last_speaker_id=user_id,
                 force_refresh=force_refresh,
+                instrumentation=instrumentation,
             )
 
-            if LOCAL_DEV:
+            if LOCAL_DEV and not instrumentation:
                 word_count = len(memory_xml.split()) if memory_xml else 0
                 logger.debug(
                     f"Memory context assembled ({word_count} words) - reason: {reason}"
