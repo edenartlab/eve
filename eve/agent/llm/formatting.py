@@ -85,6 +85,44 @@ def construct_anthropic_tools(context: LLMContext) -> Optional[List[dict]]:
     return tool_schemas
 
 
+def construct_gemini_tools(context: LLMContext) -> Optional[List[dict]]:
+    """Build Gemini function declarations from an LLMContext.
+
+    Gemini uses a different format than OpenAI:
+    - Tools are wrapped in a Tool object with function_declarations
+    - Parameters use "object" type with properties
+    - Enum values must be strings
+    - Non-standard JSON Schema properties are rejected
+    """
+    tools = context.tools or {}
+    if not tools:
+        return None
+    if isinstance(tools, dict):
+        iter_tools = tools.values()
+    else:
+        iter_tools = tools
+
+    function_declarations = []
+    for tool in iter_tools:
+        # Use gemini_schema which strips non-standard properties
+        gemini_schema = tool.gemini_schema(exclude_hidden=True)
+        if not gemini_schema:
+            continue
+
+        parameters = gemini_schema.get("parameters", {})
+
+        # Ensure enum values are strings and type is "string" for enum params
+        if "properties" in parameters:
+            for param_def in parameters["properties"].values():
+                if "enum" in param_def:
+                    param_def["enum"] = [str(val) for val in param_def["enum"]]
+                    param_def["type"] = "string"
+
+        function_declarations.append(gemini_schema)
+
+    return function_declarations if function_declarations else None
+
+
 def construct_observability_metadata(context: LLMContext) -> Dict[str, str]:
     """Flatten LLM metadata for observability."""
     if not context.metadata:

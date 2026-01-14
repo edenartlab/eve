@@ -438,6 +438,84 @@ class Tool(Document, ABC):
         ]  # OpenAI tool description limit
         return {"type": "function", "function": schema}
 
+    def gemini_schema(self, exclude_hidden: bool = False) -> dict[str, Any]:
+        """Build Gemini-compatible function declaration.
+
+        Gemini's FunctionDeclaration uses strict Pydantic validation that rejects:
+        - Non-standard JSON Schema properties like 'file_type', 'is_array'
+        - $ref and $defs (requires inline schemas)
+        """
+        schema = openai_schema(self.model).openai_schema
+        if exclude_hidden:
+            self._remove_hidden_fields(schema["parameters"])
+        schema["description"] = schema["description"][:1024]
+
+        # Extract $defs for reference resolution, then convert to Gemini format
+        defs = schema["parameters"].pop("$defs", {})
+        defs.update(schema["parameters"].pop("definitions", {}))
+        schema["parameters"] = self._to_gemini_schema(schema["parameters"], defs)
+
+        return {
+            "name": schema["name"],
+            "description": schema["description"],
+            "parameters": schema["parameters"],
+        }
+
+    def _to_gemini_schema(self, schema: dict, defs: dict) -> dict:
+        """Convert JSON Schema to Gemini-compatible format.
+
+        Gemini only accepts a subset of JSON Schema:
+        - No $ref/$defs (must inline all references)
+        - No custom properties like 'file_type', 'is_array'
+        """
+        ALLOWED_KEYS = {
+            "type", "description", "properties", "required", "items",
+            "enum", "default", "minimum", "maximum", "minItems", "maxItems",
+            "minLength", "maxLength", "pattern", "format", "anyOf", "oneOf",
+            "allOf", "nullable", "title", "additionalProperties", "const",
+        }
+
+        if not isinstance(schema, dict):
+            return schema
+
+        # Resolve $ref by inlining the referenced definition
+        if "$ref" in schema:
+            ref_path = schema["$ref"]
+            # Handle "#/$defs/Name" or "#/definitions/Name" format
+            if ref_path.startswith("#/$defs/"):
+                ref_name = ref_path[len("#/$defs/"):]
+            elif ref_path.startswith("#/definitions/"):
+                ref_name = ref_path[len("#/definitions/"):]
+            else:
+                ref_name = ref_path.split("/")[-1]
+
+            if ref_name in defs:
+                # Replace $ref with inlined definition
+                resolved = defs[ref_name].copy()
+                # Merge any other properties from original schema (except $ref)
+                for k, v in schema.items():
+                    if k != "$ref" and k not in resolved:
+                        resolved[k] = v
+                return self._to_gemini_schema(resolved, defs)
+
+        cleaned = {}
+        for key, value in schema.items():
+            if key not in ALLOWED_KEYS:
+                continue
+            if key == "properties" and isinstance(value, dict):
+                cleaned[key] = {
+                    k: self._to_gemini_schema(v, defs)
+                    for k, v in value.items()
+                }
+            elif key == "items" and isinstance(value, dict):
+                cleaned[key] = self._to_gemini_schema(value, defs)
+            elif key in ("anyOf", "oneOf", "allOf") and isinstance(value, list):
+                cleaned[key] = [self._to_gemini_schema(item, defs) for item in value]
+            else:
+                cleaned[key] = value
+
+        return cleaned
+
     def calculate_cost(self, args):
         if not self.cost_estimate:
             return 0

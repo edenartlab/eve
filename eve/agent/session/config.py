@@ -15,6 +15,7 @@ MODEL_TIERS: Dict[str, List[str]] = {
         "claude-haiku-4-5",
         "gpt-5-nano",
         "gpt-4o-mini",
+        "gemini-3-flash-preview",
     ],
 }
 

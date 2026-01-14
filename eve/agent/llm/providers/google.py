@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import base64
+import json
 import logging as logger
 import os
+import uuid
 from contextlib import nullcontext
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
@@ -14,6 +16,7 @@ from bson import ObjectId as ObjectId
 from google.genai import types as genai_types
 
 from eve import db
+from eve.agent.llm.formatting import construct_gemini_tools
 from eve.agent.llm.providers import LLMProvider
 from eve.agent.llm.util import (
     calculate_cost_usd,
@@ -26,8 +29,17 @@ from eve.agent.session.models import (
     LLMContext,
     LLMResponse,
     LLMUsage,
+    ToolCall,
 )
 from eve.user import User
+
+# Map eve reasoning_effort values to Gemini thinking_level values
+# Note: Gemini only supports LOW and HIGH (no medium)
+REASONING_TO_THINKING_LEVEL = {
+    "low": "LOW",
+    "medium": "LOW",  # Gemini doesn't have medium, map to LOW
+    "high": "HIGH",
+}
 
 
 class GoogleProvider(LLMProvider):
@@ -65,24 +77,113 @@ class GoogleProvider(LLMProvider):
         except Exception:
             pass  # Ignore cleanup errors silently
 
-    async def prompt(self, context: LLMContext) -> LLMResponse:
-        if context.tools:
-            raise NotImplementedError(
-                "Google Gemini provider does not yet support tool usage"
+    def _build_thinking_config(
+        self, context: LLMContext
+    ) -> Optional[genai_types.ThinkingConfig]:
+        """Build ThinkingConfig from eve's reasoning_effort parameter.
+
+        Maps eve's reasoning_effort (low/medium/high) to Gemini's thinking_level.
+        Returns None if no thinking configuration is needed.
+        """
+        reasoning_effort = context.config.reasoning_effort
+        if not reasoning_effort:
+            return None
+
+        thinking_level = REASONING_TO_THINKING_LEVEL.get(reasoning_effort.lower())
+        if not thinking_level:
+            return None
+
+        return genai_types.ThinkingConfig(
+            include_thoughts=True,
+            thinking_level=thinking_level,
+        )
+
+    def _build_tools_config(
+        self, context: LLMContext
+    ) -> Optional[List[genai_types.Tool]]:
+        """Build Gemini tools from eve's tool definitions."""
+        function_declarations = construct_gemini_tools(context)
+        if not function_declarations:
+            return None
+
+        # Convert dict declarations to Gemini FunctionDeclaration objects
+        gemini_declarations = []
+        for decl in function_declarations:
+            gemini_declarations.append(
+                genai_types.FunctionDeclaration(
+                    name=decl["name"],
+                    description=decl.get("description", ""),
+                    parameters=decl.get("parameters"),
+                )
             )
 
+        return [genai_types.Tool(function_declarations=gemini_declarations)]
+
+    def _build_tool_config(
+        self, context: LLMContext
+    ) -> Optional[genai_types.ToolConfig]:
+        """Build ToolConfig to control function calling behavior.
+
+        Maps eve's tool_choice to Gemini's function_calling_config mode.
+        """
+        if not context.tools:
+            return None
+
+        tool_choice = context.tool_choice
+        if not tool_choice:
+            # Default: AUTO - model decides when to call functions
+            return genai_types.ToolConfig(
+                function_calling_config=genai_types.FunctionCallingConfig(mode="AUTO")
+            )
+
+        # Map common tool_choice values
+        if tool_choice == "auto":
+            mode = "AUTO"
+        elif tool_choice == "none":
+            mode = "NONE"
+        elif tool_choice == "required" or tool_choice == "any":
+            mode = "ANY"
+        else:
+            # If a specific function name is provided, use ANY mode
+            # Gemini doesn't support forcing a specific function by name in the same way
+            mode = "ANY"
+
+        return genai_types.ToolConfig(
+            function_calling_config=genai_types.FunctionCallingConfig(mode=mode)
+        )
+
+    async def prompt(self, context: LLMContext) -> LLMResponse:
         system_instruction, contents = await self._prepare_contents(context.messages)
 
-        config = genai_types.GenerateContentConfig(
-            system_instruction=system_instruction,
-            max_output_tokens=context.config.max_tokens,
-        )
+        # Build tools configuration
+        tools = self._build_tools_config(context)
+        tool_config = self._build_tool_config(context) if tools else None
+
+        # Build thinking configuration (maps reasoning_effort to thinking_level)
+        thinking_config = self._build_thinking_config(context)
+
+        # Build the generation config
+        config_kwargs = {
+            "system_instruction": system_instruction,
+            "max_output_tokens": context.config.max_tokens,
+        }
+
+        if tools:
+            config_kwargs["tools"] = tools
+        if tool_config:
+            config_kwargs["tool_config"] = tool_config
+        if thinking_config:
+            config_kwargs["thinking_config"] = thinking_config
+
+        config = genai_types.GenerateContentConfig(**config_kwargs)
 
         base_input_payload = self._build_input_payload(
             context=context,
             system_instruction=system_instruction,
             contents=contents,
             config=config,
+            tools=tools,
+            thinking_config=thinking_config,
         )
 
         # Extract metadata for LLMCall
@@ -119,6 +220,13 @@ class GoogleProvider(LLMProvider):
                         "contents": self._serialize_contents(contents),
                         "max_output_tokens": context.config.max_tokens,
                     }
+                    if tools:
+                        request_payload["tools"] = self._serialize_tools(tools)
+                    if thinking_config:
+                        request_payload["thinking_config"] = {
+                            "include_thoughts": thinking_config.include_thoughts,
+                            "thinking_level": thinking_config.thinking_level,
+                        }
 
                     # Create LLMCall record before API call
                     should_log_llm_call = db == "STAGE"
@@ -245,6 +353,30 @@ class GoogleProvider(LLMProvider):
             text = message.content or ""
             parts: List[genai_types.Part] = []
 
+            # Handle tool results first - these come as "tool" role messages in eve
+            # Must be handled before text content to avoid duplicate content
+            if message.role == "tool":
+                tool_name = getattr(message, "name", None) or "unknown_tool"
+                result_content = message.content or ""
+
+                # Try to parse result as JSON, otherwise use as string
+                try:
+                    result = json.loads(result_content)
+                except (json.JSONDecodeError, TypeError):
+                    result = {"result": result_content}
+
+                parts.append(
+                    genai_types.Part(
+                        function_response=genai_types.FunctionResponse(
+                            name=tool_name,
+                            response=result,
+                        )
+                    )
+                )
+                # Function responses should be in "user" role for Gemini
+                contents.append(genai_types.Content(role="user", parts=parts))
+                continue
+
             # Add text content if present
             if text.strip():
                 parts.append(genai_types.Part(text=text))
@@ -266,10 +398,79 @@ class GoogleProvider(LLMProvider):
                             f"Warning: Failed to fetch image {attachment_url}: {e}"
                         )
 
+            # Handle tool calls in assistant messages
+            if message.role == "assistant" and message.tool_calls:
+                for tc in message.tool_calls:
+                    # Build the Part with function_call
+                    # Include thought_signature if present (required by Gemini 3 for follow-up requests)
+                    part_kwargs = {
+                        "function_call": genai_types.FunctionCall(
+                            name=tc.tool,
+                            args=tc.args,
+                        )
+                    }
+                    if tc.thought_signature:
+                        # Decode base64 string back to bytes for the API
+                        try:
+                            thought_sig_bytes = base64.b64decode(tc.thought_signature)
+                            part_kwargs["thought_signature"] = thought_sig_bytes
+                        except Exception:
+                            # If decoding fails, try using as-is
+                            part_kwargs["thought_signature"] = tc.thought_signature
+                    parts.append(genai_types.Part(**part_kwargs))
+
             # Only add content if there are parts
             if parts:
                 role = "user" if message.role == "user" else "model"
                 contents.append(genai_types.Content(role=role, parts=parts))
+
+            # Add function responses AFTER the assistant message
+            # Gemini requires tool results as a separate user message with function_response parts
+            # Following the same pattern as Anthropic/OpenAI: always include function_response
+            # with status info, even for pending tool calls
+            if message.role == "assistant" and message.tool_calls:
+                response_parts = []
+                for tc in message.tool_calls:
+                    # Build response dict with status (matching Anthropic/OpenAI pattern)
+                    response_dict = {"status": tc.status or "pending"}
+
+                    if tc.status == "failed":
+                        response_dict["error"] = tc.error or "Tool execution failed"
+                    elif tc.result is not None:
+                        # Convert result to proper format for Gemini API
+                        try:
+                            if isinstance(tc.result, str):
+                                parsed = json.loads(tc.result)
+                                if isinstance(parsed, list):
+                                    response_dict["result"] = parsed
+                                elif isinstance(parsed, dict):
+                                    response_dict.update(parsed)
+                                else:
+                                    response_dict["result"] = parsed
+                            elif isinstance(tc.result, (dict, list)):
+                                response_dict["result"] = tc.result
+                            else:
+                                response_dict["result"] = str(tc.result)
+                        except (json.JSONDecodeError, TypeError):
+                            response_dict["result"] = str(tc.result)
+
+                    # Ensure all values are JSON-serializable (handles ObjectId, datetime, etc.)
+                    # by round-tripping through JSON with default=str
+                    try:
+                        response_dict = json.loads(json.dumps(response_dict, default=str))
+                    except (TypeError, ValueError):
+                        response_dict = {"status": tc.status or "pending", "error": "Failed to serialize result"}
+
+                    response_parts.append(
+                        genai_types.Part(
+                            function_response=genai_types.FunctionResponse(
+                                name=tc.tool,
+                                response=response_dict,
+                            )
+                        )
+                    )
+                if response_parts:
+                    contents.append(genai_types.Content(role="user", parts=response_parts))
 
         system_instruction = "\n\n".join(system_parts) if system_parts else None
         return system_instruction, contents
@@ -284,12 +485,47 @@ class GoogleProvider(LLMProvider):
                 text = getattr(part, "text", None)
                 if text:
                     parts.append({"text": text})
+                # Serialize function calls
+                func_call = getattr(part, "function_call", None)
+                if func_call:
+                    parts.append({
+                        "function_call": {
+                            "name": getattr(func_call, "name", ""),
+                            "args": dict(getattr(func_call, "args", {})),
+                        }
+                    })
+                # Serialize function responses
+                func_response = getattr(part, "function_response", None)
+                if func_response:
+                    parts.append({
+                        "function_response": {
+                            "name": getattr(func_response, "name", ""),
+                            "response": dict(getattr(func_response, "response", {})),
+                        }
+                    })
             serialized.append(
                 {
                     "role": getattr(content, "role", None),
                     "parts": parts,
                 }
             )
+        return serialized
+
+    def _serialize_tools(
+        self, tools: List[genai_types.Tool]
+    ) -> List[Dict[str, Any]]:
+        """Serialize tools for logging."""
+        serialized = []
+        for tool in tools:
+            func_decls = getattr(tool, "function_declarations", []) or []
+            declarations = []
+            for decl in func_decls:
+                declarations.append({
+                    "name": getattr(decl, "name", ""),
+                    "description": getattr(decl, "description", ""),
+                    "parameters": getattr(decl, "parameters", {}),
+                })
+            serialized.append({"function_declarations": declarations})
         return serialized
 
     def _build_input_payload(
@@ -299,6 +535,8 @@ class GoogleProvider(LLMProvider):
         system_instruction: Optional[str],
         contents: List[genai_types.Content],
         config: genai_types.GenerateContentConfig,
+        tools: Optional[List[genai_types.Tool]] = None,
+        thinking_config: Optional[genai_types.ThinkingConfig] = None,
     ) -> Dict[str, Any]:
         payload: Dict[str, Any] = {
             "system_instruction": system_instruction,
@@ -306,6 +544,13 @@ class GoogleProvider(LLMProvider):
             "max_output_tokens": getattr(config, "max_output_tokens", None),
             "fallback_models": list(context.config.fallback_models or []),
         }
+        if tools:
+            payload["tools"] = self._serialize_tools(tools)
+        if thinking_config:
+            payload["thinking_config"] = {
+                "include_thoughts": thinking_config.include_thoughts,
+                "thinking_level": thinking_config.thinking_level,
+            }
         payload["context_messages"] = serialize_context_messages(context)
         return {k: v for k, v in payload.items() if v not in (None, [], {})}
 
@@ -313,37 +558,113 @@ class GoogleProvider(LLMProvider):
         self, response: genai_types.GenerateContentResponse
     ) -> LLMResponse:
         text_segments: List[str] = []
+        tool_calls: List[ToolCall] = []
+        thoughts: List[Dict[str, Any]] = []
         stop_reason = None
 
         for candidate in response.candidates or []:
             if candidate.content and candidate.content.parts:
                 for part in candidate.content.parts:
+                    # Handle text content
                     if getattr(part, "text", None):
                         text_segments.append(part.text)
+
+                    # Handle function calls
+                    func_call = getattr(part, "function_call", None)
+                    if func_call:
+                        # Gemini 3 with thinking enabled returns thought_signature (bytes)
+                        # that must be preserved and sent back in follow-up requests
+                        # Encode to base64 for storage as string
+                        thought_sig = getattr(part, "thought_signature", None)
+                        thought_sig_str = None
+                        if thought_sig is not None:
+                            if isinstance(thought_sig, bytes):
+                                thought_sig_str = base64.b64encode(thought_sig).decode(
+                                    "utf-8"
+                                )
+                            else:
+                                thought_sig_str = str(thought_sig)
+                        tool_calls.append(
+                            ToolCall(
+                                id=f"call_{uuid.uuid4().hex[:24]}",
+                                tool=getattr(func_call, "name", ""),
+                                args=dict(getattr(func_call, "args", {})),
+                                status="pending",
+                                thought_signature=thought_sig_str,
+                            )
+                        )
+
+                    # Handle thinking/thought content
+                    # Gemini returns thought (actual content) and thought_signature
+                    # (verification) as separate parts. We only store thinking content
+                    # and attach signatures to it. Signatures alone have no displayable
+                    # content and should not create UI elements.
+                    thought = getattr(part, "thought", None)
+                    thought_signature = getattr(part, "thought_signature", None)
+                    if thought:
+                        thought_entry = {
+                            "type": "thinking",
+                            "thinking": thought,
+                        }
+                        # Attach signature if present (for verification)
+                        if thought_signature:
+                            thought_entry["signature"] = thought_signature
+                        thoughts.append(thought_entry)
+                    # Note: thought_signature alone (without thought content) is not
+                    # stored - it provides no value to the UI and causes empty blocks
+
             if candidate.finish_reason:
-                stop_reason = candidate.finish_reason
+                # Extract enum name properly - str(enum) returns "EnumClass.VALUE"
+                # but we need just "VALUE" for comparison
+                finish_reason = candidate.finish_reason
+                if hasattr(finish_reason, "name"):
+                    stop_reason = finish_reason.name
+                else:
+                    stop_reason = str(finish_reason)
+                # Normalize stop reason
+                if stop_reason == "STOP":
+                    stop_reason = "stop"
+                elif stop_reason == "MAX_TOKENS":
+                    stop_reason = "length"
+                elif stop_reason == "TOOL_USE" or stop_reason == "FUNCTION_CALL":
+                    stop_reason = "tool_calls"
 
         usage = response.usage_metadata
         prompt_tokens = usage.prompt_token_count if usage else None
         completion_tokens = usage.candidates_token_count if usage else None
-        total_tokens = (
-            (prompt_tokens or 0) + (completion_tokens or 0) if usage else None
+        # Include thinking tokens in total if available (Gemini 3 feature)
+        thinking_tokens = (
+            getattr(usage, "thinking_token_count", None) if usage else None
         )
+        total_tokens = (
+            (prompt_tokens or 0)
+            + (completion_tokens or 0)
+            + (thinking_tokens or 0)
+            if usage
+            else None
+        )
+
         usage_payload = LLMUsage(
             prompt_tokens=prompt_tokens,
             completion_tokens=completion_tokens,
             total_tokens=total_tokens,
         )
 
+        # If there are tool calls, override stop_reason to "tool_calls"
+        # Gemini 3 returns STOP even when making tool calls, but the runtime
+        # expects "tool_calls" to continue the loop for processing results
+        if tool_calls:
+            stop_reason = "tool_calls"
+
         return LLMResponse(
             content="\n".join(text_segments).strip(),
-            tool_calls=None,
+            tool_calls=tool_calls if tool_calls else None,
             stop=stop_reason,
             tokens_spent=total_tokens,
             prompt_tokens=prompt_tokens,
             completion_tokens=completion_tokens,
             usage=usage_payload,
-            thought=None,
+            thought=thoughts if thoughts else None,
         )
 
     def _record_usage(
@@ -363,8 +684,8 @@ class GoogleProvider(LLMProvider):
             return
 
         usage = response.usage_metadata
-        prompt_tokens = usage.input_tokens if usage else 0
-        completion_tokens = usage.output_tokens if usage else 0
+        prompt_tokens = usage.prompt_token_count if usage else 0
+        completion_tokens = usage.candidates_token_count if usage else 0
         prompt_cost, completion_cost, total_cost = calculate_cost_usd(
             model, prompt_tokens=prompt_tokens, completion_tokens=completion_tokens
         )
