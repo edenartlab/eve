@@ -153,7 +153,19 @@ EDEN_DB_TOOLS = [
 
 CONTEXT7_MCP_TOOLS = ["context7_resolve_library_id"]
 CALCULATOR_MCP_TOOLS = ["calculator_calculate"]
-EDEN_MCP_TOOLS = ["eden_ping", "eden_search_creations"]
+EDEN_MCP_TOOLS = [
+    "eden_ping",
+    "eden_search_creations",
+    "eden_artifacts_v3_list",
+    "eden_artifacts_v3_get",
+    "eden_artifacts_v3_create",
+    "eden_artifacts_v3_update",
+    "eden_artifacts_v3_delete",
+    "eden_artifacts_v3_patch_items",
+    "eden_artifacts_v3_get_permissions",
+    "eden_artifacts_v3_update_permissions",
+    "eden_artifacts_v3_history",
+]
 
 TOOL_SETS = {
     "create_image": ["create", "media_editor", "reel"],  #  "magic_8_ball"
