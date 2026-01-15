@@ -343,8 +343,8 @@ async def process_discord_message_for_agent(
                 else:
                     title = f"{guild_name}: {channel_name}"
             else:
-                # DM
-                title = author_username
+                # DM - use generic title
+                title = "Discord DM"
 
             # Determine owner: user for DM, agent.owner for guilds
             owner_id = sender.id if not guild_id else agent.owner

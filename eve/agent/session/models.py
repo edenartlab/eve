@@ -1499,6 +1499,13 @@ class Deployment(Document):
             return self.config.telegram.topic_allowlist
         return []
 
+    def get_dm_allowed_users(self):
+        """Get allowed DM users for the deployment"""
+        if self.platform in [ClientType.DISCORD, ClientType.DISCORD_V3]:
+            if self.config and self.config.discord:
+                return self.config.discord.dm_user_allowlist or []
+        return []
+
 
 @Collection("email_domains")
 class EmailDomain(Document):

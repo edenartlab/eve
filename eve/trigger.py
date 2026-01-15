@@ -13,7 +13,7 @@ from eve.agent import Agent
 from eve.agent.session.models import EdenMessageData, EdenMessageType, Session
 from eve.api.api_requests import RunTriggerRequest
 from eve.api.errors import APIError, handle_errors
-from eve.mongo import Collection, Document
+from eve.mongo import Collection, Document, MongoDocumentNotFound
 from eve.user import User
 
 logger = logging.getLogger(__name__)
@@ -46,6 +46,9 @@ class Trigger(Document):
     user: ObjectId
     session: Optional[ObjectId] = None
     agent: Optional[ObjectId] = None  # Used when creating new session if session=None
+    session_target: Optional[Literal["new", "discord_dm", "existing"]] = (
+        None  # Determines how session is resolved at runtime
+    )
 
     # Subscription support
     parent_trigger: Optional[ObjectId] = (
@@ -373,7 +376,7 @@ async def unsubscribe_from_trigger(trigger_id: str, user_id: str) -> bool:
 
 
 async def _ensure_trigger_has_session(trigger: Trigger) -> Trigger:
-    """Ensure trigger has a session. If not, create one.
+    """Ensure trigger has a session. If not, create one based on session_target.
 
     Args:
         trigger: The trigger to check
@@ -394,30 +397,99 @@ async def _ensure_trigger_has_session(trigger: Trigger) -> Trigger:
             status_code=400,
         )
 
-    # Load agent and check permissions
+    # Determine session target (default to 'new' for backward compatibility)
+    session_target = trigger.session_target or "new"
+
+    if session_target == "discord_dm":
+        return await _create_or_find_discord_dm_session(trigger)
+
+    # Default: 'new' - create a new app session
+    return await _create_new_app_session(trigger)
+
+
+async def _create_or_find_discord_dm_session(trigger: Trigger) -> Trigger:
+    """Find or create Discord DM session for trigger.
+
+    Args:
+        trigger: The trigger requiring a Discord DM session
+
+    Returns:
+        Updated trigger with Discord DM session set
+
+    Raises:
+        APIError: If user doesn't have Discord linked or agent not found
+    """
+    # Load user to get discordId
+    user = User.from_mongo(trigger.user)
+    if not user:
+        raise APIError(f"User {trigger.user} not found", status_code=404)
+
+    if not user.discordId:
+        raise APIError(
+            "User does not have a linked Discord account. "
+            "Link Discord in settings to use Discord DM triggers.",
+            status_code=400,
+        )
+
+    # Construct Discord DM session key
+    session_key = f"discord-dm-{trigger.agent}-{user.discordId}"
+
+    # Try to find existing session
+    try:
+        session = Session.load(session_key=session_key)
+        # Reactivate if deleted
+        if session.deleted:
+            session.update(deleted=False, status="active")
+        # Update trigger with found session
+        trigger.update(session=session.id)
+        logger.info(
+            f"[TRIGGER] Using existing Discord DM session {session.id} for trigger {trigger.id}"
+        )
+        return Trigger.from_mongo(trigger.id)
+    except MongoDocumentNotFound:
+        pass
+
+    # Create new Discord DM session
     agent = Agent.from_mongo(trigger.agent)
     if not agent:
         raise APIError(f"Agent {trigger.agent} not found", status_code=404)
 
-    # Check if user has permissions for this agent
-    # User must be either: 1) agent owner, or 2) have owner/editor permission
+    new_session = Session(
+        owner=trigger.user,
+        agents=[trigger.agent],
+        title="Discord DM",
+        trigger=trigger.id,
+        platform="discord",
+        session_type="passive",
+        session_key=session_key,
+    )
+    new_session.save()
 
-    # is_agent_owner = agent.owner == trigger.user
-    # try:
-    #     permission = AgentPermission.load(agent=trigger.agent, user=trigger.user)
-    #     has_permission = permission and permission.level in [
-    #         "owner",
-    #         "editor",
-    #         "member",
-    #     ]
-    # except Exception:
-    #     has_permission = False
+    # Update trigger with new session
+    trigger.update(session=new_session.id)
+    logger.info(
+        f"[TRIGGER] Created Discord DM session {new_session.id} (key={session_key}) for trigger {trigger.id}"
+    )
 
-    # if not is_agent_owner and not has_permission:
-    #     raise APIError(
-    #         f"User does not have permission to use agent {agent.username}",
-    #         status_code=403,
-    #     )
+    return Trigger.from_mongo(trigger.id)
+
+
+async def _create_new_app_session(trigger: Trigger) -> Trigger:
+    """Create a new app session for trigger (default behavior).
+
+    Args:
+        trigger: The trigger requiring a new app session
+
+    Returns:
+        Updated trigger with new app session set
+
+    Raises:
+        APIError: If agent not found
+    """
+    # Load agent and check permissions
+    agent = Agent.from_mongo(trigger.agent)
+    if not agent:
+        raise APIError(f"Agent {trigger.agent} not found", status_code=404)
 
     # Create new session
     new_session = Session(
@@ -432,7 +504,7 @@ async def _ensure_trigger_has_session(trigger: Trigger) -> Trigger:
     # Update trigger with new session
     trigger.update(session=new_session.id)
     logger.info(
-        f"[TRIGGER] Created new session {new_session.id} for trigger {trigger.id}"
+        f"[TRIGGER] Created new app session {new_session.id} for trigger {trigger.id}"
     )
 
     # Reload trigger to get updated session field

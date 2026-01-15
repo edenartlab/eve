@@ -180,27 +180,36 @@ def register_tool_loader(tool_name: str):
 @register_tool_loader("discord_post")
 def load_discord_post_parameters(deployment) -> Optional[Dict[str, Any]]:
     """
-    Load dynamic parameters for discord_post tool based on deployment config
+    Load dynamic parameters for discord_post tool based on deployment config.
 
-    Returns parameter updates dict with channel_id choices and tips
+    Returns parameter updates dict with channel_id and discord_user_id choices.
     """
     try:
+        result = {}
+
+        # Channel choices
         allowed_channels = deployment.get_allowed_channels()
-        if not allowed_channels:
-            return None
-
-        channels_description = " | ".join(
-            [f"ID {c.id} ({c.note})" for c in allowed_channels]
-        )
-
-        return {
-            "channel_id": {
+        if allowed_channels:
+            channels_description = " | ".join(
+                [f"ID {c.id} ({c.note})" for c in allowed_channels]
+            )
+            result["channel_id"] = {
                 "choices": [c.id for c in allowed_channels],
-                "tip": f"Some hints about the available channels: {channels_description}",
-            },
-        }
+                "tip": f"Available channels: {channels_description}",
+            }
+
+        # DM user choices
+        dm_users = deployment.get_dm_allowed_users()
+        if dm_users:
+            users_description = " | ".join([f"ID {u.id} ({u.note})" for u in dm_users])
+            result["discord_user_id"] = {
+                "choices": [u.id for u in dm_users],
+                "tip": f"Allowed DM users: {users_description}",
+            }
+
+        return result if result else None
     except Exception as e:
-        logger.error(f"Error loading discord_post parameters...  {e}")
+        logger.error(f"Error loading discord_post parameters: {e}")
         return None
 
 
