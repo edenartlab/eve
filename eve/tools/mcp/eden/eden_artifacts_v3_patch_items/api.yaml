@@ -1,0 +1,36 @@
+name: Eden Artifacts V3 Patch Items
+description: Set or unset artifact item keys (V3).
+cost_estimate: 0
+output_type: string
+active: true
+visible: true
+handler: mcp
+mcp_server_url: ${EDEN_API_URL}/mcp
+mcp_tool_name: eden_artifacts_v3_patch_items
+mcp_timeout: 30
+mcp_user_token_url: ${EDEN_API_URL}/v2/mcp/token
+mcp_user_token_api_key_env: EDEN_API_KEY
+mcp_user_token_ttl_seconds: 600
+parameters:
+  artifactId:
+    type: string
+    label: Artifact ID
+    description: Artifact id to update.
+    required: true
+  set:
+    type: object
+    label: Set
+    description: Object of key -> value updates.
+    required: false
+  unset:
+    type: array
+    label: Unset
+    description: List of keys to remove.
+    required: false
+    items:
+      type: string
+  reason:
+    type: string
+    label: Reason
+    description: Optional reason for the edit.
+    required: false
