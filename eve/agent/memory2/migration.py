@@ -140,7 +140,7 @@ def migrate_user_memory(
                 scope="user",
                 agent_id=user_memory.agent_id,
                 user_id=user_memory.user_id,
-                source_session_id=directive.source_session_id,
+                session_id=directive.source_session_id,  # From old model's field
                 source_message_ids=directive.source_message_ids,
                 formed_at=directive.createdAt or datetime.now(timezone.utc),
                 absorbed=False,
@@ -254,7 +254,7 @@ def migrate_agent_memories(
                 content=suggestion.content,
                 scope="agent",
                 agent_id=agent_id,
-                source_session_id=suggestion.source_session_id,
+                session_id=suggestion.source_session_id,  # From old model's field
                 source_message_ids=suggestion.source_message_ids,
                 formed_at=suggestion.createdAt or datetime.now(timezone.utc),
                 absorbed=False,

@@ -116,8 +116,8 @@ class Fact(Document):
     # Temporal
     formed_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
-    # Source (provenance - which session created this fact)
-    source_session_id: Optional[ObjectId] = None
+    # Session that created this fact
+    session_id: Optional[ObjectId] = None
     source_message_ids: List[ObjectId] = Field(default_factory=list)
 
     # Access tracking (for future importance scoring)
@@ -215,13 +215,12 @@ class Reflection(Document):
     scope: Literal["session", "user", "agent"]
     agent_id: ObjectId
     user_id: Optional[ObjectId] = None  # Set if scope is "user"
-    session_id: Optional[ObjectId] = None  # Set if scope is "session"
 
     # Temporal
     formed_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
-    # Source
-    source_session_id: Optional[ObjectId] = None
+    # Session that created this reflection (always populated)
+    session_id: Optional[ObjectId] = None
     source_message_ids: List[ObjectId] = Field(default_factory=list)
 
     # Consolidation state

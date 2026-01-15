@@ -19,7 +19,7 @@ from .backends import MemoryBackend, MongoMemoryBackend
 # so this single toggle controls the entire application's memory backend.
 # =============================================================================
 
-USE_MEMORY_V2 = False
+USE_MEMORY_V2 = True
 
 if TYPE_CHECKING:  # pragma: no cover
     from eve.agent import Agent

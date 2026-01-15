@@ -213,7 +213,6 @@ async def form_memories(
             return False
 
         session_id = getattr(session, "id", None)
-        message_ids = [msg.id for msg in messages if hasattr(msg, "id")]
 
         # Get last memory formation position
         memory_context = getattr(session, "memory_context", None)
@@ -231,6 +230,8 @@ async def form_memories(
 
         # Get messages since last formation
         recent_messages = messages[last_memory_idx + 1:]
+        # Extract message IDs only from the messages being processed
+        message_ids = [msg.id for msg in recent_messages if hasattr(msg, "id")]
 
         if len(recent_messages) < NEVER_FORM_MEMORIES_LESS_THAN_N_MESSAGES:
             return False
@@ -250,6 +251,9 @@ async def form_memories(
         # Extract user ID from messages if not provided
         if user_id is None:
             user_id = _extract_user_id(recent_messages, agent_id)
+
+        # Fetch agent persona for memory extraction context
+        agent_persona = _get_agent_persona(agent_id)
 
         if LOCAL_DEV:
             logger.debug(f"\n{'='*60}")
@@ -281,6 +285,7 @@ async def form_memories(
                 user_id=user_id,
                 session_id=session_id,
                 message_ids=message_ids,
+                agent_persona=agent_persona,
             )
 
             # Process through deduplication pipeline (LLM Call 1.5)
@@ -306,6 +311,7 @@ async def form_memories(
             session_id=session_id,
             message_ids=message_ids,
             newly_formed_facts=newly_formed_facts,
+            agent_persona=agent_persona,
         )
 
         if LOCAL_DEV:
@@ -321,6 +327,7 @@ async def form_memories(
             agent_id=agent_id,
             user_id=user_id,
             session_id=session_id,
+            agent_persona=agent_persona,
         )
 
         if LOCAL_DEV:
@@ -471,6 +478,29 @@ def _extract_user_id(messages: List, agent_id: ObjectId) -> Optional[ObjectId]:
 
     except Exception as e:
         logger.error(f"Error extracting user ID: {e}")
+        return None
+
+
+def _get_agent_persona(agent_id: ObjectId) -> Optional[str]:
+    """
+    Fetch the agent's persona from the database.
+
+    Args:
+        agent_id: The agent's ObjectId
+
+    Returns:
+        The agent's persona string, or None if not found
+    """
+    try:
+        from eve.agent.agent import Agent
+
+        agent = Agent.from_mongo(agent_id)
+        if agent:
+            return agent.persona
+        return None
+
+    except Exception as e:
+        logger.error(f"Error fetching agent persona: {e}")
         return None
 
 

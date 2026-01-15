@@ -47,6 +47,7 @@ async def extract_facts(
     agent_id: ObjectId,
     user_id: Optional[ObjectId] = None,
     session_id: Optional[ObjectId] = None,
+    agent_persona: Optional[str] = None,
     model: str = MEMORY_LLM_MODEL_FAST,
 ) -> List[ExtractedFact]:
     """
@@ -64,6 +65,7 @@ async def extract_facts(
         agent_id: Agent ID
         user_id: User ID (optional, for user-scoped facts)
         session_id: Session ID (for tracing only)
+        agent_persona: The agent's persona/description for context
         model: LLM model to use
 
     Returns:
@@ -73,6 +75,7 @@ async def extract_facts(
         # Build prompt
         prompt = FACT_EXTRACTION_PROMPT.format(
             conversation_text=conversation_text,
+            agent_persona=agent_persona or "No agent persona available.",
             max_words=FACT_MAX_WORDS,
         )
 
@@ -116,6 +119,12 @@ async def extract_facts(
         else:
             # Extract JSON from various LLM response formats
             json_content = extract_json_from_llm_response(response.content)
+
+            # Handle empty or invalid LLM response
+            if not json_content or not json_content.strip():
+                logger.warning("LLM returned empty response for fact extraction")
+                return []
+
             extracted = FactExtractionResponse.model_validate_json(json_content)
 
         if LOCAL_DEV:
@@ -137,6 +146,7 @@ async def extract_and_prepare_facts(
     user_id: Optional[ObjectId] = None,
     session_id: Optional[ObjectId] = None,
     message_ids: Optional[List[ObjectId]] = None,
+    agent_persona: Optional[str] = None,
 ) -> Tuple[List[Dict], List[str]]:
     """
     Extract facts and prepare them for storage.
@@ -152,6 +162,7 @@ async def extract_and_prepare_facts(
         user_id: User ID for user-scoped facts
         session_id: Session ID
         message_ids: IDs of messages that were processed
+        agent_persona: The agent's persona/description for context
 
     Returns:
         Tuple of (prepared_fact_dicts, fact_content_strings)
@@ -163,6 +174,7 @@ async def extract_and_prepare_facts(
             agent_id=agent_id,
             user_id=user_id,
             session_id=session_id,
+            agent_persona=agent_persona,
         )
 
         if not extracted_facts:
@@ -187,7 +199,7 @@ async def extract_and_prepare_facts(
                 "scope": ef.scope,
                 "agent_id": agent_id,
                 "user_id": user_id if "user" in ef.scope else None,
-                "source_session_id": session_id,
+                "session_id": session_id,
                 "source_message_ids": message_ids or [],
             }
             prepared_facts.append(fact_dict)
@@ -233,7 +245,7 @@ def create_fact_document(
         scope=scope,
         agent_id=agent_id,
         user_id=user_id if "user" in scope else None,
-        source_session_id=session_id,
+        session_id=session_id,
         source_message_ids=message_ids or [],
         embedding=embedding or [],
     )

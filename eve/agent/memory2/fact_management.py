@@ -335,6 +335,12 @@ async def llm_memory_update_decision(
         else:
             # Extract JSON from various LLM response formats
             json_content = extract_json_from_llm_response(response.content)
+
+            # Handle empty or invalid LLM response
+            if not json_content or not json_content.strip():
+                logger.warning("LLM returned empty response for fact deduplication")
+                return []
+
             result = FactDecisionResponse.model_validate_json(json_content)
 
         # Match decisions back to fact candidates
@@ -405,7 +411,7 @@ async def execute_decision(
                 scope=fact_data.get("scope", ["user"]),
                 agent_id=agent_id,
                 user_id=user_id if "user" in fact_data.get("scope", []) else None,
-                source_session_id=fact_data.get("source_session_id"),
+                session_id=fact_data.get("session_id"),
                 source_message_ids=fact_data.get("source_message_ids", []),
                 embedding=embedding,
             )
@@ -444,7 +450,7 @@ async def execute_decision(
                     scope=fact_data.get("scope", ["user"]),
                     agent_id=agent_id,
                     user_id=user_id if "user" in fact_data.get("scope", []) else None,
-                    source_session_id=fact_data.get("source_session_id"),
+                    session_id=fact_data.get("session_id"),
                     source_message_ids=fact_data.get("source_message_ids", []),
                     embedding=embedding,
                 )
