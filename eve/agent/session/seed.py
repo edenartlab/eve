@@ -42,3 +42,30 @@ class Seed(Document):
     status: Literal["pending", "minted", "failed"] = "pending"
     platform: Optional[str] = None
     is_dm: bool = False
+
+
+"""
+
+Message (ipfs hash)
+- eden_message_id : string
+- sender : address
+- content : string
+- attachments : ipfsHash[]
+
+Session (Seed)
+- eden_session_id : string
+- messages : Message[]
+- reactions : Dict[address, string]
+- title : string
+- abstract : string
+- poster_image : ipfsHash
+
+Creation
+- session : Session
+- title : string
+- abstract : string
+- poster_image : ipfsHash
+- video : ipfsHash
+- article : string
+
+"""
