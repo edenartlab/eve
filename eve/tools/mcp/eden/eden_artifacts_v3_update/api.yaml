@@ -5,11 +5,11 @@ output_type: string
 active: true
 visible: true
 handler: mcp
-mcp_server_url: ${EDEN_API_URL}/mcp
+mcp_server_url: ${EDEN_FASTIFY_API_URL}/mcp
 mcp_tool_name: eden_artifacts_v3_update
 mcp_timeout: 30
-mcp_user_token_url: ${EDEN_API_URL}/v2/mcp/token
-mcp_user_token_api_key_env: EDEN_API_KEY
+mcp_user_token_url: ${EDEN_FASTIFY_API_URL}/v2/mcp/token
+mcp_user_token_api_key_env: EDEN_FASTIFY_ADMIN_KEY
 mcp_user_token_ttl_seconds: 600
 parameters:
   artifactId:
