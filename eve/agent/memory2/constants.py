@@ -144,7 +144,7 @@ If the answer is no, don't extract it. Most conversations have FEW or NO facts.
 
 Guidelines:
 - Facts must be self-contained answers that make sense without additional context
-- Maximum {max_words} words per fact
+- Maximum {max_words} words per fact, try to be concise
 - ALWAYS use specific names (NEVER "User", "the user", or "they")
 - Return empty list if no facts found (this is common and expected)
 """
@@ -255,7 +255,7 @@ Ask: "Should the agent see this information on every message, or only when speci
 
 IMPORTANT: any information you do not extract as a reflection here (and is not already in newly_formed_facts) is permanently lost from the agents memory, but extracting too much information will bloat the memory context. Make your decisions carefully.
 
-Maximum {max_words} words per reflection. Use specific names (never "User" or "the user").
+Maximum {max_words} words per reflection, try to be concise. Use specific names (never "User" or "the user").
 Return empty arrays when nothing meaningful to extract (this is common).
 """
 
