@@ -152,6 +152,39 @@ class GoogleProvider(LLMProvider):
             function_calling_config=genai_types.FunctionCallingConfig(mode=mode)
         )
 
+    def _build_response_format_config(
+        self, context: LLMContext
+    ) -> tuple[Optional[str], Optional[dict]]:
+        """Build response format configuration for Gemini's JSON mode.
+
+        Converts eve's response_format (Pydantic model) to Gemini's response_mime_type
+        and response_schema parameters for structured output.
+
+        Returns:
+            Tuple of (response_mime_type, response_schema) or (None, None)
+        """
+        from pydantic import BaseModel
+
+        response_format = context.config.response_format
+        if not response_format:
+            return None, None
+
+        # Handle Pydantic model class
+        if isinstance(response_format, type) and issubclass(response_format, BaseModel):
+            schema = response_format.model_json_schema()
+            return "application/json", schema
+
+        # Handle Pydantic model instance
+        if isinstance(response_format, BaseModel):
+            schema = response_format.model_json_schema()
+            return "application/json", schema
+
+        # Handle dict (already a schema)
+        if isinstance(response_format, dict):
+            return "application/json", response_format
+
+        return None, None
+
     async def prompt(self, context: LLMContext) -> LLMResponse:
         system_instruction, contents = await self._prepare_contents(context.messages)
 
@@ -161,6 +194,9 @@ class GoogleProvider(LLMProvider):
 
         # Build thinking configuration (maps reasoning_effort to thinking_level)
         thinking_config = self._build_thinking_config(context)
+
+        # Build response format configuration (for JSON mode with schema)
+        response_mime_type, response_schema = self._build_response_format_config(context)
 
         # Build the generation config
         config_kwargs = {
@@ -174,6 +210,10 @@ class GoogleProvider(LLMProvider):
             config_kwargs["tool_config"] = tool_config
         if thinking_config:
             config_kwargs["thinking_config"] = thinking_config
+        if response_mime_type:
+            config_kwargs["response_mime_type"] = response_mime_type
+        if response_schema:
+            config_kwargs["response_schema"] = response_schema
 
         config = genai_types.GenerateContentConfig(**config_kwargs)
 
@@ -227,6 +267,10 @@ class GoogleProvider(LLMProvider):
                             "include_thoughts": thinking_config.include_thoughts,
                             "thinking_level": thinking_config.thinking_level,
                         }
+                    if response_mime_type:
+                        request_payload["response_mime_type"] = response_mime_type
+                    if response_schema:
+                        request_payload["response_schema"] = response_schema
 
                     # Create LLMCall record before API call
                     should_log_llm_call = db == "STAGE"

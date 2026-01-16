@@ -576,8 +576,8 @@ async def process_discord_message_for_agent(
                 else:
                     expected_title = None
             else:
-                # DM - use the author's username
-                expected_title = author_username
+                # DM - use generic title
+                expected_title = "Discord DM"
 
             logger.info(
                 f"[{trace_id}] Current title='{session.title}', expected_title='{expected_title}'"
@@ -631,8 +631,8 @@ async def process_discord_message_for_agent(
                     else:
                         session_title = f"#{channel_id}"
             else:
-                # DM - use the author's username
-                session_title = author_username
+                # DM - use generic title
+                session_title = "Discord DM"
 
             # For threads, look up parent session to inherit from
             parent_session_obj = None
@@ -1203,15 +1203,24 @@ class DiscordGatewayClient:
             logger.info(f"[{trace_id}] Channel {channel_id} not in allowlist")
         return is_allowed
 
-    def _check_dm_allowed(self, deployment: Deployment, discord_user_id: str) -> bool:
+    def _check_dm_allowed(
+        self, deployment: Deployment, discord_user_id: str, trace_id: str
+    ) -> bool:
         """Check if DM from this user is allowed for this deployment"""
         if not deployment.config or not deployment.config.discord:
+            logger.debug(f"[{trace_id}] DM check: no discord config")
             return False
         dm_allowlist = deployment.config.discord.dm_user_allowlist
         if not dm_allowlist:
+            logger.debug(f"[{trace_id}] DM check: no dm_user_allowlist configured")
             return False
         allowed_user_ids = [str(user.id) for user in dm_allowlist]
-        return discord_user_id in allowed_user_ids
+        is_allowed = discord_user_id in allowed_user_ids
+        logger.info(
+            f"[{trace_id}] DM allowlist check: user={discord_user_id}, "
+            f"allowed_ids={allowed_user_ids}, is_allowed={is_allowed}"
+        )
+        return is_allowed
 
     async def _handle_direct_message(
         self, data: dict, trace_id: str, deployment: Deployment
@@ -1503,7 +1512,7 @@ class DiscordGatewayClient:
         Returns True if we should continue processing, False if we should exit.
         """
         discord_user_id = data.get("author", {}).get("id", "")
-        if not self._check_dm_allowed(deployment, discord_user_id):
+        if not self._check_dm_allowed(deployment, discord_user_id, trace_id):
             # Send canned response and exit
             logger.info(
                 f"[{trace_id}] DM from user {discord_user_id} not in allowlist, sending canned reply"

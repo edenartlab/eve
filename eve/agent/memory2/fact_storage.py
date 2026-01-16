@@ -113,7 +113,7 @@ async def store_fact(
             scope=scope,
             agent_id=agent_id,
             user_id=user_id if "user" in scope else None,
-            source_session_id=session_id,
+            session_id=session_id,
             source_message_ids=message_ids or [],
             embedding=embedding,
         )
@@ -146,7 +146,7 @@ async def store_facts_batch(
             - scope: List[str]
             - agent_id: ObjectId
             - user_id: Optional[ObjectId]
-            - source_session_id: Optional[ObjectId]
+            - session_id: Optional[ObjectId]
             - source_message_ids: Optional[List[ObjectId]]
 
     Returns:
@@ -168,7 +168,7 @@ async def store_facts_batch(
                 scope=fd["scope"],
                 agent_id=fd["agent_id"],
                 user_id=fd.get("user_id"),
-                source_session_id=fd.get("source_session_id"),
+                session_id=fd.get("session_id"),
                 source_message_ids=fd.get("source_message_ids", []),
                 embedding=embeddings[i] if i < len(embeddings) else [],
             )

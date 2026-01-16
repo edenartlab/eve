@@ -6,6 +6,7 @@ Reflections are extracted with awareness of existing memory context to avoid
 redundancy and maintain hierarchical scope ordering (agent → user → session).
 """
 
+import json
 import os
 import traceback
 import uuid
@@ -43,6 +44,7 @@ async def extract_reflections(
     user_id: Optional[ObjectId] = None,
     session_id: Optional[ObjectId] = None,
     newly_formed_facts: Optional[List[str]] = None,
+    agent_persona: Optional[str] = None,
     model: str = MEMORY_LLM_MODEL_SLOW,
 ) -> Dict[str, List[str]]:
     """
@@ -60,8 +62,9 @@ async def extract_reflections(
         conversation_text: The conversation to extract reflections from
         agent_id: Agent ID
         user_id: User ID for user-scoped reflections
-        session_id: Session ID for session-scoped reflections
+        session_id: Session ID (always populated on all reflections)
         newly_formed_facts: Facts extracted from the same conversation (for deduplication)
+        agent_persona: The agent's persona/description for context
         model: LLM model to use
 
     Returns:
@@ -74,6 +77,7 @@ async def extract_reflections(
         # Build prompt
         prompt = REFLECTION_EXTRACTION_PROMPT.format(
             conversation_text=conversation_text,
+            agent_persona=agent_persona or "No agent persona available.",
             consolidated_agent_blob=memory_context["agent_blob"] or "None yet",
             recent_agent_reflections=memory_context["agent_recent"] or "None",
             consolidated_user_blob=memory_context["user_blob"] or "None yet",
@@ -118,13 +122,12 @@ async def extract_reflections(
             max_jitter=0.5,
         )
 
-        # Parse response
-        if hasattr(response, "parsed"):
-            extracted = response.parsed
-        else:
-            extracted = ReflectionExtractionResponse.model_validate_json(
-                response.content
-            )
+        # Parse structured JSON response
+        if not response.content or not response.content.strip():
+            logger.warning("LLM returned empty response for reflection extraction")
+            return {"agent": [], "user": [], "session": []}
+
+        extracted = ReflectionExtractionResponse(**json.loads(response.content))
 
         # Convert to simple dict format
         result = {
@@ -252,6 +255,7 @@ async def extract_and_save_reflections(
     session_id: Optional[ObjectId] = None,
     message_ids: Optional[List[ObjectId]] = None,
     newly_formed_facts: Optional[List[str]] = None,
+    agent_persona: Optional[str] = None,
 ) -> Tuple[Dict[str, List[Reflection]], int]:
     """
     Extract reflections from conversation and save to database.
@@ -266,9 +270,10 @@ async def extract_and_save_reflections(
         conversation_text: The conversation to extract reflections from
         agent_id: Agent ID
         user_id: User ID for user-scoped reflections
-        session_id: Session ID for session-scoped reflections
+        session_id: Session ID (always populated on all reflections)
         message_ids: IDs of messages that were processed
         newly_formed_facts: Facts extracted from the same conversation
+        agent_persona: The agent's persona/description for context
 
     Returns:
         Tuple of (reflections_by_scope dict, total count)
@@ -281,6 +286,7 @@ async def extract_and_save_reflections(
             user_id=user_id,
             session_id=session_id,
             newly_formed_facts=newly_formed_facts,
+            agent_persona=agent_persona,
         )
 
         reflections_by_scope = {"agent": [], "user": [], "session": []}
@@ -299,15 +305,13 @@ async def extract_and_save_reflections(
 
                 # Determine scope-specific IDs
                 reflection_user_id = user_id if scope == "user" else None
-                reflection_session_id = session_id if scope == "session" else None
 
                 reflection = Reflection(
                     content=content.strip(),
                     scope=scope,
                     agent_id=agent_id,
                     user_id=reflection_user_id,
-                    session_id=reflection_session_id,
-                    source_session_id=session_id,
+                    session_id=session_id,  # Always track which session created this
                     source_message_ids=message_ids or [],
                 )
                 reflections.append(reflection)

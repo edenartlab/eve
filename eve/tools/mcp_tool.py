@@ -1,3 +1,4 @@
+import json
 import os
 from typing import Any, Dict, Optional
 from urllib.parse import urlencode
@@ -208,6 +209,16 @@ class MCPTool(Tool):
                 formatted[target_key] = (
                     list(value) if not isinstance(value, list) else value
                 )
+            elif param_type == "object":
+                if isinstance(value, dict):
+                    formatted[target_key] = value
+                elif isinstance(value, str):
+                    try:
+                        formatted[target_key] = json.loads(value)
+                    except Exception:
+                        formatted[target_key] = value
+                else:
+                    formatted[target_key] = value
             else:
                 formatted[target_key] = (
                     str(value) if not isinstance(value, str) else value

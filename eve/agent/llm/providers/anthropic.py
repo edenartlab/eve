@@ -38,6 +38,10 @@ WEB_SEARCH_TOOL = {
     "name": "web_search",
     "max_uses": 5,
 }
+TOOL_SEARCH_TOOL_BM25 = {
+    "type": "tool_search_tool_bm25_20251119",
+    "name": "tool_search_tool_bm25",
+}
 
 
 class AnthropicProvider(LLMProvider):
@@ -92,14 +96,6 @@ class AnthropicProvider(LLMProvider):
                     response_format
                 )
 
-        base_input_payload = self._build_input_payload(
-            context=context,
-            system_prompt=system_prompt,
-            conversation=conversation,
-            tools=tools,
-            include_thoughts=include_thoughts,
-        )
-
         # Extract context metadata for LLMCall
         llm_call_metadata = {}
         if context.metadata and context.metadata.trace_metadata:
@@ -122,6 +118,15 @@ class AnthropicProvider(LLMProvider):
                 model_name
             ):
                 effective_model = self.STRUCTURED_OUTPUT_FALLBACK
+
+            tools_payload = self._build_tools_payload(tools, effective_model)
+            base_input_payload = self._build_input_payload(
+                context=context,
+                system_prompt=system_prompt,
+                conversation=conversation,
+                tools=tools_payload,
+                include_thoughts=include_thoughts,
+            )
 
             stage = (
                 self.instrumentation.track_stage(
@@ -208,14 +213,8 @@ class AnthropicProvider(LLMProvider):
                     )
 
                     # Build tools list with web search support
-                    all_tools = []
-                    if tools:
-                        all_tools.extend(tools)
-                    # Add web search tool for supported models
-                    if self._supports_web_search(effective_model):
-                        all_tools.append(WEB_SEARCH_TOOL)
-                    if all_tools:
-                        request_kwargs["tools"] = all_tools
+                    if tools_payload:
+                        request_kwargs["tools"] = tools_payload
 
                     start_time = datetime.now(timezone.utc)
 
@@ -289,12 +288,19 @@ class AnthropicProvider(LLMProvider):
                                 f"[ANTHROPIC_LLMCALL] Traceback: {traceback.format_exc()}"
                             )
 
+                    betas = []
+                    if response_format_class or output_format_payload:
+                        betas.append("structured-outputs-2025-11-13")
+                    if self._deferred_tools_enabled() and tools_payload:
+                        betas.append("advanced-tool-use-2025-11-20")
+                    beta_kwargs = {"betas": betas} if betas else {}
+
                     if response_format_class:
                         # Pydantic class - use parse() for structured outputs
                         # SDK streaming doesn't support output_format parameter
                         response = await self.client.beta.messages.parse(
                             **request_kwargs,
-                            betas=["structured-outputs-2025-11-13"],
+                            **beta_kwargs,
                             output_format=response_format_class,
                             timeout=httpx.Timeout(600.0, connect=10.0),
                         )
@@ -302,15 +308,22 @@ class AnthropicProvider(LLMProvider):
                         # Dict schema - can't use streaming, use long timeout instead
                         response = await self.client.beta.messages.create(
                             **request_kwargs,
-                            betas=["structured-outputs-2025-11-13"],
+                            **beta_kwargs,
                             output_format=output_format_payload,
                             timeout=httpx.Timeout(600.0, connect=10.0),
                         )
                     else:
                         # No structured output - use streaming
-                        async with self.client.messages.stream(
-                            **request_kwargs
-                        ) as stream:
+                        if betas:
+                            stream_manager = self.client.beta.messages.stream(
+                                **request_kwargs,
+                                **beta_kwargs,
+                            )
+                        else:
+                            stream_manager = self.client.messages.stream(
+                                **request_kwargs
+                            )
+                        async with stream_manager as stream:
                             response = await stream.get_final_message()
 
                     end_time = datetime.now(timezone.utc)
@@ -405,6 +418,46 @@ class AnthropicProvider(LLMProvider):
             if pattern in normalized:
                 return True
         return False
+
+    def _deferred_tools_enabled(self) -> bool:
+        return os.getenv("FF_DEFERRED_TOOLS", "").lower() in {
+            "1",
+            "true",
+            "yes",
+            "on",
+        }
+
+    def _build_tools_payload(
+        self, tools: Optional[List[Dict[str, Any]]], model_name: str
+    ) -> Optional[List[Dict[str, Any]]]:
+        all_tools: List[Dict[str, Any]] = []
+        if tools:
+            all_tools.extend(tools)
+        if self._supports_web_search(model_name):
+            all_tools.append(WEB_SEARCH_TOOL)
+        if not all_tools:
+            return None
+        if not self._deferred_tools_enabled():
+            return all_tools
+
+        deferred_tools: List[Dict[str, Any]] = []
+        has_tool_search = False
+        for tool in all_tools:
+            tool_copy = dict(tool)
+            if (
+                tool_copy.get("name") == TOOL_SEARCH_TOOL_BM25["name"]
+                or tool_copy.get("type") == TOOL_SEARCH_TOOL_BM25["type"]
+            ):
+                tool_copy.pop("defer_loading", None)
+                has_tool_search = True
+            else:
+                tool_copy["defer_loading"] = True
+            deferred_tools.append(tool_copy)
+
+        if not has_tool_search:
+            deferred_tools.insert(0, dict(TOOL_SEARCH_TOOL_BM25))
+
+        return deferred_tools
 
     async def prompt_stream(self, context: LLMContext):
         response = await self.prompt(context)

@@ -8,15 +8,36 @@ unabsorbed reflections for all applicable scopes.
 The assembled context is injected into every agent response, regardless of RAG.
 """
 
+import asyncio
+import time
 import traceback
+from contextlib import nullcontext
 from datetime import datetime, timezone
-from typing import Dict, Optional
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
 from bson import ObjectId
 from loguru import logger
 
 from eve.agent.memory2.constants import LOCAL_DEV
 from eve.agent.memory2.models import ConsolidatedMemory, get_unabsorbed_reflections
+
+if TYPE_CHECKING:
+    from eve.agent.session.instrumentation import PromptSessionInstrumentation
+
+
+def _log_debug(
+    message: str,
+    instrumentation: Optional["PromptSessionInstrumentation"] = None,
+    payload: Optional[Dict[str, Any]] = None,
+) -> None:
+    """Log debug message with optional instrumentation support."""
+    if instrumentation:
+        instrumentation.log_event(message, level="debug", payload=payload)
+    else:
+        if payload:
+            logger.debug(f"{message} | {payload}")
+        else:
+            logger.debug(message)
 
 
 def ensure_utc(dt: Optional[datetime]) -> Optional[datetime]:
@@ -28,10 +49,34 @@ def ensure_utc(dt: Optional[datetime]) -> Optional[datetime]:
     return dt
 
 
+async def _timed_get_scope_memory(
+    scope: str,
+    agent_id: ObjectId,
+    user_id: Optional[ObjectId] = None,
+    session_id: Optional[ObjectId] = None,
+) -> Tuple[str, Optional[str], Optional[str], float]:
+    """
+    Fetch scope memory with timing.
+
+    Returns:
+        Tuple of (scope_name, blob, recent, duration_seconds)
+    """
+    start = time.time()
+    blob, recent = await _get_scope_memory(
+        scope=scope,
+        agent_id=agent_id,
+        user_id=user_id,
+        session_id=session_id,
+    )
+    duration = time.time() - start
+    return scope, blob, recent, duration
+
+
 async def assemble_always_in_context_memory(
     agent_id: ObjectId,
     user_id: Optional[ObjectId] = None,
     session_id: Optional[ObjectId] = None,
+    instrumentation: Optional["PromptSessionInstrumentation"] = None,
 ) -> str:
     """
     Assemble the always-in-context memory for prompt injection.
@@ -40,35 +85,75 @@ async def assemble_always_in_context_memory(
     The final memory_xml can be cached inside the session object to avoid
     running this for every message.
 
+    All memory scopes are fetched in parallel for optimal performance.
+
     Args:
         agent_id: Agent ID
         user_id: User ID (optional, for user-scope memory)
         session_id: Session ID (optional, for session-scope memory)
+        instrumentation: Optional instrumentation for timing logs
 
     Returns:
         XML-formatted memory context string
     """
     try:
-        # Gather all memory components
-        agent_blob, agent_recent = await _get_scope_memory(
-            scope="agent",
-            agent_id=agent_id,
+        start_time = time.time()
+
+        # Build list of coroutines to run in parallel
+        tasks: List[asyncio.Task] = []
+
+        # Always fetch agent scope
+        tasks.append(
+            asyncio.create_task(
+                _timed_get_scope_memory(scope="agent", agent_id=agent_id)
+            )
         )
 
-        user_blob, user_recent = None, None
+        # Optionally fetch user scope
         if user_id:
-            user_blob, user_recent = await _get_scope_memory(
-                scope="user",
-                agent_id=agent_id,
-                user_id=user_id,
+            tasks.append(
+                asyncio.create_task(
+                    _timed_get_scope_memory(
+                        scope="user", agent_id=agent_id, user_id=user_id
+                    )
+                )
             )
 
-        session_blob, session_recent = None, None
+        # Optionally fetch session scope
         if session_id:
-            session_blob, session_recent = await _get_scope_memory(
-                scope="session",
-                agent_id=agent_id,
-                session_id=session_id,
+            tasks.append(
+                asyncio.create_task(
+                    _timed_get_scope_memory(
+                        scope="session", agent_id=agent_id, session_id=session_id
+                    )
+                )
+            )
+
+        # Run all fetches in parallel
+        results = await asyncio.gather(*tasks)
+
+        # Process results and log timings
+        agent_blob, agent_recent = None, None
+        user_blob, user_recent = None, None
+        session_blob, session_recent = None, None
+
+        for scope, blob, recent, duration in results:
+            if scope == "agent":
+                agent_blob, agent_recent = blob, recent
+            elif scope == "user":
+                user_blob, user_recent = blob, recent
+            elif scope == "session":
+                session_blob, session_recent = blob, recent
+
+            scope_label = scope.capitalize()
+            _log_debug(
+                f"   ⏱️  {scope_label} Memory Assembly",
+                instrumentation,
+                {
+                    "duration_s": round(duration, 3),
+                    "has_consolidated": blob is not None,
+                    "has_recent": recent is not None,
+                },
             )
 
         # Build XML context
@@ -81,8 +166,19 @@ async def assemble_always_in_context_memory(
             session_recent=session_recent,
         )
 
+        total_duration = time.time() - start_time
+        word_count = len(memory_xml.split()) if memory_xml else 0
+        _log_debug(
+            "   ✓ Memory context assembled (parallel)",
+            instrumentation,
+            {
+                "duration_s": round(total_duration, 3),
+                "word_count": word_count,
+                "scopes_fetched": len(tasks),
+            },
+        )
+
         if LOCAL_DEV:
-            word_count = len(memory_xml.split()) if memory_xml else 0
             logger.debug(f"\n{'='*60}")
             logger.debug(f"MEMORY CONTEXT INJECTED INTO LLM ({word_count} words):")
             logger.debug(f"{'='*60}\n{memory_xml if memory_xml else '(empty)'}\n{'='*60}")
@@ -95,14 +191,15 @@ async def assemble_always_in_context_memory(
         return ""
 
 
-async def _get_scope_memory(
+def _get_scope_memory_sync(
     scope: str,
     agent_id: ObjectId,
     user_id: Optional[ObjectId] = None,
     session_id: Optional[ObjectId] = None,
-) -> tuple[Optional[str], Optional[str]]:
+) -> Tuple[Optional[str], Optional[str]]:
     """
-    Get consolidated blob and recent reflections for a scope.
+    Synchronous helper to get consolidated blob and recent reflections for a scope.
+    This is run in a thread pool to enable true parallelism.
 
     Returns:
         Tuple of (consolidated_blob, recent_reflections_formatted)
@@ -140,6 +237,28 @@ async def _get_scope_memory(
     except Exception as e:
         logger.error(f"Error getting {scope} memory: {e}")
         return None, None
+
+
+async def _get_scope_memory(
+    scope: str,
+    agent_id: ObjectId,
+    user_id: Optional[ObjectId] = None,
+    session_id: Optional[ObjectId] = None,
+) -> Tuple[Optional[str], Optional[str]]:
+    """
+    Get consolidated blob and recent reflections for a scope.
+    Uses asyncio.to_thread to run synchronous MongoDB operations in parallel.
+
+    Returns:
+        Tuple of (consolidated_blob, recent_reflections_formatted)
+    """
+    return await asyncio.to_thread(
+        _get_scope_memory_sync,
+        scope,
+        agent_id,
+        user_id,
+        session_id,
+    )
 
 
 def _build_memory_xml(
@@ -210,6 +329,7 @@ async def get_memory_context_for_session(
     agent_id: ObjectId,
     last_speaker_id: Optional[ObjectId] = None,
     force_refresh: bool = False,
+    instrumentation: Optional["PromptSessionInstrumentation"] = None,
 ) -> str:
     """
     Get memory context for a session, with caching support.
@@ -222,11 +342,14 @@ async def get_memory_context_for_session(
         agent_id: Agent ID
         last_speaker_id: ID of the last user who spoke (for user-scope)
         force_refresh: Force regeneration of memory context
+        instrumentation: Optional instrumentation for timing logs
 
     Returns:
         Memory context XML string
     """
     try:
+        start_time = time.time()
+
         # Ensure memory_context is an object (not dict)
         memory_context = _ensure_memory_context_object(session)
 
@@ -240,20 +363,40 @@ async def get_memory_context_for_session(
                 timestamp = ensure_utc(timestamp)
                 age_seconds = (datetime.now(timezone.utc) - timestamp).total_seconds()
                 if age_seconds < 300:  # 5 minutes
-                    if LOCAL_DEV:
-                        logger.debug(f"Using cached memory context (age: {age_seconds:.0f}s)")
+                    _log_debug(
+                        "   ✓ Memory context cache hit",
+                        instrumentation,
+                        {
+                            "cache_age_s": round(age_seconds, 1),
+                            "word_count": len(cached.split()) if cached else 0,
+                        },
+                    )
                     return cached
+
+        _log_debug(
+            "   🔄 Rebuilding memory context",
+            instrumentation,
+            {"reason": "force_refresh" if force_refresh else "cache_miss_or_expired"},
+        )
 
         # Assemble fresh context
         memory_xml = await assemble_always_in_context_memory(
             agent_id=agent_id,
             user_id=last_speaker_id,
             session_id=session.id if hasattr(session, "id") else None,
+            instrumentation=instrumentation,
         )
 
         # Update session cache
         memory_context.cached_memory_context = memory_xml
         memory_context.memory_context_timestamp = datetime.now(timezone.utc)
+
+        total_duration = time.time() - start_time
+        _log_debug(
+            "   ✓ Memory context rebuilt and cached",
+            instrumentation,
+            {"duration_s": round(total_duration, 3)},
+        )
 
         return memory_xml
 

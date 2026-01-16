@@ -6,23 +6,23 @@ memory system. Values are tuned based on production experience from memory v1.
 """
 
 from typing import Literal
+
 from eve.agent.session.config import DEFAULT_SESSION_SELECTION_LIMIT
 
 # -----------------------------------------------------------------------------
 # Development/Production Toggle
 # -----------------------------------------------------------------------------
-LOCAL_DEV = True  # Set to False for production
+LOCAL_DEV = False  # Set to False for production
 
 # -----------------------------------------------------------------------------
 # LLM Model Configuration
 # -----------------------------------------------------------------------------
 if LOCAL_DEV:
-    MEMORY_LLM_MODEL_FAST = "gpt-5-mini"
-    MEMORY_LLM_MODEL_SLOW = "gpt-5-mini"
+    MEMORY_LLM_MODEL_FAST = "gemini-3-flash-preview"
+    MEMORY_LLM_MODEL_SLOW = "gemini-3-flash-preview"
 else:
-    MEMORY_LLM_MODEL_FAST = "gpt-5-mini"
-    MEMORY_LLM_MODEL_SLOW = "gpt-5.2"
-
+    MEMORY_LLM_MODEL_FAST = "gemini-3-flash-preview"
+    MEMORY_LLM_MODEL_SLOW = "gemini-3-flash-preview"
 
 # -----------------------------------------------------------------------------
 # Memory Formation Triggers
@@ -59,7 +59,7 @@ else:
 CONSOLIDATED_WORD_LIMITS = {
     "agent": 1000,  # Largest - agent's full persona/project state
     "user": 400,  # Medium - user preferences and interaction style
-    "session": 300,  # Rolling summary of session events and status
+    "session": 400,  # Rolling summary of session events and status
 }
 
 # -----------------------------------------------------------------------------
@@ -90,6 +90,12 @@ ALWAYS_IN_CONTEXT_ENABLED = True  # Can be toggled independently
 
 # Fact extraction prompt (LLM Call 1 - no memory context needed)
 FACT_EXTRACTION_PROMPT = """You are extracting factual information from a conversation for a RAG (retrieval) system.
+
+<agent_persona_context>
+The following is the persona/description of the agent whose memory you are forming. Use this to understand the agent's identity, purpose, and domain when deciding what facts are relevant to extract.
+
+{agent_persona}
+</agent_persona_context>
 
 ## HOW FACTS ARE USED
 Facts are stored in a searchable database and retrieved ONLY when the agent explicitly searches for them.
@@ -138,7 +144,7 @@ If the answer is no, don't extract it. Most conversations have FEW or NO facts.
 
 Guidelines:
 - Facts must be self-contained answers that make sense without additional context
-- Maximum {max_words} words per fact
+- Maximum {max_words} words per fact, try to be concise
 - ALWAYS use specific names (NEVER "User", "the user", or "they")
 - Return empty list if no facts found (this is common and expected)
 """
@@ -147,14 +153,21 @@ Guidelines:
 # Reflection extraction prompt (LLM Call 2 - needs memory context + facts)
 REFLECTION_EXTRACTION_PROMPT = """You are updating an agent's always-in-context memory based on a conversation.
 
+<agent_persona_context>
+The following is the persona/description of the agent whose memory you are forming. Use this to understand the agent's identity, purpose, and domain when deciding what reflections are relevant to extract.
+
+{agent_persona}
+</agent_persona_context>
+
 ## HOW REFLECTIONS ARE USED
 Reflections are ALWAYS visible to the agent in every conversation - they shape how the agent behaves.
-Because reflections consume tokens on EVERY message, storage is LIMITED and reflections get consolidated.
+Because reflections consume tokens on EVERY message, storage is LIMITED and reflections get consolidated over time.
 Use reflections for information that should CONTINUOUSLY influence the agent's behavior.
 
 Unlike facts (which are searched for specific answers), reflections answer:
 - "How should I interact with this user?"
 - "What's the current context/state I need to be aware of?"
+- "What projects/events are we currently working on?"
 - "What behavioral rules should I follow?"
 
 ## CURRENT MEMORY STATE
@@ -178,6 +191,7 @@ Recent: {recent_session_reflections}
 {newly_formed_facts}
 </newly_formed_facts>
 
+Here is the actual conversation text:
 <conversation>
 {conversation_text}
 </conversation>
@@ -193,18 +207,20 @@ GOOD for agent reflections:
 - Ongoing initiatives ("Currently prioritizing the memory system redesign")
 - Operational learnings ("When generating images, always confirm style first")
 - Universal context ("Eden is pivoting toward enterprise customers")
+- Collective rules, projects and events ("Mars College is organising a festival at the end of March")
 
 NOT for agent reflections (use facts instead):
-- Specific searchable data ("Budget is $50k", "Launch date is March 1st")
-- Static information that doesn't affect behavior
+- Specific searchable data ("The total budget is $50k", "Sarahs birthday is april 1st")
+- Static information that doesn't affect general behavior
 
-### 2. USER REFLECTIONS (user scope - affects all conversations with THIS user)
+### 2. USER REFLECTIONS (user scope - affects all conversations with THIS user only)
 What should continuously influence how the agent interacts with this specific user?
 
 GOOD for user reflections:
 - Interaction preferences ("Alice prefers bullet points over paragraphs")
 - Behavioral rules ("Always ask Bob for confirmation before running tools")
 - Working context ("Carol is exploring AI for her VJ performances")
+- Relevant information about this user ("Xander is working on a VJ project and wants to project on buildings")
 
 NOT for user reflections:
 - One-time requests ("make this image larger")
@@ -218,9 +234,10 @@ GOOD for session reflections:
 - Current task state ("Debugging auth - tried solutions A and B, testing C")
 - Active creative context ("Story features a robot named Max in Tokyo")
 - Session instructions ("User wants all responses in bullet points today")
+- Important assets to pin ("the public url for the character image is ...")
 
 NOT for session reflections:
-- Permanent preferences → use user reflections
+- Permanent preferences → use user/agent reflections
 - Searchable details → use facts
 
 Return JSON:
@@ -231,12 +248,60 @@ Return JSON:
 }}
 
 CRITICAL: Reflections should affect BEHAVIOR, not store SEARCHABLE DATA.
-Ask: "Does the agent need to know this on every message, or only when specifically asked?"
+Ask: "Should the agent see this information on every message, or only when specifically asked?"
+(Eg when an agent is coordinating a collective project it should save reflections about that projects ongoing state)
 - Every message → reflection
 - Only when asked → fact (already extracted in newly_formed_facts)
 
-Maximum {max_words} words per reflection. Use specific names (never "User" or "the user").
+IMPORTANT: any information you do not extract as a reflection here (and is not already in newly_formed_facts) is permanently lost from the agents memory, but extracting too much information will bloat the memory context. Make your decisions carefully.
+
+Maximum {max_words} words per reflection, try to be concise. Use specific names (never "User" or "the user").
 Return empty arrays when nothing meaningful to extract (this is common).
+"""
+
+# Consolidation prompt template (used for all scope levels)
+CONSOLIDATION_PROMPT = """You are consolidating {scope_type} memory reflections for an AI agent.
+
+<agent_persona_context>
+The following is the persona/description of the agent whose memory you are consolidating. Use this to understand the agent's identity, purpose, and domain when merging reflections.
+
+{agent_persona}
+</agent_persona_context>
+
+<current_consolidated_memory>
+{existing_blob}
+</current_consolidated_memory>
+
+<new_reflections>
+{new_reflections}
+</new_reflections>
+
+Merge the new reflections into the existing memory, creating an updated consolidated memory.
+
+{scope_specific_instructions}
+
+If the current, consolidated MEMORY STATE is EMPTY (ignore otherwise):
+ - this means you're about to create the first consolidated memory for this shard, add "VERSION: 1" (integer) at the top of the MEMORY STATE
+ - Typically, there is very little initial information available initially, so don't start filling up the MEMORY STATE with invented information. EVERYTHING you store into memory must be based on new reflections and user input, not the your free-form interpretation / generation!
+ - Don't rush to fill this up, more NEW SUGGESTIONS will come in the future. Its better to start with a very basic, minimal MEMORY STATE and then update it over time. Keep the inital MEMORY STATE below 200 words so it can grow over time.
+
+Integration Guidelines:
+- always increment the VERSION by 1 (integer) when you update the MEMORY STATE
+- Do NOT simply append new items - INTEGRATE them into the existing structure
+- Preserve existing sections UNCHANGED if new reflections don't affect them (copy verbatim)
+- Resolve contradictions: newer information takes precedence
+- When consensus is unclear, preserve both perspectives ("Some prefer X while others prefer Y")
+- Be careful not to lose ANY existing information - once lost, it's gone forever
+- After consolidation, all new_reflections will be discarded, so ensure all valuable info is integrated
+- Do NOT invent or hallucinate any new information not explicitly in new_reflections
+- Maximum {word_limit} words
+
+CRITICAL:
+- Sections of existing memory that don't need updates should be copied UNCHANGED
+- The goal is a coherent synthesis, not a list of appended items
+- Focus on actionable information that will help guide future interactions
+
+Return ONLY the updated consolidated memory text (no additional formatting or explanation).
 """
 
 
@@ -300,40 +365,6 @@ Guidelines:
 - NONE for semantic duplicates (different wording, same meaning)
 - ADD only for genuinely new information
 - When in doubt between UPDATE and ADD, prefer UPDATE to avoid duplicates
-"""
-
-
-# Consolidation prompt template (used for all scope levels)
-CONSOLIDATION_PROMPT = """You are consolidating {scope_type} memory reflections.
-
-<current_consolidated_memory>
-{existing_blob}
-</current_consolidated_memory>
-
-<new_reflections>
-{new_reflections}
-</new_reflections>
-
-Merge the new reflections into the existing memory, creating an updated consolidated memory.
-
-{scope_specific_instructions}
-
-Integration Guidelines:
-- Do NOT simply append new items - INTEGRATE them into the existing structure
-- Preserve existing sections UNCHANGED if new reflections don't affect them (copy verbatim)
-- Resolve contradictions: newer information takes precedence
-- When consensus is unclear, preserve both perspectives ("Some prefer X while others prefer Y")
-- Be careful not to lose ANY existing information - once lost, it's gone forever
-- After consolidation, all new_reflections will be discarded, so ensure all valuable info is integrated
-- Do NOT invent or hallucinate any new information not explicitly in new_reflections
-- Maximum {word_limit} words
-
-CRITICAL:
-- Sections of existing memory that don't need updates should be copied UNCHANGED
-- The goal is a coherent synthesis, not a list of appended items
-- Focus on actionable information that will help guide future interactions
-
-Return ONLY the updated consolidated memory text (no additional formatting or explanation).
 """
 
 

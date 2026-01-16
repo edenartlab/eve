@@ -18,8 +18,6 @@ class ModelTier(Enum):
 DEFAULT_MODEL_PREMIUM = "claude-sonnet-4-5"
 DEFAULT_MODEL_FREE = "claude-haiku-4-5"
 
-#DEFAULT_MODEL_PREMIUM = "gemini-3-flash-preview"
-
 FALLBACK_MODEL_PREMIUM = "gpt-5.2"
 FALLBACK_MODEL_FREE = "gpt-5-nano"
 

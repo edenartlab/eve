@@ -192,7 +192,17 @@ async def async_run_tool_call(
     public: bool = True,
     is_client_platform: bool = False,
 ):
-    tool = llm_context.tools[tool_call.tool]
+    tool = llm_context.tools.get(tool_call.tool)
+    if not tool and tool_call.tool.startswith("tool_"):
+        stripped_tool = tool_call.tool[len("tool_") :]
+        tool = llm_context.tools.get(stripped_tool)
+        if tool:
+            logger.warning(
+                f"Mapped tool call name from {tool_call.tool} to {stripped_tool}"
+            )
+            tool_call.tool = stripped_tool
+    if not tool:
+        raise KeyError(tool_call.tool)
     task = await tool.async_start_task(
         user_id=user_id,
         agent_id=agent_id,

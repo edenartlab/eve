@@ -25,7 +25,6 @@ async def save_reflections(
     agent_id: ObjectId,
     user_id: Optional[ObjectId] = None,
     session_id: Optional[ObjectId] = None,
-    source_session_id: Optional[ObjectId] = None,
     source_message_ids: Optional[List[ObjectId]] = None,
 ) -> Dict[str, List[Reflection]]:
     """
@@ -35,8 +34,7 @@ async def save_reflections(
         reflections_data: Dict with keys "agent", "user", "session" containing reflection strings
         agent_id: Agent ID
         user_id: User ID for user-scoped reflections
-        session_id: Session ID for session-scoped reflections
-        source_session_id: Session where reflections were formed
+        session_id: Session ID (always populated on all reflections)
         source_message_ids: Messages that contributed to these reflections
 
     Returns:
@@ -56,15 +54,13 @@ async def save_reflections(
 
                 # Determine scope-specific IDs
                 reflection_user_id = user_id if scope == "user" else None
-                reflection_session_id = session_id if scope == "session" else None
 
                 reflection = Reflection(
                     content=content.strip(),
                     scope=scope,
                     agent_id=agent_id,
                     user_id=reflection_user_id,
-                    session_id=reflection_session_id,
-                    source_session_id=source_session_id or session_id,
+                    session_id=session_id,  # Always track which session created this
                     source_message_ids=source_message_ids or [],
                 )
                 reflections.append(reflection)
@@ -81,11 +77,12 @@ async def save_reflections(
                 saved_by_scope[scope] = reflections
 
                 # Add to consolidated memory's unabsorbed list
+                # Note: ConsolidatedMemory still uses session_id for session-scoped entries
                 await _add_reflections_to_buffer(
                     scope=scope,
                     agent_id=agent_id,
                     user_id=reflection_user_id,
-                    session_id=reflection_session_id,
+                    session_id=session_id if scope == "session" else None,
                     reflection_ids=[r.id for r in reflections],
                 )
 

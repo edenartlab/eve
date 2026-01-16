@@ -1,0 +1,51 @@
+name: Eden Artifacts V3 List
+description: List Eden artifacts (V3).
+cost_estimate: 0
+output_type: string
+active: true
+visible: true
+handler: mcp
+mcp_server_url: ${EDEN_FASTIFY_API_URL}/mcp
+mcp_tool_name: eden_artifacts_v3_list
+mcp_timeout: 30
+mcp_user_token_url: ${EDEN_FASTIFY_API_URL}/v2/mcp/token
+mcp_user_token_api_key_env: EDEN_FASTIFY_ADMIN_KEY
+mcp_user_token_ttl_seconds: 600
+parameters:
+  ownerId:
+    type: string
+    label: Owner ID
+    description: Optional owner (users3) id to filter.
+    required: false
+  type:
+    type: string
+    label: Type
+    description: Optional artifact type.
+    required: false
+  sessionId:
+    type: string
+    label: Session ID
+    description: Optional session id to filter.
+    required: false
+  page:
+    type: integer
+    label: Page
+    description: Page number.
+    required: false
+    default: 1
+  limit:
+    type: integer
+    label: Limit
+    description: Results per page.
+    required: false
+    default: 20
+  orderBy:
+    type: string
+    label: Order By
+    description: Field to sort by (default createdAt).
+    required: false
+  direction:
+    type: integer
+    label: Direction
+    description: Sort direction (1 or -1).
+    required: false

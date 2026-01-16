@@ -53,6 +53,7 @@ async def consolidate_reflections(
     user_id: Optional[ObjectId] = None,
     session_id: Optional[ObjectId] = None,
     force: bool = False,
+    agent_persona: Optional[str] = None,
 ) -> Optional[str]:
     """
     Consolidate buffered reflections into the consolidated blob.
@@ -70,6 +71,7 @@ async def consolidate_reflections(
         user_id: User ID (required for user scope)
         session_id: Session ID (required for session scope)
         force: Force consolidation even if threshold not met
+        agent_persona: The agent's persona/description for context
 
     Returns:
         The new consolidated content, or None if no consolidation occurred
@@ -115,6 +117,7 @@ async def consolidate_reflections(
         # Build consolidation prompt
         prompt = CONSOLIDATION_PROMPT.format(
             scope_type=scope,
+            agent_persona=agent_persona or "No agent persona available.",
             existing_blob=consolidated.consolidated_content
             or "EMPTY (This is the first consolidation - be concise, more reflections will come!)",
             new_reflections=reflections_text,
@@ -282,6 +285,7 @@ async def maybe_consolidate_all(
     agent_id: ObjectId,
     user_id: Optional[ObjectId] = None,
     session_id: Optional[ObjectId] = None,
+    agent_persona: Optional[str] = None,
 ) -> dict:
     """
     Check and consolidate all applicable scopes if thresholds are met.
@@ -292,6 +296,7 @@ async def maybe_consolidate_all(
         agent_id: Agent ID
         user_id: User ID (optional)
         session_id: Session ID (optional)
+        agent_persona: The agent's persona/description for context
 
     Returns:
         Dict with consolidation results for each scope
@@ -301,17 +306,17 @@ async def maybe_consolidate_all(
     scope_names = []
 
     # Always check agent scope
-    tasks.append(consolidate_reflections(scope="agent", agent_id=agent_id))
+    tasks.append(consolidate_reflections(scope="agent", agent_id=agent_id, agent_persona=agent_persona))
     scope_names.append("agent")
 
     # Check user scope if user_id provided
     if user_id:
-        tasks.append(consolidate_reflections(scope="user", agent_id=agent_id, user_id=user_id))
+        tasks.append(consolidate_reflections(scope="user", agent_id=agent_id, user_id=user_id, agent_persona=agent_persona))
         scope_names.append("user")
 
     # Check session scope if session_id provided
     if session_id:
-        tasks.append(consolidate_reflections(scope="session", agent_id=agent_id, session_id=session_id))
+        tasks.append(consolidate_reflections(scope="session", agent_id=agent_id, session_id=session_id, agent_persona=agent_persona))
         scope_names.append("session")
 
     # Run all consolidations in parallel
@@ -337,6 +342,7 @@ async def force_consolidate_all(
     agent_id: ObjectId,
     user_id: Optional[ObjectId] = None,
     session_id: Optional[ObjectId] = None,
+    agent_persona: Optional[str] = None,
 ) -> dict:
     """
     Force consolidation for all applicable scopes, regardless of thresholds.
@@ -348,6 +354,7 @@ async def force_consolidate_all(
         agent_id: Agent ID
         user_id: User ID (optional)
         session_id: Session ID (optional)
+        agent_persona: The agent's persona/description for context
 
     Returns:
         Dict with consolidation results for each scope
@@ -357,17 +364,17 @@ async def force_consolidate_all(
     scope_names = []
 
     # Always force agent scope
-    tasks.append(consolidate_reflections(scope="agent", agent_id=agent_id, force=True))
+    tasks.append(consolidate_reflections(scope="agent", agent_id=agent_id, force=True, agent_persona=agent_persona))
     scope_names.append("agent")
 
     # Force user scope if user_id provided
     if user_id:
-        tasks.append(consolidate_reflections(scope="user", agent_id=agent_id, user_id=user_id, force=True))
+        tasks.append(consolidate_reflections(scope="user", agent_id=agent_id, user_id=user_id, force=True, agent_persona=agent_persona))
         scope_names.append("user")
 
     # Force session scope if session_id provided
     if session_id:
-        tasks.append(consolidate_reflections(scope="session", agent_id=agent_id, session_id=session_id, force=True))
+        tasks.append(consolidate_reflections(scope="session", agent_id=agent_id, session_id=session_id, force=True, agent_persona=agent_persona))
         scope_names.append("session")
 
     # Run all consolidations in parallel

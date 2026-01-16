@@ -1,0 +1,44 @@
+name: Eden Artifacts V3 Create
+description: Create a new Eden artifact (V3).
+cost_estimate: 0
+output_type: string
+active: true
+visible: true
+handler: mcp
+mcp_server_url: ${EDEN_FASTIFY_API_URL}/mcp
+mcp_tool_name: eden_artifacts_v3_create
+mcp_timeout: 30
+mcp_user_token_url: ${EDEN_FASTIFY_API_URL}/v2/mcp/token
+mcp_user_token_api_key_env: EDEN_FASTIFY_ADMIN_KEY
+mcp_user_token_ttl_seconds: 600
+parameters:
+  title:
+    type: string
+    label: Title
+    description: Artifact title.
+    required: true
+  type:
+    type: string
+    label: Type
+    description: Artifact type/category.
+    required: true
+  public:
+    type: boolean
+    label: Public
+    description: Whether the artifact is publicly readable.
+    required: false
+  session:
+    type: string
+    label: Session ID
+    description: Optional session id associated with the artifact.
+    required: false
+  content:
+    type: string
+    label: Content
+    description: Optional initial content for items.content.
+    required: false
+  items:
+    type: object
+    label: Items
+    description: Optional initial items object (string values or nested objects).
+    required: false

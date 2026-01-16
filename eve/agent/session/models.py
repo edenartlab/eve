@@ -400,9 +400,26 @@ class ChatMessage(Document):
         attachments = list(self.attachments or [])
         for tc in self.tool_calls or []:
             result = prepare_result(tc.result) or []
-            urls = [
-                item["url"] for r in result for item in r["output"] if item.get("url")
-            ]
+            urls = []
+            results_iter = result if isinstance(result, list) else [result]
+            for entry in results_iter:
+                if not isinstance(entry, dict):
+                    continue
+                output = entry.get("output")
+                if isinstance(output, list):
+                    for item in output:
+                        if isinstance(item, dict):
+                            url_value = item.get("url")
+                            if url_value:
+                                urls.append(url_value)
+                        elif isinstance(item, str) and item.startswith("http"):
+                            urls.append(item)
+                elif isinstance(output, dict):
+                    url_value = output.get("url")
+                    if url_value:
+                        urls.append(url_value)
+                elif isinstance(output, str) and output.startswith("http"):
+                    urls.append(output)
             attachments.extend([r for r in urls if r])
 
         content = self.content.strip()
@@ -1497,6 +1514,13 @@ class Deployment(Document):
             ]
         elif self.platform == ClientType.TELEGRAM:
             return self.config.telegram.topic_allowlist
+        return []
+
+    def get_dm_allowed_users(self):
+        """Get allowed DM users for the deployment"""
+        if self.platform in [ClientType.DISCORD, ClientType.DISCORD_V3]:
+            if self.config and self.config.discord:
+                return self.config.discord.dm_user_allowlist or []
         return []
 
 

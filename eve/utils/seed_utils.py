@@ -212,7 +212,7 @@ async def mint_seed_for_session(
         session_id=ObjectId(session_id),
         agent_id=agent.id,
         title=title,
-        tagline="Session seed",
+        tagline="Session seed new",
         proposal="Auto-generated session seed",
         image=None,
         status="pending",

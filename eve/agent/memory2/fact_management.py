@@ -14,6 +14,7 @@ This ensures semantic deduplication and handles:
 - Updates (new info that supersedes old)
 """
 
+import json
 import os
 import traceback
 import uuid
@@ -328,11 +329,12 @@ async def llm_memory_update_decision(
             max_jitter=0.5,
         )
 
-        # Parse response
-        if hasattr(response, "parsed"):
-            result = response.parsed
-        else:
-            result = FactDecisionResponse.model_validate_json(response.content)
+        # Parse structured JSON response
+        if not response.content or not response.content.strip():
+            logger.warning("LLM returned empty response for fact deduplication")
+            return []
+
+        result = FactDecisionResponse(**json.loads(response.content))
 
         # Match decisions back to fact candidates
         decisions = []
@@ -402,7 +404,7 @@ async def execute_decision(
                 scope=fact_data.get("scope", ["user"]),
                 agent_id=agent_id,
                 user_id=user_id if "user" in fact_data.get("scope", []) else None,
-                source_session_id=fact_data.get("source_session_id"),
+                session_id=fact_data.get("session_id"),
                 source_message_ids=fact_data.get("source_message_ids", []),
                 embedding=embedding,
             )
@@ -441,7 +443,7 @@ async def execute_decision(
                     scope=fact_data.get("scope", ["user"]),
                     agent_id=agent_id,
                     user_id=user_id if "user" in fact_data.get("scope", []) else None,
-                    source_session_id=fact_data.get("source_session_id"),
+                    session_id=fact_data.get("session_id"),
                     source_message_ids=fact_data.get("source_message_ids", []),
                     embedding=embedding,
                 )
