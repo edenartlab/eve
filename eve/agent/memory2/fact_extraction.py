@@ -11,6 +11,7 @@ The extracted facts are then:
 2. Passed to reflection extraction to avoid redundancy
 """
 
+import json
 import os
 import traceback
 import uuid
@@ -25,7 +26,6 @@ from eve.agent.memory2.constants import (
     FACT_MAX_WORDS,
     LOCAL_DEV,
     MEMORY_LLM_MODEL_FAST,
-    extract_json_from_llm_response,
 )
 from eve.utils.system_utils import async_exponential_backoff
 from eve.agent.memory2.models import (
@@ -113,19 +113,12 @@ async def extract_facts(
             max_jitter=0.5,
         )
 
-        # Parse response
-        if hasattr(response, "parsed") and response.parsed is not None:
-            extracted = response.parsed
-        else:
-            # Extract JSON from various LLM response formats
-            json_content = extract_json_from_llm_response(response.content)
+        # Parse structured JSON response
+        if not response.content or not response.content.strip():
+            logger.warning("LLM returned empty response for fact extraction")
+            return []
 
-            # Handle empty or invalid LLM response
-            if not json_content or not json_content.strip():
-                logger.warning("LLM returned empty response for fact extraction")
-                return []
-
-            extracted = FactExtractionResponse.model_validate_json(json_content)
+        extracted = FactExtractionResponse(**json.loads(response.content))
 
         if LOCAL_DEV:
             logger.debug(f"Extracted {len(extracted.facts)} facts")

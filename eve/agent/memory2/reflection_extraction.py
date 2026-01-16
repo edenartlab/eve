@@ -6,6 +6,7 @@ Reflections are extracted with awareness of existing memory context to avoid
 redundancy and maintain hierarchical scope ordering (agent → user → session).
 """
 
+import json
 import os
 import traceback
 import uuid
@@ -20,7 +21,6 @@ from eve.agent.memory2.constants import (
     MEMORY_LLM_MODEL_SLOW,
     REFLECTION_EXTRACTION_PROMPT,
     REFLECTION_MAX_WORDS,
-    extract_json_from_llm_response,
 )
 from eve.utils.system_utils import async_exponential_backoff
 from eve.agent.memory2.models import (
@@ -122,19 +122,12 @@ async def extract_reflections(
             max_jitter=0.5,
         )
 
-        # Parse response
-        if hasattr(response, "parsed") and response.parsed is not None:
-            extracted = response.parsed
-        else:
-            # Extract JSON from various LLM response formats
-            json_content = extract_json_from_llm_response(response.content)
+        # Parse structured JSON response
+        if not response.content or not response.content.strip():
+            logger.warning("LLM returned empty response for reflection extraction")
+            return {"agent": [], "user": [], "session": []}
 
-            # Handle empty or invalid LLM response
-            if not json_content or not json_content.strip():
-                logger.warning("LLM returned empty response for reflection extraction")
-                return {"agent": [], "user": [], "session": []}
-
-            extracted = ReflectionExtractionResponse.model_validate_json(json_content)
+        extracted = ReflectionExtractionResponse(**json.loads(response.content))
 
         # Convert to simple dict format
         result = {
