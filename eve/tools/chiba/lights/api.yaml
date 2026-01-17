@@ -1,0 +1,88 @@
+name: lights
+description: Control the Chiba lighting system - turn lights on/off, set colors, brightness, and apply presets
+tip: |-
+  Zones: gw1, gw2 (gallery west), ge1, ge2 (gallery east), a (auditorium), all
+
+  Mapping:
+  - "auditorium" / "theater" / "downstairs" → a
+  - "gallery west" → gw1, gw2
+  - "gallery east" → ge1, ge2
+  - "gallery" / "upstairs" → gw1, gw2, ge1, ge2
+  - "all lights" / "everywhere" → all
+
+  Presets: all-off, all-on, warm-dim, cool-bright, max-bright
+cost_estimate: 0
+output_type: string
+active: true
+handler: local
+visible: false
+parameters:
+  action:
+    type: string
+    label: Action
+    description: The action to perform on the lights
+    required: true
+    choices:
+      - status
+      - control
+      - presets
+      - apply_preset
+    choices_labels:
+      - Get Light Status
+      - Control Lights
+      - List Presets
+      - Apply Preset
+  target:
+    type: string
+    label: Target Light
+    description: Which light(s) to control. Use 'all' for all lights, or specific zone codes.
+    required: false
+    choices:
+      - all
+      - gw1
+      - gw2
+      - ge1
+      - ge2
+      - a
+    choices_labels:
+      - All Lights
+      - Gallery West 1
+      - Gallery West 2
+      - Gallery East 1
+      - Gallery East 2
+      - Auditorium
+  power:
+    type: boolean
+    label: Power
+    description: Turn lights on (true) or off (false)
+    required: false
+  hue:
+    type: integer
+    label: Hue
+    description: Color hue (0-360). 0=Red, 60=Yellow, 120=Green, 180=Cyan, 240=Blue, 270=Purple, 300=Magenta
+    required: false
+  saturation:
+    type: integer
+    label: Saturation
+    description: Color saturation (0-100). 0=White/desaturated, 100=Full vivid color
+    required: false
+  brightness:
+    type: integer
+    label: Brightness
+    description: Light brightness (0-100). 0=Off, 100=Maximum brightness
+    required: false
+  preset_id:
+    type: string
+    label: Preset ID
+    description: ID of preset to apply (e.g., 'preset-all-off', 'preset-warm-dim')
+    choices:
+      - preset-all-off
+      - preset-warm-dim
+      - preset-cool-bright
+      - preset-max-bright
+    choices_labels:
+      - All Off
+      - Warm Dim
+      - Cool Bright
+      - Max Bright
+    required: false
