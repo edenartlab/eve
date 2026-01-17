@@ -226,16 +226,35 @@ class MCPTool(Tool):
 
         return formatted
 
+    def _inject_session(
+        self, args: Dict[str, Any], session_id: Optional[str]
+    ) -> Dict[str, Any]:
+        if not session_id or not isinstance(args, dict) or not self.parameters:
+            return args
+
+        if "session" in self.parameters and "session" not in args:
+            args["session"] = session_id
+        elif "sessionId" in self.parameters and "sessionId" not in args:
+            args["sessionId"] = session_id
+        elif "session_id" in self.parameters and "session_id" not in args:
+            args["session_id"] = session_id
+
+        return args
+
     @Tool.handle_run
     async def async_run(self, context: ToolContext):
         """Execute the MCP tool and return result"""
-        result = await self._call_mcp_tool(context.args, context.user)
+        args = dict(context.args or {})
+        args = self._inject_session(args, context.session)
+        result = await self._call_mcp_tool(args, context.user)
         return {"output": result}
 
     @Tool.handle_start_task
     async def async_start_task(self, task: Task, webhook: bool = True):
         """Start an async task"""
-        args = self.prepare_args(task.args)
+        args = dict(task.args or {})
+        args = self._inject_session(args, str(task.session) if task.session else None)
+        args = self.prepare_args(args)
         result = await self._call_mcp_tool(args, str(task.user) if task.user else None)
 
         task.update(status="completed", result=[{"output": result}])

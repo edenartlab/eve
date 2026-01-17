@@ -203,11 +203,20 @@ async def handler(context: ToolContext):
                 }
             )
 
-    transcript = {
-        "segments": transcript_segments,
-        "words": words,
-        "duration": transcript_segments[-1]["end"] if transcript_segments else 0,
-    }
+    # Keep detailed data available for future use if needed
+    # transcript_detailed = {
+    #     "segments": transcript_segments,
+    #     "words": words,
+    #     "duration": transcript_segments[-1]["end"] if transcript_segments else 0,
+    # }
+
+    # Compact text format for context efficiency
+    transcript_lines = []
+    for seg in transcript_segments:
+        start = round(seg["start"], 1)
+        end = round(seg["end"], 1)
+        transcript_lines.append(f"{seg['voice']} {start}-{end} : {seg['text']}")
+    transcript = "\n".join(transcript_lines)
 
     return {
         "output": audio_file.name,

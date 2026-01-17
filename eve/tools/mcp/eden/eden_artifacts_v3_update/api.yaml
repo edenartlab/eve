@@ -1,5 +1,5 @@
 name: Eden Artifacts V3 Update
-description: Update artifact metadata (V3).
+description: Update artifact metadata and/or items (V3).
 cost_estimate: 0
 output_type: string
 active: true
@@ -36,4 +36,14 @@ parameters:
     type: string
     label: Session ID
     description: Set or update session id.
+    required: false
+  content:
+    type: string
+    label: Content
+    description: Set items.content (string).
+    required: false
+  items:
+    type: object
+    label: Items
+    description: Optional items object to patch (nested keys allowed).
     required: false
