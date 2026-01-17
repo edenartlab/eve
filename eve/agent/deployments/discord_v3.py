@@ -472,7 +472,7 @@ class DiscordV3Client(PlatformClient):
             return secrets, config
 
         except Exception as e:
-            logger.error(f"Discord V3 predeploy failed: {e}", exc_info=True)
+            logger.error("Discord V3 predeploy failed: {}", str(e), exc_info=True)
             raise APIError(
                 f"Failed to set up Discord V3 deployment: {str(e)}", status_code=400
             )
