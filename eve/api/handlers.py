@@ -155,6 +155,8 @@ async def handle_realtime_tool(
     - "create": Run the create tool with default args (blocking)
     - "display": Run the display tool (blocking)
     - "create_async": Run create tool in background, return immediately
+    - "eden_search": Run eden search tool (blocking)
+    - "lights": Run lights tool (blocking)
 
     For blocking tools: waits for completion and returns result.
     For async tools: returns immediately with task_id for tracking.
@@ -181,6 +183,7 @@ async def handle_realtime_tool(
     tool_key_map = {
         "create": "create",
         "create_async": "create",
+        "lights": "lights",
         "display": "display",
         "eden_search": "eden_search",
     }
