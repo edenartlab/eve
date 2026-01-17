@@ -109,7 +109,7 @@ def get_agent_specific_tools(
                 "eden_search",
             ]
         )
-    elif username in ("wzrd", "WZRD"):
+    elif username == "wzrd":
         from ..tool_constants import WZRD_TOOLS
 
         result.extend(WZRD_TOOLS)
