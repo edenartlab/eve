@@ -8,8 +8,6 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-# Workaround: Import stdlib/packages before local files can shadow them
-# This prevents discord.py and email.py in this directory from shadowing imports
 _original_path = sys.path.copy()
 _deployment_dir = os.path.dirname(os.path.abspath(__file__))
 sys.path = [p for p in sys.path if os.path.abspath(p) != _deployment_dir]
