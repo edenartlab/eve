@@ -5,7 +5,18 @@ description: |
   before returning.
 
   The agent will see your hint (if provided) and any recent messages in their workspace.
-  They will then generate a response and post it to the chatroom via the chat tool.
+  They may respond publicly via the chat tool, or communicate privately with other agents.
+
+  RESPONSE BEHAVIOR:
+  - If the agent posts a PUBLIC message: You receive the message content.
+  - If the agent only sends PRIVATE messages: You receive
+    "[Turn completed. Agent sent private message(s) only - no public response.]"
+  - If the agent sends NO messages: You receive
+    "[Turn completed. Agent did not send any messages.]"
+
+  IMPORTANT: Private messages are intentionally hidden from you (the moderator) to
+  maintain impartiality. Do NOT speculate about their content. Trust the tool result
+  and proceed with orchestration.
 
   Use this to give each agent their turn to speak. You can provide optional hints
   with factual state updates (e.g., "Round 3 of 5", "Budget: $500 remaining").

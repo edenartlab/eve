@@ -427,10 +427,7 @@ async def run_automatic_session_step(session: Session) -> None:
 
         # Build instruction based on whether agent_sessions exist
         if not session.agent_sessions:
-            instruction = (
-                "Initialize the session. Call start_session with appropriate contexts "
-                "for each agent, then prompt the first agent to begin."
-            )
+            instruction = "Initialize the session. Call start_session with appropriate contexts for each agent, then prompt the first agent to begin."
         else:
             instruction = (
                 "Run the next round. Prompt an agent or take appropriate action."
