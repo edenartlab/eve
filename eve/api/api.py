@@ -27,7 +27,7 @@ from eve.api.api_functions import (
     cleanup_stuck_triggers,
     embed_recent_creations,
     generate_lora_thumbnails_fn,
-    process_cold_sessions_fn,
+    memory2_process_cold_sessions_fn,
     rotate_agent_metadata_fn,
     run,
     run_task,
@@ -730,9 +730,9 @@ cleanup_expired_exports_modal = app.function(
 )(cleanup_expired_exports_fn)
 
 
-process_cold_sessions_modal = app.function(
+memory2_process_cold_sessions = app.function(
     image=image, max_containers=1, schedule=modal.Period(minutes=10), timeout=3600
-)(process_cold_sessions_fn)
+)(memory2_process_cold_sessions_fn)
 
 topup_mars_college_manna_modal = app.function(
     image=image,
