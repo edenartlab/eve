@@ -134,6 +134,9 @@ async def handler(context: ToolContext) -> Dict[str, Any]:
     )
     prompt_record.save()
 
+    # Record when agent turn started (for filtering messages from this turn only)
+    turn_start_time = hint_message.createdAt or datetime.now(timezone.utc)
+
     # Run the agent's turn synchronously
     from eve.agent.session.agent_session_runtime import run_agent_session_turn
 
@@ -168,29 +171,61 @@ async def handler(context: ToolContext) -> Dict[str, Any]:
             # Clear waiting_until
             parent_session.update(waiting_until=None)
 
-    # Find the agent's response (the message they posted via chat)
-    # This is the most recent assistant message from this agent in the parent session
-    recent_messages = list(
+    # Find the agent's response from THIS turn
+    # Check for public messages first (role="assistant")
+    public_messages = list(
         ChatMessage.get_collection()
         .find(
             {
                 "session": parent_session.id,
                 "sender": target_agent.id,
                 "role": "assistant",
+                "createdAt": {"$gte": turn_start_time},
             }
         )
         .sort("createdAt", -1)
         .limit(1)
     )
 
-    agent_response = ""
-    if recent_messages:
-        agent_response = recent_messages[0].get("content", "")
+    if public_messages:
+        # Agent posted a public message - return its content
+        agent_response = public_messages[0].get("content", "")
+        response_type = "public"
+    else:
+        # Check if agent sent any private messages during this turn
+        private_messages = list(
+            ChatMessage.get_collection()
+            .find(
+                {
+                    "session": parent_session.id,
+                    "sender": target_agent.id,
+                    "role": "eden",
+                    "eden_message_data.message_type": "private_message",
+                    "createdAt": {"$gte": turn_start_time},
+                }
+            )
+            .sort("createdAt", -1)
+            .limit(1)
+        )
+
+        if private_messages:
+            # Agent only sent private messages - return clear indicator
+            agent_response = "[Turn completed. Agent sent private message(s) only - no public response.]"
+            response_type = "private_only"
+        else:
+            # Agent didn't send any messages at all
+            agent_response = "[Turn completed. Agent did not send any messages.]"
+            response_type = "no_activity"
+
+    logger.info(
+        f"[MODERATOR_PROMPT] Response type: {response_type}, response length: {len(agent_response)}"
+    )
 
     return {
         "output": {
             "status": "success",
             "agent": target_agent.username,
             "response": agent_response,
+            "response_type": response_type,
         }
     }

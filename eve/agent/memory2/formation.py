@@ -250,7 +250,7 @@ async def form_memories(
 
         # Extract user ID from messages if not provided
         if user_id is None:
-            user_id = _extract_user_id(recent_messages, agent_id)
+            user_id = _extract_user_id(recent_messages, agent_id, session)
 
         # Fetch agent persona for memory extraction context
         agent_persona = _get_agent_persona(agent_id)
@@ -461,19 +461,37 @@ def _update_session_cache(session, memory_xml: str) -> None:
         logger.error(f"Error updating session cache: {e}")
 
 
-def _extract_user_id(messages: List, agent_id: ObjectId) -> Optional[ObjectId]:
+def _extract_user_id(
+    messages: List, agent_id: ObjectId, session=None
+) -> Optional[ObjectId]:
     """
-    Extract the primary user ID from messages.
+    Extract the primary user ID from messages or session.
 
-    Returns the last non-agent sender as the user ID.
+    Fallback order:
+    1. Last non-agent sender from messages with role="user"
+    2. First user in session.users list
+    3. Session owner (session.owner)
     """
     try:
+        # Try to extract from messages first
         for msg in reversed(messages):
             sender = getattr(msg, "sender", None)
             if sender and sender != agent_id:
                 role = getattr(msg, "role", None)
                 if role == "user":
                     return sender
+
+        # Fall back to session.users if available
+        if session is not None:
+            users = getattr(session, "users", None)
+            if users and len(users) > 0:
+                return users[0]
+
+            # Final fallback: session owner
+            owner = getattr(session, "owner", None)
+            if owner:
+                return owner
+
         return None
 
     except Exception as e:
@@ -523,6 +541,7 @@ async def process_cold_session(
     Returns:
         True if memories were formed
     """
+    messages = None
     try:
         # Import here to avoid circular imports
         from eve.agent.memory.memory_models import select_messages
@@ -540,6 +559,21 @@ async def process_cold_session(
         )
 
     except Exception as e:
-        logger.error(f"Error processing cold session: {e}")
+        logger.error(f"Error processing cold session {session.id}: {e}")
         traceback.print_exc()
+
+        # On error, advance last_memory_message_id to skip these messages
+        # in future runs (prevents infinite retry loops on bad data)
+        if messages:
+            last_message_id = messages[-1].id if messages else None
+            if last_message_id:
+                _update_memory_context(
+                    session,
+                    last_memory_message_id=last_message_id,
+                    last_activity=datetime.now(timezone.utc),
+                )
+                logger.error(
+                    f"Skipping messages up to {last_message_id} for session {session.id} due to error"
+                )
+
         return False

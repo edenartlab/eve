@@ -60,16 +60,16 @@ async def rotate_agent_metadata_fn():
         sentry_sdk.capture_exception(e)
 
 
-async def process_cold_sessions_fn():
-    """Scheduled function to process cold sessions for memory formation"""
+async def memory2_process_cold_sessions_fn():
+    """Scheduled function to process cold sessions for memory formation (memory2)"""
     try:
-        from eve.agent.memory.memory_cold_sessions_processor import (
+        from eve.agent.memory2.memory2_cold_sessions_processor import (
             process_cold_sessions,
         )
 
         await process_cold_sessions()
     except Exception as e:
-        logger.error(f"Error processing cold sessions: {e}")
+        logger.error(f"Error processing cold sessions (memory2): {e}")
         sentry_sdk.capture_exception(e)
 
 

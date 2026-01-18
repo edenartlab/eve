@@ -338,7 +338,24 @@ IMPORTANT RULES:
 - Always wait for agent responses before prompting the next agent
 - Keep track of turn order and ensure fair participation
 - Monitor for finish criteria and end the session when appropriate
-- Be neutral - don't favor any particular agent"""
+- Be neutral - don't favor any particular agent
+
+CRITICAL - TOOL RESULT HANDLING:
+- When prompt_agent returns, TRUST THE RESULT COMPLETELY
+- If response says "[Turn completed. Agent sent private message(s) only...]", the agent
+  communicated privately with other agents - this is normal and intentional
+- NEVER speculate, imagine, or fabricate what an agent might have said
+- NEVER create fictional dialogue, quotes, or paraphrases of agent responses
+- If an agent's turn was private, simply acknowledge and continue with the next action
+- Private communication between agents is expected in many scenarios (teams, negotiations, etc.)
+
+CORRECT behavior after private turn:
+  Tool result: {{"response": "[Turn completed. Agent sent private message(s) only - no public response.]"}}
+  Your action: Proceed to prompt the next agent or take another action
+
+INCORRECT behavior (NEVER DO THIS):
+  Tool result: {{"response": "[Turn completed. Agent sent private message(s) only - no public response.]"}}
+  Your action: "Alice privately messaged Bob saying..." <-- THIS IS FABRICATED, NEVER DO THIS"""
 
     moderator_session = Session(
         owner=parent_session.owner,
