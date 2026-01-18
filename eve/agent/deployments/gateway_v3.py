@@ -251,7 +251,7 @@ async def process_discord_message_for_agent(
         author_username = message.author.name
         content = message.content or ""
 
-        # Extract attachments
+        # Extract attachment stuff
         media_urls = []
         if message.attachments:
             for attachment in message.attachments:
