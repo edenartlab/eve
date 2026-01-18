@@ -126,6 +126,7 @@ DO NOT extract as facts:
 - Opinions or evolving views ("Bob thinks we should use React") → use reflections
 - Vague information without specific searchable content
 - Anything that wouldn't make sense as an answer to a specific question
+- Statements that are true right now, but may not be true in the future ("There is a bug in production right now" or "Gene has lost his headphones")
 
 ## SCOPE
 - "user": Information about this specific user (their birthday, job, personal details)
@@ -163,11 +164,12 @@ The following is the persona/description of the agent whose memory you are formi
 Reflections are ALWAYS visible to the agent in every conversation - they shape how the agent behaves.
 Because reflections consume tokens on EVERY message, storage is LIMITED and reflections get consolidated over time.
 Use reflections for information that should CONTINUOUSLY influence the agent's behavior.
+When statements are temporal, try to include when they were generated with a absolute timestamp / date or until when they are relevant.
 
 Unlike facts (which are searched for specific answers), reflections answer:
 - "How should I interact with this user?"
 - "What's the current context/state I need to be aware of?"
-- "What projects/events are we currently working on?"
+- "What projects/events are we currently working on / tracking?"
 - "What behavioral rules should I follow?"
 
 ## CURRENT MEMORY STATE

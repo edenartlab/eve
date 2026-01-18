@@ -130,7 +130,7 @@ class Memory2Backend(MemoryBackend):
             messages = select_messages(session)
 
             # Extract user ID from session/messages
-            user_id = self._extract_user_id(messages, agent_id)
+            user_id = self._extract_user_id(messages, agent_id, session)
 
             return await maybe_form_memories(
                 agent_id=agent_id,
@@ -166,7 +166,7 @@ class Memory2Backend(MemoryBackend):
             messages = select_messages(session)
 
             # Extract user ID
-            user_id = self._extract_user_id(messages, agent_id)
+            user_id = self._extract_user_id(messages, agent_id, session)
 
             return await form_memories(
                 agent_id=agent_id,
@@ -186,15 +186,36 @@ class Memory2Backend(MemoryBackend):
         self,
         messages: list,
         agent_id: ObjectId,
+        session=None,
     ) -> Optional[ObjectId]:
-        """Extract the primary user ID from messages."""
+        """
+        Extract the primary user ID from messages or session.
+
+        Fallback order:
+        1. Last non-agent sender from messages with role="user"
+        2. First user in session.users list
+        3. Session owner (session.owner)
+        """
         try:
+            # Try to extract from messages first
             for msg in reversed(messages):
                 sender = getattr(msg, "sender", None)
                 if sender and sender != agent_id:
                     role = getattr(msg, "role", None)
                     if role == "user":
                         return sender
+
+            # Fall back to session.users if available
+            if session is not None:
+                users = getattr(session, "users", None)
+                if users and len(users) > 0:
+                    return users[0]
+
+                # Final fallback: session owner
+                owner = getattr(session, "owner", None)
+                if owner:
+                    return owner
+
             return None
         except Exception:
             return None
