@@ -100,6 +100,8 @@ async def handler(context: ToolContext):
                 request_data["saturation"] = context.args["saturation"]
             if context.args.get("brightness") is not None:
                 request_data["brightness"] = context.args["brightness"]
+            if context.args.get("kelvin") is not None:
+                request_data["kelvin"] = context.args["kelvin"]
 
             if not request_data:
                 logger.error(

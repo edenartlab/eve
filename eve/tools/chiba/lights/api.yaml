@@ -11,6 +11,8 @@ tip: |-
   - "all lights" / "everywhere" → all
 
   Presets: all-off, all-on, warm-dim, cool-bright, max-bright
+
+  Do **not** use a preset unless the user specifically requests it. If the user asks you to change "all" the lights, you can do so manually using target=all and parameters.
 cost_estimate: 0
 output_type: string
 active: true
@@ -70,6 +72,11 @@ parameters:
     type: integer
     label: Brightness
     description: Light brightness (0-100). 0=Off, 100=Maximum brightness
+    required: false
+  kelvin:
+    type: integer
+    label: Color Temperature
+    description: Color temperature (2000-9000). 2700=warm, 4000=neutral, 6500=cool daylight
     required: false
   preset_id:
     type: string
