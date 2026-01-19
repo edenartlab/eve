@@ -193,9 +193,11 @@ async def handler(context: ToolContext) -> Dict[str, Any]:
         "tally": tally,
     }
 
-    # Post MODERATOR_VOTE eden message to parent session
+    # Post MODERATOR_VOTE eden message to both parent session and moderator session
+    # Including moderator_session ensures the moderator has memory of the vote
+    # on subsequent turns (prevents infinite re-voting)
     eden_message = ChatMessage(
-        session=[parent_session.id],
+        session=[parent_session.id, moderator_session.id],
         sender=ObjectId("000000000000000000000000"),  # System sender
         role="eden",
         content=json.dumps(vote_result),

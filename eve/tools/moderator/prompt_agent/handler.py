@@ -22,6 +22,56 @@ from eve.agent.session.models import (
 from eve.tool import ToolContext
 
 
+def _save_tool_call_result_early(
+    context: ToolContext,
+    result: dict,
+) -> None:
+    """Save the tool call result to the database immediately.
+
+    This is used to mark the tool call as completed BEFORE any delay,
+    so the result is visible to clients right away instead of waiting
+    for the delay to finish.
+    """
+    if not context.message or not context.tool_call_id:
+        logger.warning(
+            "[MODERATOR_PROMPT] Cannot save result early: missing message or tool_call_id"
+        )
+        return
+
+    try:
+        assistant_message = ChatMessage.from_mongo(ObjectId(context.message))
+        if not assistant_message or not assistant_message.tool_calls:
+            logger.warning(
+                "[MODERATOR_PROMPT] Cannot save result early: message not found or no tool_calls"
+            )
+            return
+
+        # Find the tool_call_index by matching tool_call_id
+        tool_call_index = None
+        for idx, tc in enumerate(assistant_message.tool_calls):
+            if tc.id == context.tool_call_id:
+                tool_call_index = idx
+                break
+
+        if tool_call_index is None:
+            logger.warning(
+                f"[MODERATOR_PROMPT] Cannot save result early: tool_call_id {context.tool_call_id} not found"
+            )
+            return
+
+        # Save the result immediately
+        assistant_message.update_tool_call(
+            tool_call_index,
+            status="completed",
+            result=result.get("output"),
+        )
+        logger.info(
+            f"[MODERATOR_PROMPT] Saved tool call result early (before delay) for tool_call {context.tool_call_id}"
+        )
+    except Exception as e:
+        logger.error(f"[MODERATOR_PROMPT] Failed to save result early: {e}")
+
+
 async def handler(context: ToolContext) -> Dict[str, Any]:
     """Prompt an agent to take their turn.
 
@@ -150,28 +200,8 @@ async def handler(context: ToolContext) -> Dict[str, Any]:
         f"[MODERATOR_PROMPT] Agent {target_agent.username} completed their turn"
     )
 
-    # Apply delay_interval between agent turns (for automatic sessions)
-    # Reload parent session to check if still active
-    parent_session.reload()
-    if parent_session.session_type == "automatic" and parent_session.status not in (
-        "finished",
-        "paused",
-        "archived",
-    ):
-        delay = get_reply_delay(parent_session)
-        if delay > 0:
-            # Set waiting_until so client knows we're in a delay period
-            wait_until = datetime.now(timezone.utc) + timedelta(seconds=delay)
-            parent_session.update(waiting_until=wait_until)
-            logger.info(
-                f"[MODERATOR_PROMPT] >>>>>> WAITING {delay} SECONDS BEFORE NEXT AGENT (until {wait_until.isoformat()}) <<<<<<"
-            )
-            await asyncio.sleep(delay)
-            logger.info(f"[MODERATOR_PROMPT] >>>>>> DELAY COMPLETE ({delay}s) <<<<<<")
-            # Clear waiting_until
-            parent_session.update(waiting_until=None)
-
-    # Find the agent's response from THIS turn
+    # Find the agent's response from THIS turn IMMEDIATELY (before any delay)
+    # This allows us to save the result right away
     # Check for public messages first (role="assistant")
     public_messages = list(
         ChatMessage.get_collection()
@@ -221,7 +251,8 @@ async def handler(context: ToolContext) -> Dict[str, Any]:
         f"[MODERATOR_PROMPT] Response type: {response_type}, response length: {len(agent_response)}"
     )
 
-    return {
+    # Build the result
+    result = {
         "output": {
             "status": "success",
             "agent": target_agent.username,
@@ -229,3 +260,30 @@ async def handler(context: ToolContext) -> Dict[str, Any]:
             "response_type": response_type,
         }
     }
+
+    # Save the tool call result IMMEDIATELY (before any delay)
+    # This ensures clients can see the result right away
+    _save_tool_call_result_early(context, result)
+
+    # Apply delay_interval between agent turns (for automatic sessions)
+    # Reload parent session to check if still active
+    parent_session.reload()
+    if parent_session.session_type == "automatic" and parent_session.status not in (
+        "finished",
+        "paused",
+        "archived",
+    ):
+        delay = get_reply_delay(parent_session)
+        if delay > 0:
+            # Set waiting_until so client knows we're in a delay period
+            wait_until = datetime.now(timezone.utc) + timedelta(seconds=delay)
+            parent_session.update(waiting_until=wait_until)
+            logger.info(
+                f"[MODERATOR_PROMPT] >>>>>> WAITING {delay} SECONDS BEFORE NEXT AGENT (until {wait_until.isoformat()}) <<<<<<"
+            )
+            await asyncio.sleep(delay)
+            logger.info(f"[MODERATOR_PROMPT] >>>>>> DELAY COMPLETE ({delay}s) <<<<<<")
+            # Clear waiting_until
+            parent_session.update(waiting_until=None)
+
+    return result

@@ -29,6 +29,7 @@ HANDLER_PATHS = {
     "search_models": "mongo_utils.search_models.handler",
     "search_collections": "mongo_utils.search_collections.handler",
     "add_to_collection": "mongo_utils.add_to_collection.handler",
+    "create_collection": "mongo_utils.create_collection.handler",
     "get_messages": "eden_utils.get_messages.handler",
     "eden_search": "eden_utils.eden_search.handler",
     "get_messages_digest": "gigabrain.get_messages_digest.handler",

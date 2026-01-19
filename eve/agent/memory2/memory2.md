@@ -310,7 +310,7 @@ Facts are stored in the vector database for RAG retrieval. Session-scoped facts 
 | Aspect | Facts | Reflections |
 |--------|-------|-------------|
 | **Context needed** | Conversation only | Conversation + memory + newly formed facts |
-| **Model** | Fast/cheap (gpt-4o-mini) | Full capability |
+| **Model** | Fast/cheap (gemini-3-flash-preview) | Full capability (gemini-3-flash-preview) |
 | **Purpose** | Extract objective data | Evolve persona |
 | **Prompt complexity** | Simple extraction | Complex (aware of state + deduplication) |
 | **Scope** | user/agent only | session/user/agent |
@@ -873,7 +873,7 @@ class Fact(Document):
 
 | Aspect | Impact | Mitigation |
 |--------|--------|------------|
-| **Extra LLM call** | +1 LLM call per extraction | Use fast model (gpt-4o-mini), batch all facts in one call |
+| **Extra LLM call** | +1 LLM call per extraction | Use fast model, batch all facts in one call |
 | **Vector searches** | N searches for N extracted facts | Batch embed all facts, run searches in parallel |
 | **Latency** | Additional ~500ms-1s | Memory formation is async, no user-facing impact |
 | **False positives** | May incorrectly merge distinct facts | Tune similarity threshold (0.7 default), add domain context to prompt |
@@ -960,15 +960,15 @@ The always-in-context system manages reflections that shape the agent's persona.
 
 ```python
 CONSOLIDATION_THRESHOLDS = {
-    "agent": 10,   # Agent-wide reflections (persona, projects, ideas)
-    "user": 5,     # User-specific reflections (preferences, directives)
-    "session": 8   # Session reflections (rolling summary of what happened)
+    "agent": 8,    # Agent-wide reflections (persona, projects, ideas)
+    "user": 4,     # User-specific reflections (preferences, directives)
+    "session": 4   # Session reflections (rolling summary of what happened)
 }
 
 CONSOLIDATED_WORD_LIMITS = {
     "agent": 1000,  # Largest - agent's full persona/project state
     "user": 400,    # Medium - user preferences and interaction style
-    "session": 300  # Rolling summary of session events and status
+    "session": 400  # Rolling summary of session events and status
 }
 ```
 
@@ -1609,8 +1609,8 @@ Create in Atlas UI for `memory_facts`:
 |------|------|
 | Embeddings | ~$0.02 per 1M tokens (~$0.001 per 1000 facts) |
 | MongoDB Atlas | M0 (free) supports vector search |
-| LLM calls (facts) | gpt-4o-mini: ~$0.15 per 1M input tokens |
-| LLM calls (reflections) | gpt-4o: ~$2.50 per 1M input tokens |
+| LLM calls (facts) | gemini-3-flash-preview (configurable) |
+| LLM calls (reflections) | gemini-3-flash-preview (configurable) |
 
 ---
 

@@ -178,7 +178,7 @@ TOOL_SETS = {
     ],
     "vj_tools": ["texture_flow", "video_FX", "reel"],
     "news": [],  # deprecated
-    "manage_collections": ["eden_search", "add_to_collection"],
+    "manage_collections": ["eden_search", "add_to_collection", "create_collection"],
     "social_media_tools": SOCIAL_MEDIA_TOOLS,
     "context7_mcp_tools": CONTEXT7_MCP_TOOLS,
     "calculator_mcp_tools": CALCULATOR_MCP_TOOLS,
