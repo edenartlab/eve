@@ -1614,6 +1614,111 @@ Create in Atlas UI for `memory_facts`:
 
 ---
 
+## 12. Temporary FIFO Facts Mode
+
+> **⚠️ TEMPORARY IMPLEMENTATION**: This section documents a temporary setup that enables fact extraction without full RAG. This will be replaced by full RAG retrieval once vector search is fully tested.
+
+### 12.1 Overview
+
+FIFO Facts Mode allows facts to be extracted, embedded, and stored immediately while RAG (semantic vector search) is still being set up. Facts are retrieved via simple FIFO query (most recent N) instead of semantic search.
+
+**Current Configuration** (in `constants.py`):
+```python
+RAG_ENABLED = False           # Full RAG with semantic search
+FACTS_FIFO_ENABLED = True     # Temporary FIFO mode
+FACTS_FIFO_LIMIT = 50         # Number of recent facts in context
+```
+
+### 12.2 How FIFO Mode Works
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                      FIFO MODE vs FULL RAG                                  │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│  FIFO MODE (current):                  FULL RAG (target):                   │
+│  ┌─────────────────────────┐          ┌─────────────────────────┐          │
+│  │ 1. Extract facts (LLM)  │          │ 1. Extract facts (LLM)  │          │
+│  │ 2. Embed facts          │          │ 2. Embed facts          │          │
+│  │ 3. Store directly       │          │ 3. Vector search dedup  │          │
+│  │    (skip dedup LLM)     │          │ 4. LLM dedup decision   │          │
+│  │                         │          │ 5. Store/update/delete  │          │
+│  └─────────────────────────┘          └─────────────────────────┘          │
+│                                                                             │
+│  RETRIEVAL:                            RETRIEVAL:                           │
+│  ┌─────────────────────────┐          ┌─────────────────────────┐          │
+│  │ Simple FIFO query       │          │ Semantic vector search  │          │
+│  │ (50 most recent facts)  │          │ (query-based retrieval) │          │
+│  └─────────────────────────┘          └─────────────────────────┘          │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+**What FIFO mode does:**
+1. Extracts facts using LLM Call 1 (same as full RAG)
+2. Embeds facts using OpenAI embeddings (same as full RAG)
+3. Stores facts directly via `store_facts_batch()` (skips deduplication LLM)
+4. Retrieves facts via `get_recent_facts_fifo()` - simple date-sorted query
+
+**What FIFO mode skips:**
+- Vector similarity search for deduplication candidates
+- LLM Call 1.5 (deduplication decision: ADD/UPDATE/DELETE/NONE)
+- Semantic RAG retrieval at query time
+
+### 12.3 Context Assembly with FIFO Facts
+
+When `FACTS_FIFO_ENABLED=True`, the memory context XML includes a `<Facts>` section:
+
+```xml
+<MemoryContext>
+  <AgentMemory>
+    <Consolidated>...</Consolidated>
+    <RecentReflections>...</RecentReflections>
+  </AgentMemory>
+  <UserMemory>...</UserMemory>
+  <SessionMemory>...</SessionMemory>
+  <Facts>
+    - [agent] Project deadline is January 30th
+    - [user] Xander's birthday is March 15th
+    - [agent] Budget for Q1 is $50,000
+    ...
+  </Facts>
+</MemoryContext>
+```
+
+### 12.4 Migration to Full RAG
+
+When RAG is ready to be enabled:
+
+**Step 1: Update `constants.py`**
+```python
+RAG_ENABLED = True            # Enable full RAG
+FACTS_FIFO_ENABLED = False    # Disable FIFO mode
+```
+
+**Step 2: No data migration needed**
+- Facts already have embeddings (generated during FIFO mode)
+- Existing facts work immediately with vector search
+- Just ensure MongoDB Atlas vector index is configured
+
+**Step 3: Code cleanup (optional)**
+The following FIFO-specific code can be removed after migration:
+- `constants.py`: `FACTS_FIFO_ENABLED`, `FACTS_FIFO_LIMIT`
+- `models.py`: `get_recent_facts_fifo()` function
+- `formation.py`: The `else` branch under `if RAG_ENABLED:` (lines ~304-314)
+- `context_assembly.py`: The facts FIFO retrieval block (lines ~167-195)
+
+### 12.5 Files Modified for FIFO Mode
+
+| File | Changes |
+|------|---------|
+| `constants.py` | Added `FACTS_FIFO_ENABLED`, `FACTS_FIFO_LIMIT` |
+| `models.py` | Added `get_recent_facts_fifo()` helper |
+| `formation.py` | Added FIFO branch using `store_facts_batch()` |
+| `context_assembly.py` | Added facts retrieval and XML section |
+
+---
+
 ## Summary of Key Decisions
 
 1. **Two memory types**: Facts (RAG) and Reflections (always-in-context)
@@ -1624,3 +1729,4 @@ Create in Atlas UI for `memory_facts`:
 6. **RAG is standalone**: Can be enabled/disabled independently
 7. **mem0-inspired RAG**: Vector storage, hybrid search, RRF fusion
 8. **Facts management via LLM decision** (mem0-inspired): After extraction, an LLM compares new facts against semantically similar existing facts and decides ADD/UPDATE/DELETE/NONE - handles duplicates, contradictions, and fact evolution
+9. **TEMPORARY: FIFO Facts Mode**: Pre-RAG implementation that extracts and embeds facts but uses simple FIFO retrieval instead of semantic search (see Section 12)

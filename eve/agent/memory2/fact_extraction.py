@@ -103,6 +103,11 @@ async def extract_facts(
         )
 
         if LOCAL_DEV:
+            print("\n" + "="*60)
+            print("FACT EXTRACTION PROMPT:")
+            print("="*60)
+            print(prompt)
+            print("="*60 + "\n")
             logger.debug("Running fact extraction LLM call...")
 
         # LLM call with automatic retry (3 attempts with exponential backoff)

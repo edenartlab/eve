@@ -9,15 +9,6 @@ Run locally:
 cd /Users/xandersteenbrugge/Documents/GitHub/Eden/eve
 DB=STAGE PYTHONPATH=/Users/xandersteenbrugge/Documents/GitHub/Eden python -m eve.agent.memory2.memory2_cold_sessions_processor
 
-DEPLOYMENT COMMANDS:
-# Deploy to staging
-cd /Users/xandersteenbrugge/Documents/GitHub/Eden/eve
-DB=STAGE modal deploy eve/agent/memory2/memory2_cold_sessions_processor.py
-
-# Deploy to production
-cd /Users/xandersteenbrugge/Documents/GitHub/Eden/eve
-DB=PROD modal deploy eve/agent/memory2/memory2_cold_sessions_processor.py
-
 # Monitor deployments
 modal app list
 modal app logs memory2_process_cold_sessions
