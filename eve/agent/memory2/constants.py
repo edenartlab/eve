@@ -12,7 +12,7 @@ from eve.agent.session.config import DEFAULT_SESSION_SELECTION_LIMIT
 # -----------------------------------------------------------------------------
 # Development/Production Toggle
 # -----------------------------------------------------------------------------
-LOCAL_DEV = True  # Set to False for production
+LOCAL_DEV = False  # Set to False for production
 
 # -----------------------------------------------------------------------------
 # LLM Model Configuration
