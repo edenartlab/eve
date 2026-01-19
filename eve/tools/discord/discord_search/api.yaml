@@ -19,7 +19,7 @@ tip: |-
 cost_estimate: 1
 output_type: array
 active: true
-handler: local
+handler: modal
 visible: false
 parameters:
   query:

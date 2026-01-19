@@ -7,7 +7,7 @@ tip: |-
 cost_estimate: 100
 output_type: video
 active: true
-handler: local
+handler: modal
 visible: true
 parameters:
   video:

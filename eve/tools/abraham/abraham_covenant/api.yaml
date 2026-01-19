@@ -5,7 +5,7 @@ tip: |-
 cost_estimate: 0
 output_type: string
 active: true
-handler: local
+handler: modal
 visible: false
 parameters:
   title:

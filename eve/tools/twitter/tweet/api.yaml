@@ -3,7 +3,7 @@ description: Make a tweet on Twitter
 cost_estimate: 1
 output_type: string
 active: true
-handler: local
+handler: modal
 visible: false
 parameters:
   content:

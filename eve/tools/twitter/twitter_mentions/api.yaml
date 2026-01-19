@@ -3,7 +3,7 @@ description: Get recent mentions on Twitter
 cost_estimate: 1
 output_type: array
 active: true
-handler: local
+handler: modal
 visible: false
 parameters:
   start_time:
