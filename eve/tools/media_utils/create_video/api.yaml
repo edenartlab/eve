@@ -12,7 +12,7 @@ cost_estimate: 250
 output_type: image
 active: true
 visible: false
-handler: local
+handler: modal
 parameters:
   prompt:
     type: string

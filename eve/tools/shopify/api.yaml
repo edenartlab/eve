@@ -3,7 +3,7 @@ description: Add a product to Shopify storefront
 cost_estimate: 1
 output_type: string
 active: true
-handler: local
+handler: modal
 visible: false
 parameters:
   title:

@@ -40,7 +40,7 @@ from eve.agent.memory2.context_assembly import (
     clear_memory_cache,
 )
 from eve.agent.memory2.reflection_extraction import extract_and_save_reflections
-from eve.agent.memory2.constants import RAG_ENABLED
+from eve.agent.memory2.constants import RAG_ENABLED, FACTS_FIFO_ENABLED
 
 
 # Character weighting for token estimation (same as v1)
@@ -270,13 +270,15 @@ async def form_memories(
             #logger.debug(f"{preview}")
             logger.debug(f"{'='*60}")
 
-        # --- LLM CALL 1: Fact Extraction (if RAG enabled) ---
+        # --- LLM CALL 1: Fact Extraction ---
+        # Facts are extracted when either RAG or FIFO mode is enabled.
+        # - RAG mode: Full pipeline with deduplication LLM call
+        # - FIFO mode: Direct storage with embeddings (skip dedup LLM)
         newly_formed_facts: List[str] = []
         fact_count = 0
 
-        if RAG_ENABLED:
+        if RAG_ENABLED or FACTS_FIFO_ENABLED:
             from eve.agent.memory2.fact_extraction import extract_and_prepare_facts
-            from eve.agent.memory2.fact_management import process_extracted_facts
 
             # Extract facts (fast model, no memory context needed)
             prepared_facts, fact_contents = await extract_and_prepare_facts(
@@ -288,20 +290,45 @@ async def form_memories(
                 agent_persona=agent_persona,
             )
 
-            # Process through deduplication pipeline (LLM Call 1.5)
             if prepared_facts:
-                saved_facts, newly_formed_facts = await process_extracted_facts(
-                    extracted_facts=prepared_facts,
-                    agent_id=agent_id,
-                    user_id=user_id,
-                )
-                fact_count = len(saved_facts)
+                if RAG_ENABLED:
+                    # Full RAG pipeline: deduplication + vector search
+                    from eve.agent.memory2.fact_management import process_extracted_facts
 
-            if LOCAL_DEV and fact_count > 0:
-                logger.debug(f"\n✓ Formed {fact_count} new facts:")
-                for fact in saved_facts:
-                    scope_str = ", ".join(fact.scope)
-                    logger.debug(f"    - [{scope_str}] {fact.content[:80]}...")
+                    saved_facts, newly_formed_facts = await process_extracted_facts(
+                        extracted_facts=prepared_facts,
+                        agent_id=agent_id,
+                        user_id=user_id,
+                    )
+                    fact_count = len(saved_facts)
+                else:
+                    # TEMPORARY: FIFO mode - store facts with embeddings, skip dedup LLM
+                    # This path is used when FACTS_FIFO_ENABLED=True but RAG_ENABLED=False.
+                    # Facts are embedded and stored directly without the deduplication
+                    # LLM call (Call 1.5). Hash-based exact deduplication still applies.
+                    # See constants.py for migration instructions to full RAG.
+                    from eve.agent.memory2.fact_storage import store_facts_batch
+
+                    saved_facts = await store_facts_batch(prepared_facts)
+                    # Handle both Fact objects and dicts (save_many may return dicts)
+                    newly_formed_facts = [
+                        f.content if hasattr(f, 'content') else f.get('content', '')
+                        for f in saved_facts
+                    ]
+                    fact_count = len(saved_facts)
+
+            if LOCAL_DEV:
+                mode = "RAG" if RAG_ENABLED else "FIFO"
+                if fact_count > 0:
+                    print(f"\n✓ Formed {fact_count} new facts ({mode} mode):")
+                    for fact in saved_facts:
+                        # Handle both Fact objects and dicts
+                        scope = fact.scope if hasattr(fact, 'scope') else fact.get('scope', [])
+                        content = fact.content if hasattr(fact, 'content') else fact.get('content', '')
+                        scope_str = ", ".join(scope) if isinstance(scope, list) else str(scope)
+                        print(f"    - [{scope_str}] {content[:80]}...")
+                else:
+                    print(f"No new facts generated.  ({mode} mode)")
 
         # --- LLM CALL 2: Reflection Extraction (with fact awareness) ---
         reflections_by_scope, reflection_count = await extract_and_save_reflections(
@@ -315,12 +342,12 @@ async def form_memories(
         )
 
         if LOCAL_DEV:
-            logger.debug(f"\n✓ Formed {reflection_count} new reflections:")
+            print(f"\n✓ Formed {reflection_count} new reflections:")
             for scope, reflections in reflections_by_scope.items():
                 if reflections:
-                    logger.debug(f"  {len(reflections)} x {scope}:")
+                    print(f"  {len(reflections)} x {scope}:")
                     for r in reflections:
-                        logger.debug(f"    - {r.content[:100]}...")
+                        print(f"    - {r.content[:100]}...")
 
         # --- Check and trigger consolidation ---
         consolidation_results = await maybe_consolidate_all(
@@ -333,7 +360,7 @@ async def form_memories(
         if LOCAL_DEV:
             consolidated_scopes = [k for k, v in consolidation_results.items() if v]
             if consolidated_scopes:
-                logger.debug(f"\n✓ Consolidated scopes: {', '.join(consolidated_scopes)}")
+                print(f"\n✓ Consolidated scopes: {', '.join(consolidated_scopes)}")
 
         # --- Refresh memory context ---
         await clear_memory_cache(session)
@@ -349,8 +376,8 @@ async def form_memories(
         elapsed = time.time() - start_time
         if LOCAL_DEV:
             word_count = len(memory_xml.split()) if memory_xml else 0
-            logger.debug(f"\n✓ Memory formation completed in {elapsed:.2f}s")
-            logger.debug(f"  Memory context: {word_count} words")
+            print(f"\n✓ Memory formation completed in {elapsed:.2f}s")
+            print(f"  Memory context: {word_count} words")
 
         return True
 

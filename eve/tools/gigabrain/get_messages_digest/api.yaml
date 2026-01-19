@@ -4,7 +4,7 @@ tip: Use this tool to get a curated summary of messages and attachments based on
 cost_estimate: 1
 output_type: object
 active: true
-handler: local
+handler: modal
 visible: false
 parameters:
   session_ids:

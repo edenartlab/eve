@@ -4,7 +4,7 @@ tip: |-
   This endpoint can take a mask image to enable inpainting but can also be used to combine context from multiple images into a single image.
 output_type: image
 cost_estimate: 'quality == "high" ? 16 : 8'
-handler: local
+handler: modal
 thumbnail: app/openai_edit.jpg
 visible: true
 active: true

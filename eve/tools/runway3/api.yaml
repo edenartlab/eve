@@ -6,7 +6,7 @@ thumbnail: app/runway-aleph-style.mp4
 cost_estimate: 75
 output_type: video
 base_model: runway
-handler: local
+handler: modal
 active: true
 visible: true
 parameters:

@@ -7,7 +7,7 @@ tip: |-
 cost_estimate: 1
 output_type: string
 active: true
-handler: local
+handler: modal
 visible: false
 parameters:
   image_url:

@@ -17,7 +17,7 @@ cost_estimate: '(output == "video" ? (((quality == "pro" ? 40 : 20) + (sound_eff
 output_type: image
 active: true
 visible: true
-handler: local
+handler: modal
 parameters:
   output:
     type: string

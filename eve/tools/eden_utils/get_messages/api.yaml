@@ -4,7 +4,7 @@ tip: Use this tool to get conversation history from Eden sessions. Returns forma
 cost_estimate: 0
 output_type: object
 active: true
-handler: local
+handler: modal
 visible: false
 parameters:
   session_ids:

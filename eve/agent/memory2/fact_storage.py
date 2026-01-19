@@ -44,7 +44,6 @@ async def get_embedding(text: str) -> List[float]:
         traceback.print_exc()
         return [0.0] * EMBEDDING_DIMENSIONS
 
-
 async def get_embeddings_batch(texts: List[str]) -> List[List[float]]:
     """
     Get embeddings for multiple texts in a single API call.

@@ -3,7 +3,7 @@ description: Send ETH on Base Sepolia
 cost_estimate: 0.025 * amount_eth
 output_type: string
 active: false
-handler: local
+handler: modal
 visible: false
 parameters:
   receiver_address:

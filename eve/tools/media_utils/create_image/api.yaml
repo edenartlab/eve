@@ -12,7 +12,7 @@ cost_estimate: "(text_precision ? 10 : 5)"
 output_type: image
 active: true
 visible: false
-handler: local
+handler: modal
 parameters:
   prompt:
     type: string

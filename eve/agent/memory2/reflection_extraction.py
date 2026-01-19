@@ -88,6 +88,13 @@ async def extract_reflections(
             max_words=REFLECTION_MAX_WORDS,
         )
 
+        if LOCAL_DEV:
+            print("\n" + "="*60)
+            print("REFLECTION EXTRACTION PROMPT:")
+            print("="*60)
+            print(prompt)
+            print("="*60 + "\n")
+
         # LLM call with structured output
         context = LLMContext(
             messages=[ChatMessage(role="user", content=prompt)],

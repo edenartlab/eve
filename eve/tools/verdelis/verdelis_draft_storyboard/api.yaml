@@ -12,7 +12,7 @@ tip: |-
 cost_estimate: 100
 output_type: string
 active: true
-handler: local
+handler: modal
 visible: false
 parameters:
   seed_id:
