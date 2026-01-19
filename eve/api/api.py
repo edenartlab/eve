@@ -1,8 +1,6 @@
-import asyncio
 import json
 import logging
 import os
-import signal
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from pathlib import Path
@@ -174,30 +172,6 @@ class SentryContextMiddleware(BaseHTTPMiddleware):
                 },
             )
         return await call_next(request)
-
-
-# Global flag for shutdown
-_shutdown_event = asyncio.Event()
-
-
-def handle_shutdown_signal(signum, frame):
-    """Handle SIGINT/SIGTERM to close SSE connections immediately"""
-    from eve.api.sse_manager import sse_manager
-
-    # Run async close in the event loop
-    loop = asyncio.get_event_loop()
-    if loop.is_running():
-        loop.create_task(sse_manager.close_all())
-    _shutdown_event.set()
-    # Force exit after a short delay
-    import os
-
-    os._exit(0)
-
-
-# Register signal handlers
-signal.signal(signal.SIGINT, handle_shutdown_signal)
-signal.signal(signal.SIGTERM, handle_shutdown_signal)
 
 
 @asynccontextmanager
