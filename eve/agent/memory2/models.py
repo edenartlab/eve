@@ -442,3 +442,70 @@ def mark_reflections_absorbed(
             }
         },
     )
+
+
+# -----------------------------------------------------------------------------
+# TEMPORARY: Facts FIFO Retrieval (to be replaced by RAG)
+# -----------------------------------------------------------------------------
+# This function retrieves facts via simple FIFO (most recent N) instead of
+# semantic vector search. Used when FACTS_FIFO_ENABLED=True and RAG_ENABLED=False.
+#
+# When migrating to full RAG:
+# - This function can be removed or kept as a fallback
+# - Replace usage in context_assembly.py with RAG retrieval
+# -----------------------------------------------------------------------------
+
+def get_recent_facts_fifo(
+    agent_id: ObjectId,
+    user_id: Optional[ObjectId] = None,
+    limit: int = 50,
+) -> List[Fact]:
+    """
+    TEMPORARY: Get recent facts via simple FIFO query (no RAG/vector search).
+
+    Retrieves the N most recent facts for an agent, including:
+    - All agent-scoped facts
+    - User-scoped facts for the specified user (if user_id provided)
+
+    This is a temporary implementation until full RAG is enabled.
+    Facts are sorted by formed_at descending (most recent first).
+
+    Args:
+        agent_id: Agent ID
+        user_id: User ID (optional, for user-scoped facts)
+        limit: Maximum number of facts to return
+
+    Returns:
+        List of Fact documents, most recent first
+    """
+    try:
+        # Build query: agent-scoped facts + user-scoped facts for this user
+        if user_id:
+            query = {
+                "agent_id": agent_id,
+                "$or": [
+                    {"scope": "agent"},
+                    {"scope": "user", "user_id": user_id},
+                ],
+            }
+        else:
+            # No user_id: only agent-scoped facts
+            query = {
+                "agent_id": agent_id,
+                "scope": "agent",
+            }
+
+        # Find facts sorted by formed_at descending
+        collection = Fact.get_collection()
+        cursor = collection.find(query).sort("formed_at", -1).limit(limit)
+
+        facts = []
+        for doc in cursor:
+            facts.append(Fact(**Fact.convert_from_mongo(doc)))
+
+        return facts
+
+    except Exception as e:
+        from loguru import logger
+        logger.error(f"Error in get_recent_facts_fifo: {e}")
+        return []

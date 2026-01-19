@@ -76,171 +76,179 @@ RAG_TOP_K = 10  # Number of facts to retrieve in RAG queries
 EMBEDDING_MODEL = "text-embedding-3-small"
 EMBEDDING_DIMENSIONS = 1536
 
-
 # -----------------------------------------------------------------------------
 # Feature Toggles
 # -----------------------------------------------------------------------------
 RAG_ENABLED = False  # Can be toggled independently
 ALWAYS_IN_CONTEXT_ENABLED = True  # Can be toggled independently
 
+# -----------------------------------------------------------------------------
+# TEMPORARY: Facts FIFO Mode
+# -----------------------------------------------------------------------------
+# This is a TEMPORARY setup that enables fact extraction without full RAG.
+# Facts are extracted, embedded, and stored - but retrieved via simple FIFO
+# (most recent N facts) instead of semantic vector search.
+#
+# The deduplication LLM call (Call 1.5) is SKIPPED in FIFO mode since vector
+# search isn't being used. Hash-based exact deduplication still applies.
+#
+# MIGRATION TO FULL RAG:
+# When RAG is fully implemented and tested:
+# 1. Set FACTS_FIFO_ENABLED = False
+# 2. Set RAG_ENABLED = True
+# 3. The FIFO code paths will be bypassed automatically
+# 4. Facts already have embeddings, so no migration needed for existing data
+#
+# See memory2.md section "Temporary FIFO Facts Mode" for full documentation.
+# -----------------------------------------------------------------------------
+FACTS_FIFO_ENABLED = True   # Enable simple FIFO facts (temporary, pre-RAG)
+FACTS_FIFO_LIMIT = 50       # Number of recent facts to include in context
 
 # -----------------------------------------------------------------------------
 # Prompt Templates
 # -----------------------------------------------------------------------------
 
 # Fact extraction prompt (LLM Call 1 - no memory context needed)
-FACT_EXTRACTION_PROMPT = """You are extracting factual information from a conversation for a RAG (retrieval) system.
+FACT_EXTRACTION_PROMPT = """You are the 'Librarian' for an AI agent system. Your job is to extract concrete, searchable data points from a conversation to be stored in a RAG (retrieval) database system.
 
+The following is the persona/description of the agent whose database you are managing. Use this to understand the agent's identity and purpose when deciding what facts to extract.
 <agent_persona_context>
-The following is the persona/description of the agent whose memory you are forming. Use this to understand the agent's identity, purpose, and domain when deciding what facts are relevant to extract.
-
 {agent_persona}
 </agent_persona_context>
 
-## HOW FACTS ARE USED
-Facts are stored in a searchable database and retrieved ONLY when the agent explicitly searches for them.
-The agent will query facts using natural language searches like:
-- "What is Alice's birthday?"
-- "What's the project budget?"
-- "Who is the team lead?"
+## THE GOAL
+Facts are **retrieval-only**. The agent will NOT see these facts unless they explicitly search for them with a tool-call (e.g., "What is Alice's email?", "Where is the HQ?").
+Your goal is to extract information that answers specific Questions (Who, What, Where, When) that might be asked days or weeks from now.
 
-Facts are NOT always visible to the agent - they must be specifically queried to be retrieved.
-This means facts should be SEARCHABLE ANSWERS to specific questions.
+## CRITERIA FOR A VALID FACT
+1. **Searchable:** Is this a specific answer to a concrete question?
+2. **Specific:** Does it contain names, numbers, dates, or specific entities?
+3. **Enduring:** Is this information likely to remain true for at least a week?
+4. **Cold Storage:** Is this information okay to "forget" until specifically searched for?
+
+This means facts should be SEARCHABLE ANSWERS to specific questions that are not otherwise relevant to the agent (and therefore shouldn't generally be in context).
+After this extraction step of FACTS, you will also get to extract REFLECTIONS from the same conversation, which are always-in-context memories.
+If knowledge needs to be always-in-context (eg to influence agent behavior), rather than explicitly retrieved, don't extract it as FACT, but leave it to the REFLECTION system.
+
+Guidelines:
+- Facts must be self-contained statements that make sense without any additional context. Reference specifics as much as possible (usernames, absolute dates, ...)
+- Maximum {max_words} words per fact, always be concise!
+- ALWAYS use specific names (NEVER "User", "the user", or "they") and absolute dates (NEVER use "tomorrow")
+
+DO NOT extract as facts:
+- **Preferences & Behavior:** "Alice likes concise responses"
+- **Current Context:** "We are debugging the login issue"
+- **Opinions:** "Bob thinks we should use React"
+- **Ephemeral State:** "There is a bug in production right now" or "Gene has lost his headphones"
+All of the above will be captured as reflections and are not FACTS.
+
+## SCOPE DEFINITIONS
+* **"user"**: Private details about the specific user interacting right now (names, contact info, job, specific preferences that act as data).
+* **"agent"**: Collective knowledge, world-building, or project details that apply to *anyone* talking to this agent (team roster, project specs, global deadlines).
+
+## EXAMPLES
+| Text | Extract? | Scope | Reasoning |
+| :--- | :--- | :--- | :--- |
+| "My name is John Doe." | NO | - | This is a highly salient detail that should always be in context. (Reflection) |
+| "I like concise answers." | NO | - | This is a behavioral preference (Reflection), not a database fact. |
+| "The total project budget is $50k." | YES | agent | Specific number, relevant to the project. |
+| "We are debugging the login." | NO | - | This is a current status/state (Reflection). |
+| "The server IP is 192.168.1.1" | YES | agent | Specific, retrieval-worthy data. |
+| "I'm feeling sad today." | NO | - | Temporary emotional state. |
+| "The Figma link for the new design is figma.com/file/xyz..." | YES | agent | Specific, retrieval-worthy data. |
+| "My personal email is j.smith@gmail.com." | YES | user | Specific, retrieval-worthy data. |
+
+## INSTRUCTIONS
+Read the conversation below. Extract ONLY facts that meet the criteria (if any). Most conversations have FEW or NO facts.
 
 <conversation>
 {conversation_text}
 </conversation>
 
-## WHAT MAKES A GOOD FACT
-Facts should be specific, queryable pieces of information that answer concrete questions:
-
-EXTRACT as facts:
-- Specific dates, numbers, names ("Alice's birthday is March 15th", "Budget is $50,000")
-- Relationships and roles ("Bob is the project lead", "Carol reports to Dave")
-- Concrete identifiers ("Project codename is Phoenix", "API key prefix is sk-prod")
-- Permanent attributes ("Alice is a software engineer", "Company HQ is in Austin")
-
-DO NOT extract as facts:
-- Behavioral preferences ("Alice likes concise responses") → use reflections instead
-- Ongoing states or context ("We're debugging the login issue") → use reflections
-- Opinions or evolving views ("Bob thinks we should use React") → use reflections
-- Vague information without specific searchable content
-- Anything that wouldn't make sense as an answer to a specific question
-- Statements that are true right now, but may not be true in the future ("There is a bug in production right now" or "Gene has lost his headphones")
-
-## SCOPE
-- "user": Information about this specific user (their birthday, job, personal details)
-- "agent": Information relevant to all users (project details, team members, deadlines)
-
-Return JSON:
+Return a JSON object:
 {{
   "facts": [
-    {{"content": "...", "scope": ["user"]}},
-    {{"content": "...", "scope": ["agent"]}}
+    {{ "content": "User's email is john@example.com", "scope": "user" }},
+    {{ "content": "Project Apollo launch date is June 1st", "scope": "agent" }}
   ]
 }}
-
-CRITICAL: Ask yourself - "Would the agent search for this?" and "Is this a specific answer to a concrete question?"
-If the answer is no, don't extract it. Most conversations have FEW or NO facts.
-
-Guidelines:
-- Facts must be self-contained answers that make sense without additional context
-- Maximum {max_words} words per fact, try to be concise
-- ALWAYS use specific names (NEVER "User", "the user", or "they")
-- Return empty list if no facts found (this is common and expected)
+If no facts are found, return {{ "facts": [] }}.
 """
 
 
 # Reflection extraction prompt (LLM Call 2 - needs memory context + facts)
-REFLECTION_EXTRACTION_PROMPT = """You are updating an agent's always-in-context memory based on a conversation.
+REFLECTION_EXTRACTION_PROMPT = """You are the 'Memory Manager' for an AI agent. Your goal is to update the agent's "Working Memory" (Reflections) based on a recent conversation_segment.
 
+The following is the persona/description of the agent whose memory you are forming. Use this to understand the agent's identity and purpose when deciding what reflections to extract.
 <agent_persona_context>
-The following is the persona/description of the agent whose memory you are forming. Use this to understand the agent's identity, purpose, and domain when deciding what reflections are relevant to extract.
-
 {agent_persona}
 </agent_persona_context>
 
-## HOW REFLECTIONS ARE USED
-Reflections are ALWAYS visible to the agent in every conversation - they shape how the agent behaves.
-Because reflections consume tokens on EVERY message, storage is LIMITED and reflections get consolidated over time.
-Use reflections for information that should CONTINUOUSLY influence the agent's behavior.
-When statements are temporal, try to include when they were generated with a absolute timestamp / date or until when they are relevant.
+## THE GOAL
+Reflections are **Always-On Context** memories. They are injected into the prompt of every future conversation and define **State, Behavior, and Strategy.**
+Look at what happened in the conversation and decide: "What does the agent need to remember to behave optimally in the future?"
 
-Unlike facts (which are searched for specific answers), reflections answer:
-- "How should I interact with this user?"
-- "What's the current context/state I need to be aware of?"
-- "What projects/events are we currently working on / tracking?"
-- "What behavioral rules should I follow?"
-
-## CURRENT MEMORY STATE
+## CURRENT MEMORY STATE (don't extract anything the agent already knows)
 
 <current_agent_memory>
 {consolidated_agent_blob}
-Recent: {recent_agent_reflections}
+Recent context: {recent_agent_reflections}
 </current_agent_memory>
 
 <current_user_memory>
 {consolidated_user_blob}
-Recent: {recent_user_reflections}
+Recent context: {recent_user_reflections}
 </current_user_memory>
 
 <current_session_memory>
 {consolidated_session_blob}
-Recent: {recent_session_reflections}
+Recent context: {recent_session_reflections}
 </current_session_memory>
 
+These new FACTS were extracted from the same conversation_segment and will be retrievable by the agent through a RAG tool-call when needed to answer specific questions.
+These FACTS however, won't be in context by default. Sometimes important REFLECTIONS (that should influence default agent behavior) can therefore overlap with these FACTS.
 <newly_formed_facts>
 {newly_formed_facts}
 </newly_formed_facts>
 
-Here is the actual conversation text:
-<conversation>
+## Actual conversation text to extract reflections from:
+<conversation_segment>
 {conversation_text}
-</conversation>
+</conversation_segment>
+
+## EXTRACTION HIERARCHY - each level should only contain information not already captured at a higher level
+
+### 1. AGENT REFLECTIONS (Global Knowledge)
+*Information that applies to ALL conversations with all users and the Agent's core identity & behavior.*
+* **Projects & Milestones:** "The Mars Festival project has moved to Phase 2."
+* **Learnings:** "Xander is working on a collective creative event and looking for collaborators."
+* **World State:** "The API is currently in maintenance mode."
+
+### 2. USER REFLECTIONS (Personal Profile - affects all conversations with THIS user only)
+*Evolving context with a specific user.*
+* **Behavioral Rules:** "Jmill prefers Python over C++." / "Seth always wants to confirm before running expensive toolcalls"
+* **Skills / Interests / Goals:** "Xander is a programmer interested in projection mapping and wants to become a DJ."
+* **Project Tracking:** "Gene is working on a realtime, physical interface for AI agents"
+
+### 3. SESSION REFLECTIONS (The "Thread")
+*Important context relevant to the CURRENT session that will disappear when the current conversation_segment disappears from context.*
+* **High level goals:** "We are generating a short AI movie about Mars College with 5 scenes."
+* **Assets to pin:** "Jmill provided the main character image at https://d14i3advvh2bvd.cloudfront.net/..."
+* **Corrections:** "Xander does not like impressionistic styles and wants the character to always be centered."
 
 ## EXTRACTION RULES
+- Avoid extracting ephemeral statements that won't be true for longer than a few hours.
+- Any information you do not extract as a reflection here (and is not already in CURRENT MEMORY STATE) is permanently lost from the agents memory. 
+- Extracting too much information will bloat the memory context. Make thoughtful decisions and be concise.
+- When statements are temporal, try to include when they were generated with an absolute timestamp / date or until when they are relevant.
+- Always assign specific names (never "User" or "the user") to reflections.
+- Occasionally, certain reflections may be relevant to multiple scopes. Eg "Gene is working on X" could be relevant for collective, agent scope but also useful for personal user context. In such cases, feel free to extract two reflections about the same information with different scope.
+- IMPORTANT: Maximum {max_words} words per reflection
 
-Extract reflections in HIERARCHICAL ORDER - each level should only contain information NOT already captured at a higher level, in existing memory, or in newly_formed_facts.
-
-### 1. AGENT REFLECTIONS (broadest scope - affects ALL conversations)
-What should continuously influence the agent across all users?
-
-GOOD for agent reflections:
-- Ongoing initiatives ("Currently prioritizing the memory system redesign")
-- Operational learnings ("When generating images, always confirm style first")
-- Universal context ("Eden is pivoting toward enterprise customers")
-- Collective rules, projects and events ("Mars College is organising a festival at the end of March")
-
-NOT for agent reflections (use facts instead):
-- Specific searchable data ("The total budget is $50k", "Sarahs birthday is april 1st")
-- Static information that doesn't affect general behavior
-
-### 2. USER REFLECTIONS (user scope - affects all conversations with THIS user only)
-What should continuously influence how the agent interacts with this specific user?
-
-GOOD for user reflections:
-- Interaction preferences ("Alice prefers bullet points over paragraphs")
-- Behavioral rules ("Always ask Bob for confirmation before running tools")
-- Working context ("Carol is exploring AI for her VJ performances")
-- Relevant information about this user ("Xander is working on a VJ project and wants to project on buildings")
-
-NOT for user reflections:
-- One-time requests ("make this image larger")
-- Searchable personal data ("Alice's birthday is March 15") → use facts
-- Session-specific tasks → use session reflections
-
-### 3. SESSION REFLECTIONS (narrowest scope - THIS session only)
-What context is needed for continuity in this specific conversation?
-
-GOOD for session reflections:
-- Current task state ("Debugging auth - tried solutions A and B, testing C")
-- Active creative context ("Story features a robot named Max in Tokyo")
-- Session instructions ("User wants all responses in bullet points today")
-- Important assets to pin ("the public url for the character image is ...")
-
-NOT for session reflections:
-- Permanent preferences → use user/agent reflections
-- Searchable details → use facts
+## WHAT NOT TO EXTRACT
+* **Redundancy:** Do not extract things already present in CURRENT MEMORY STATE unless the status has *changed*.
+* **Chitchat:** "User said hello" is not a reflection.
+* **Ephemeral information:** "There is a small bug on staging right now" will likely no longer be true in the very near future.
 
 Return JSON:
 {{
@@ -249,61 +257,46 @@ Return JSON:
   "session_reflections": [{{"content": "..."}}]
 }}
 
-CRITICAL: Reflections should affect BEHAVIOR, not store SEARCHABLE DATA.
-Ask: "Should the agent see this information on every message, or only when specifically asked?"
-(Eg when an agent is coordinating a collective project it should save reflections about that projects ongoing state)
-- Every message → reflection
-- Only when asked → fact (already extracted in newly_formed_facts)
-
-IMPORTANT: any information you do not extract as a reflection here (and is not already in newly_formed_facts) is permanently lost from the agents memory, but extracting too much information will bloat the memory context. Make your decisions carefully.
-
-Maximum {max_words} words per reflection, try to be concise. Use specific names (never "User" or "the user").
-Return empty arrays when nothing meaningful to extract (this is common).
+Return empty array(s) when there's nothing meaningful to extract.
 """
 
 # Consolidation prompt template (used for all scope levels)
-CONSOLIDATION_PROMPT = """You are consolidating {scope_type} memory reflections for an AI agent.
+CONSOLIDATION_PROMPT = """You are consolidating {scope_type} memory reflections for an AI agent. Your job is to merge new reflections into the agent's long-term memory blob.
+Since memories consume context, your goal is to preserve highly salient, important and actionable information while discarding irrelevant or outdated memories.
 
+## AGENT PERSONA
+The following is the persona/description of the agent whose memory you are consolidating. Use this to understand the agent's identity and purpose when consolidating memories.
 <agent_persona_context>
-The following is the persona/description of the agent whose memory you are consolidating. Use this to understand the agent's identity, purpose, and domain when merging reflections.
-
 {agent_persona}
 </agent_persona_context>
 
+## CURRENT MEMORY STATE
 <current_consolidated_memory>
 {existing_blob}
 </current_consolidated_memory>
 
+## NEW REFLECTIONS TO INTEGRATE
 <new_reflections>
 {new_reflections}
 </new_reflections>
 
+## GOAL
+Create a single, coherent text that captures the full {scope_type} memory state.
+This text will be injected into the agent's system prompt, so it must be **concise**, **structured**, and **actionable**.
 Merge the new reflections into the existing memory, creating an updated consolidated memory.
-
 {scope_specific_instructions}
 
-If the current, consolidated MEMORY STATE is EMPTY (ignore otherwise):
- - this means you're about to create the first consolidated memory for this shard, add "VERSION: 1" (integer) at the top of the MEMORY STATE
- - Typically, there is very little initial information available initially, so don't start filling up the MEMORY STATE with invented information. EVERYTHING you store into memory must be based on new reflections and user input, not the your free-form interpretation / generation!
- - Don't rush to fill this up, more NEW SUGGESTIONS will come in the future. Its better to start with a very basic, minimal MEMORY STATE and then update it over time. Keep the inital MEMORY STATE below 200 words so it can grow over time.
+## GENERAL EDITING RULES
+1. **Incremental Versioning:** Always output "VERSION: X" as the first line (increment previous version by 1 integer).
+2. **Preserve Structure:** If the existing memory has good headers/sections, keep them. Organize new info into those sections. Copying information that is relevant and unchanged verbatim is highly encouraged.
+3. **Resolve Conflicts:** If new info contradicts old info, NEW info typically wins. If the statements are opinions, try to maintain nuance and diversity.
+4. **Garbage Collection:** Remove information that is no longer relevant (e.g., completed tasks from 3 days ago, "Team bbq on friday jan 3rd" when the current date is jan 4th).
+5. **Deduplicate:** Do not list the same fact twice. Merge nuances.
+6. **Word Limit:** Keep strictly under {word_limit} words.
 
-Integration Guidelines:
-- always increment the VERSION by 1 (integer) when you update the MEMORY STATE
-- Do NOT simply append new items - INTEGRATE them into the existing structure
-- Preserve existing sections UNCHANGED if new reflections don't affect them (copy verbatim)
-- Resolve contradictions: newer information takes precedence
-- When consensus is unclear, preserve both perspectives ("Some prefer X while others prefer Y")
-- Be careful not to lose ANY existing information - once lost, it's gone forever
-- After consolidation, all new_reflections will be discarded, so ensure all valuable info is integrated
-- Do NOT invent or hallucinate any new information not explicitly in new_reflections
-- Maximum {word_limit} words
+If current_consolidated_memory is empty, create a new structure based on the reflections provided. DO NOT invent information.
 
-CRITICAL:
-- Sections of existing memory that don't need updates should be copied UNCHANGED
-- The goal is a coherent synthesis, not a list of appended items
-- Focus on actionable information that will help guide future interactions
-
-Return ONLY the updated consolidated memory text (no additional formatting or explanation).
+Return ONLY the updated consolidated memory text.
 """
 
 
@@ -369,41 +362,42 @@ Guidelines:
 - When in doubt between UPDATE and ADD, prefer UPDATE to avoid duplicates
 """
 
-
 # Scope-specific consolidation instructions
 CONSOLIDATION_INSTRUCTIONS = {
-    "agent": """Focus on agent-wide memory:
-- Ongoing projects, plans, roadmaps shared across all users
-- Domain knowledge and insights that apply universally
-- Learnings about how the agent should operate
-- Agent character/persona evolution
+    "agent": """**Agent Memory**
+Focus on the agent's behavior and world state, ongoing projects, plans and roadmaps shared across all users
+- **Structure:** Use headers like [WORLD KNOWLEDGE], [COMMUNITY MEMBERS], [TEAM ASSETS], [ACTIVE PROJECTS], ... to create dedicated sections in your memory.
+- **Retention & pruning:** Keep important working context, prune outdated or irrelevant information.
+- **Identity:** Integrate feedback from users about the agent's goals, behavior and character.
+
+Focus on agent-wide memory:
 
 Structure suggestions (adapt as needed):
 - Current priorities and active initiatives
 - Decisions and consensus reached
 - Open proposals requiring input
 - Domain insights and learnings
+""",
 
-Discard ONLY: spam, completely off-topic content, or factually impossible claims.
-For conflicting viewpoints: note as "disputed" rather than discarding.""",
-
-    "user": """Focus on user-specific memory:
+    "user": """**User Memory**
+Focus on the "User" to guide and personalize private interactions:
 - Persistent behavioral rules and preferences for this user
-- Communication style and expertise level
-- Personal context that affects all future interactions
-- How the agent should interact with this specific user
+- Skills, interests, goals, ongoing projects, ...
+- Store actual username when available (avoid "User" or "the user").
 
-Keep concise - focus on what affects agent behavior.
-Remove redundancies but preserve all actionable rules.
-Store actual username when available (avoid "User" or "the user").""",
+- **Structure:** Use headers like [PREFERENCES], [SKILLS], [PERSONAL CONTEXT], [ACTIVE PROJECTS], ... to create dedicated sections in your memory.
+- **Retention:** Keep important working context, prune outdated or irrelevant information. Remove one-off mood fluctuations. Only keep traits that appear consistent.
+""",
 
-    "session": """Focus on session-specific memory:
+    "session": """**Session Memory**
+Focus on the "Narrative Thread" of the current interaction:
 - Rolling summary of what has happened
 - Current task status and progress
-- Active creative context (characters, storylines, references)
+- Active creative context and assets (characters, storylines, reference images, ...)
 - Temporary instructions for this session only
 
-This is a working memory - prioritize recent context over older details.
-Keep as a coherent narrative summary, not a list of events.
-Focus on information needed to maintain conversation continuity.""",
+- **Structure:** Use headers like [CURRENT GOAL(S)], [RECENT ACTIONS], [OPEN LOOPS], [PINNED ASSETS], ... to create dedicated sections in your memory.
+- **Retention & pruning:** Keep important working context, prune outdated or irrelevant information. If a sub-task is done, delete it. If a topic changed, summarize the old topic in one sentence and focus on the new one.
+- **Tone:** Urgent and brief. This is a "Working Memory" scratchpad.
+"""
 }

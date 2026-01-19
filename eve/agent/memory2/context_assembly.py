@@ -18,8 +18,16 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 from bson import ObjectId
 from loguru import logger
 
-from eve.agent.memory2.constants import LOCAL_DEV
-from eve.agent.memory2.models import ConsolidatedMemory, get_unabsorbed_reflections
+from eve.agent.memory2.constants import (
+    LOCAL_DEV,
+    FACTS_FIFO_ENABLED,
+    FACTS_FIFO_LIMIT,
+)
+from eve.agent.memory2.models import (
+    ConsolidatedMemory,
+    get_unabsorbed_reflections,
+    get_recent_facts_fifo,
+)
 
 if TYPE_CHECKING:
     from eve.agent.session.instrumentation import PromptSessionInstrumentation
@@ -77,6 +85,7 @@ async def assemble_always_in_context_memory(
     user_id: Optional[ObjectId] = None,
     session_id: Optional[ObjectId] = None,
     instrumentation: Optional["PromptSessionInstrumentation"] = None,
+    print_context: bool = False,
 ) -> str:
     """
     Assemble the always-in-context memory for prompt injection.
@@ -156,6 +165,36 @@ async def assemble_always_in_context_memory(
                 },
             )
 
+        # TEMPORARY: Fetch facts via FIFO when enabled (to be replaced by RAG)
+        # This retrieves the N most recent facts instead of semantic search.
+        # When migrating to full RAG, replace this with RAG retrieval.
+        facts_content = None
+        if FACTS_FIFO_ENABLED:
+            facts_start = time.time()
+            facts = await asyncio.to_thread(
+                get_recent_facts_fifo,
+                agent_id,
+                user_id,
+                FACTS_FIFO_LIMIT,
+            )
+            if facts:
+                # Format facts with scope indicator
+                facts_lines = []
+                for fact in facts:
+                    scope_str = fact.scope[0] if isinstance(fact.scope, list) else fact.scope
+                    facts_lines.append(f"- [{scope_str}] {fact.content}")
+                facts_content = "\n".join(facts_lines)
+
+            facts_duration = time.time() - facts_start
+            _log_debug(
+                "   ⏱️  Facts FIFO Retrieval",
+                instrumentation,
+                {
+                    "duration_s": round(facts_duration, 3),
+                    "fact_count": len(facts) if facts else 0,
+                },
+            )
+
         # Build XML context
         memory_xml = _build_memory_xml(
             agent_blob=agent_blob,
@@ -164,6 +203,7 @@ async def assemble_always_in_context_memory(
             user_recent=user_recent,
             session_blob=session_blob,
             session_recent=session_recent,
+            facts_content=facts_content,
         )
 
         total_duration = time.time() - start_time
@@ -178,10 +218,10 @@ async def assemble_always_in_context_memory(
             },
         )
 
-        if LOCAL_DEV:
-            logger.debug(f"\n{'='*60}")
-            logger.debug(f"MEMORY CONTEXT INJECTED INTO LLM ({word_count} words):")
-            logger.debug(f"{'='*60}\n{memory_xml if memory_xml else '(empty)'}\n{'='*60}")
+        if LOCAL_DEV and print_context:
+            print(f"\n{'='*60}")
+            print(f"MEMORY CONTEXT INJECTED INTO LLM ({word_count} words):")
+            print(f"{'='*60}\n{memory_xml if memory_xml else '(empty)'}\n{'='*60}")
 
         return memory_xml
 
@@ -268,6 +308,7 @@ def _build_memory_xml(
     user_recent: Optional[str],
     session_blob: Optional[str],
     session_recent: Optional[str],
+    facts_content: Optional[str] = None,
 ) -> str:
     """
     Build XML-formatted memory context from components.
@@ -275,6 +316,10 @@ def _build_memory_xml(
     Each scope section contains:
     1. Consolidated blob (if any) - summarized historical memory
     2. Recent reflections (if any) - not yet consolidated
+
+    The Facts section (when FIFO mode enabled) contains recent facts
+    retrieved via simple FIFO query. This is temporary until full RAG
+    is implemented.
 
     The XML structure provides clear separation between memory scopes
     and makes it easy for the agent to understand and utilize the context.
@@ -315,6 +360,14 @@ def _build_memory_xml(
     if session_parts:
         sections.append(
             f"<SessionMemory>\n{chr(10).join(session_parts)}\n</SessionMemory>"
+        )
+
+    # TEMPORARY: Facts section (FIFO mode - to be replaced by RAG)
+    # This section contains recent facts retrieved via simple FIFO query.
+    # When RAG is enabled, facts will be retrieved via semantic search instead.
+    if facts_content:
+        sections.append(
+            f"<Facts>\n{facts_content}\n</Facts>"
         )
 
     # Combine all sections
@@ -385,6 +438,7 @@ async def get_memory_context_for_session(
             user_id=last_speaker_id,
             session_id=session.id if hasattr(session, "id") else None,
             instrumentation=instrumentation,
+            print_context=True,  # Print when replying to user
         )
 
         # Update session cache
