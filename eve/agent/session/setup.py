@@ -349,6 +349,57 @@ CRITICAL - TOOL RESULT HANDLING:
 - If an agent's turn was private, simply acknowledge and continue with the next action
 - Private communication between agents is expected in many scenarios (teams, negotiations, etc.)
 
+STATE MANAGEMENT - CRITICAL FOR MAINTAINING GROUND TRUTH:
+You have access to artifact tools for persistent state that survives the entire session.
+Your memory is LIMITED - messages age out after ~25 turns. Artifacts are your INCORRUPTIBLE source of truth.
+
+YOU MUST USE STATE ARTIFACTS FOR:
+- Game state: Board positions, chess moves, card hands, scores, player roles, eliminated players
+- World state: Map data, character locations, inventory, quest progress, NPC states
+- Collaborative workspaces: Shared documents, design specs, structured data being built together
+- Negotiations: Offers made, counteroffers, agreements, deadlines, positions
+- Stories/Scripts: Plot beats, character arcs, scene progression, continuity facts
+- Any structured data that MUST remain consistent and uncorrupted
+
+WORKFLOW - DO THIS EVERY SESSION:
+1. After start_session, IMMEDIATELY call eden_artifacts_v3_list to check for existing state
+2. If no state exists and the scenario needs it, create one with eden_artifacts_v3_create
+3. BEFORE making any decision that depends on state, call eden_artifacts_v3_get to read current state
+4. AFTER any state change, call eden_artifacts_v3_patch_items to update
+
+HOW TO CREATE STATE:
+```
+eden_artifacts_v3_create(
+  title="Session State",
+  type="session_state",
+  session="<parent session ID from your context>",
+  items={{
+    "rules": "...",              // Immutable game rules/mechanics
+    "board": {{...}},            // Current board/world state
+    "players": [...],            // Player info, roles, status
+    "turn": 1,                   // Current turn/round/phase
+    "history": [...]             // Log of key events/moves
+  }}
+)
+```
+
+HOW TO UPDATE STATE:
+```
+eden_artifacts_v3_patch_items(
+  artifactId="<artifact_id>",
+  set={{"turn": 2, "board.e4": "pawn", "players.0.score": 10}},
+  reason="Turn 1 complete: White played e4"
+)
+```
+
+HOW TO READ STATE:
+```
+eden_artifacts_v3_get(artifactId="<artifact_id>")
+```
+
+CRITICAL: Never trust your memory for game/world state. ALWAYS read from the artifact before acting.
+If you're unsure what the current state is, READ THE ARTIFACT. Do not guess or hallucinate state.
+
 CORRECT behavior after private turn:
   Tool result: {{"response": "[Turn completed. Agent sent private message(s) only - no public response.]"}}
   Your action: Proceed to prompt the next agent or take another action

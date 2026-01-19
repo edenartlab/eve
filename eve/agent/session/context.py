@@ -1092,6 +1092,12 @@ async def build_agent_session_llm_context(
                 "prompt_agent",
                 "conduct_vote",
                 "chat",
+                # Artifact tools for state management
+                "eden_artifacts_v3_create",
+                "eden_artifacts_v3_get",
+                "eden_artifacts_v3_update",
+                "eden_artifacts_v3_patch_items",
+                "eden_artifacts_v3_list",
             ]:
                 tool = Tool.load(tool_key)
                 if tool:
