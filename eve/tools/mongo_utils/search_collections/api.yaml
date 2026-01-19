@@ -4,7 +4,7 @@ tip: Use this tool to search for collections based on a query. The collection_id
 cost_estimate: 1
 output_type: image
 active: true
-handler: local
+handler: modal
 visible: false
 parameters:
   query:

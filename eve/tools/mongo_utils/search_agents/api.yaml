@@ -4,7 +4,7 @@ tip: Use this tool to search for agents based on a query. The agent_id field is 
 cost_estimate: 1
 output_type: image
 visible: false
-handler: local
+handler: modal
 parameters:
   query:
     type: string

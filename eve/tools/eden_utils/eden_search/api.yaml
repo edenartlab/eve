@@ -18,7 +18,7 @@ cost_estimate: 0
 output_type: object
 active: true
 visible: false
-handler: local
+handler: modal
 
 parameters:
   collection:

@@ -6,7 +6,7 @@ output_type: video
 visible: true
 active: true
 thumbnail: app/veo3.webp
-handler: local
+handler: modal
 parameters:
   prompt:
     type: string

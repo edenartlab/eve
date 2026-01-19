@@ -6,7 +6,7 @@ cost_estimate: 0.5
 output_type: string
 active: true
 visible: true
-handler: local
+handler: modal
 parameters:
   url:
     type: string
