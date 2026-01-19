@@ -9,14 +9,15 @@ Migration mapping:
 - Old SessionMemory (memory_type="fact") → New Fact (scope=["agent"])
 
 Old facts were shard-level (agent-wide), so they map to agent scope in the new system.
-Embeddings are NOT generated during migration - they will be generated lazily when needed
-or via a separate batch process.
+Vector embeddings are ALWAYS generated for every migrated fact (required for RAG retrieval).
+Additionally, any existing facts in the new system that are missing embeddings will be backfilled.
 
 Performance optimizations:
 - Filters agents by recent message activity (default: 6 months)
 - Uses bulk inserts instead of individual saves
 - Supports resume capability to skip already-migrated records
 - Uses MongoDB projections to reduce data transfer
+- Batch embedding generation (100 facts at a time) for efficiency
 
 Usage:
     python -m eve.agent.memory2.migration_facts [--dry-run] [--agent-id <agent_id>]
@@ -27,10 +28,10 @@ Options:
     --clear-first       Clear existing memory2 facts before migrating (use with caution!)
     --activity-months   Only migrate agents with activity in last N months (default: 6, 0=all)
     --batch-size        Batch size for bulk inserts (default: 500)
-    --generate-embeddings  Generate embeddings during migration (slower but facts ready for RAG)
 """
 
 import argparse
+import asyncio
 import hashlib
 import traceback
 from datetime import datetime, timedelta, timezone
@@ -41,6 +42,7 @@ from loguru import logger
 
 from eve.agent.agent import Agent
 from eve.agent.memory.memory_models import AgentMemory, SessionMemory
+from eve.agent.memory2.fact_storage import get_embeddings_batch
 from eve.agent.memory2.models import Fact
 from eve.agent.session.models import ChatMessage
 from eve.mongo import get_collection
@@ -78,6 +80,7 @@ class FactsMigrationStats:
         self.facts_skipped_already_exists = 0
         self.facts_skipped_empty_content = 0
         self.embeddings_generated = 0
+        self.embeddings_backfilled = 0
         self.errors: List[str] = []
 
     def print_summary(self):
@@ -91,7 +94,8 @@ class FactsMigrationStats:
         logger.info(f"Facts migrated:                {self.facts_migrated}")
         logger.info(f"Facts skipped (already exist): {self.facts_skipped_already_exists}")
         logger.info(f"Facts skipped (empty content): {self.facts_skipped_empty_content}")
-        logger.info(f"Embeddings generated:          {self.embeddings_generated}")
+        logger.info(f"Embeddings generated (new):    {self.embeddings_generated}")
+        logger.info(f"Embeddings backfilled:         {self.embeddings_backfilled}")
         if self.errors:
             logger.info(f"\nErrors encountered: {len(self.errors)}")
             for error in self.errors[:10]:  # Show first 10 errors
@@ -167,6 +171,88 @@ def get_already_migrated_fact_hashes(agent_id: ObjectId) -> Set[str]:
     return {doc["hash"] for doc in cursor if doc.get("hash")}
 
 
+def get_facts_missing_embeddings(agent_id: ObjectId) -> List[Dict[str, Any]]:
+    """
+    Get facts that exist but have empty or missing embeddings.
+
+    Args:
+        agent_id: Agent ID to check
+
+    Returns:
+        List of fact documents with missing embeddings (contains _id and content)
+    """
+    fact_collection = Fact.get_collection()
+
+    # Find facts with empty or missing embeddings
+    cursor = fact_collection.find(
+        {
+            "agent_id": agent_id,
+            "$or": [
+                {"embedding": {"$exists": False}},
+                {"embedding": []},
+                {"embedding": None},
+            ]
+        },
+        {"_id": 1, "content": 1}
+    )
+
+    return list(cursor)
+
+
+async def backfill_missing_embeddings(
+    agent_id: ObjectId,
+    dry_run: bool = False,
+    stats: FactsMigrationStats = None,
+) -> int:
+    """
+    Backfill embeddings for existing facts that are missing them.
+
+    Args:
+        agent_id: Agent ID to backfill
+        dry_run: If True, don't actually update
+        stats: Migration statistics tracker
+
+    Returns:
+        Number of embeddings backfilled
+    """
+    facts_missing = get_facts_missing_embeddings(agent_id)
+
+    if not facts_missing:
+        return 0
+
+    logger.info(f"  Found {len(facts_missing)} facts missing embeddings, backfilling...")
+
+    if dry_run:
+        return len(facts_missing)
+
+    fact_collection = Fact.get_collection()
+    backfilled = 0
+    embedding_batch_size = 100
+
+    # Process in batches
+    for i in range(0, len(facts_missing), embedding_batch_size):
+        batch_facts = facts_missing[i:i + embedding_batch_size]
+        batch_contents = [f["content"] for f in batch_facts]
+
+        # Generate embeddings
+        batch_embeddings = await get_embeddings_batch(batch_contents)
+
+        # Update each fact with its embedding
+        for j, embedding in enumerate(batch_embeddings):
+            if embedding:
+                fact_id = batch_facts[j]["_id"]
+                fact_collection.update_one(
+                    {"_id": fact_id},
+                    {"$set": {"embedding": embedding}}
+                )
+                backfilled += 1
+                if stats:
+                    stats.embeddings_backfilled += 1
+
+    logger.info(f"  Backfilled {backfilled} embeddings")
+    return backfilled
+
+
 def compute_content_hash(content: str) -> str:
     """Compute MD5 hash for fact content deduplication."""
     return hashlib.md5(content.encode()).hexdigest()
@@ -194,35 +280,12 @@ def load_facts_from_session_memory(fact_ids: List[ObjectId]) -> List[Dict[str, A
     )
 
 
-async def generate_embedding(content: str) -> List[float]:
-    """
-    Generate embedding for fact content using OpenAI.
-
-    Args:
-        content: The fact text to embed
-
-    Returns:
-        List of floats representing the embedding vector
-    """
-    try:
-        from eve.llm.openai import async_openai_client
-
-        response = await async_openai_client().embeddings.create(
-            input=content,
-            model="text-embedding-3-small"
-        )
-        return response.data[0].embedding
-    except Exception as e:
-        logger.warning(f"Failed to generate embedding: {e}")
-        return []
-
-
 def prepare_facts_batch(
     agent_id: ObjectId,
     shard_facts_raw: List[Dict[str, Any]],
     existing_hashes: Set[str],
     stats: FactsMigrationStats,
-) -> List[Dict]:
+) -> Tuple[List[Dict], List[str]]:
     """
     Prepare batch of Fact documents for bulk insert.
 
@@ -233,9 +296,10 @@ def prepare_facts_batch(
         stats: Statistics tracker
 
     Returns:
-        List of Fact documents ready for insert
+        Tuple of (List of Fact documents ready for insert, List of content strings for embedding)
     """
     fact_docs = []
+    contents = []
     now = datetime.now(timezone.utc)
 
     for fact_raw in shard_facts_raw:
@@ -263,7 +327,7 @@ def prepare_facts_batch(
             "_id": ObjectId(),
             "content": content,
             "hash": content_hash,
-            "embedding": [],  # Empty - will be generated lazily or via batch process
+            "embedding": [],  # Will be populated with embedding before insert
             "embedding_model": "text-embedding-3-small",
             "scope": ["agent"],  # Old shard facts map to agent scope
             "agent_id": agent_id,
@@ -280,8 +344,9 @@ def prepare_facts_batch(
             "updatedAt": now,
         }
         fact_docs.append(fact_doc)
+        contents.append(content)
 
-    return fact_docs
+    return fact_docs, contents
 
 
 def bulk_insert_facts(
@@ -311,7 +376,7 @@ def bulk_insert_facts(
         return len(fact_docs)  # Approximate
 
 
-def migrate_agent_facts(
+async def migrate_agent_facts(
     agent: Agent,
     active_agents: Optional[Set[ObjectId]],
     dry_run: bool = False,
@@ -320,6 +385,9 @@ def migrate_agent_facts(
 ) -> Dict:
     """
     Migrate all facts for a single agent.
+
+    Embeddings are ALWAYS generated for new facts and backfilled for existing
+    facts that are missing them.
 
     Args:
         agent: The agent to migrate
@@ -339,6 +407,8 @@ def migrate_agent_facts(
         "shards_processed": 0,
         "facts_migrated": 0,
         "facts_skipped": 0,
+        "embeddings_generated": 0,
+        "embeddings_backfilled": 0,
         "errors": [],
     }
 
@@ -349,6 +419,17 @@ def migrate_agent_facts(
         return results
 
     logger.info(f"\nMigrating facts for agent: {agent_name} ({agent_id})")
+
+    # First, backfill any existing facts that are missing embeddings
+    try:
+        backfilled = await backfill_missing_embeddings(agent_id, dry_run, stats)
+        results["embeddings_backfilled"] = backfilled
+    except Exception as e:
+        error_msg = f"Error backfilling embeddings for agent={agent_id}: {e}"
+        results["errors"].append(error_msg)
+        if stats:
+            stats.errors.append(error_msg)
+        logger.error(f"  {error_msg}")
 
     # Get existing fact hashes for resume capability
     existing_hashes = get_already_migrated_fact_hashes(agent_id)
@@ -368,6 +449,7 @@ def migrate_agent_facts(
         if not shards:
             logger.info(f"  No memory shards found for agent {agent_name}")
             stats.agents_skipped_no_facts += 1
+            stats.agents_processed += 1
             return results
 
         # Collect all fact IDs from all shards
@@ -382,12 +464,14 @@ def migrate_agent_facts(
         if not all_fact_ids:
             logger.info(f"  No facts found in any shard for agent {agent_name}")
             stats.agents_skipped_no_facts += 1
+            stats.agents_processed += 1
             return results
 
         logger.info(f"  Found {len(all_fact_ids)} fact IDs across {results['shards_processed']} shards")
 
         # Load facts in batches
         all_fact_docs = []
+        all_contents = []
         for i in range(0, len(all_fact_ids), batch_size):
             batch_ids = all_fact_ids[i:i + batch_size]
 
@@ -395,13 +479,33 @@ def migrate_agent_facts(
             facts_raw = load_facts_from_session_memory(batch_ids)
 
             # Prepare Fact documents
-            fact_docs = prepare_facts_batch(
+            fact_docs, contents = prepare_facts_batch(
                 agent_id,
                 facts_raw,
                 existing_hashes,
                 stats,
             )
             all_fact_docs.extend(fact_docs)
+            all_contents.extend(contents)
+
+        # Always generate embeddings for new facts
+        if all_fact_docs and not dry_run:
+            logger.info(f"  Generating embeddings for {len(all_fact_docs)} new facts...")
+            # Process embeddings in batches (OpenAI has limits on batch size)
+            embedding_batch_size = 100  # OpenAI recommends smaller batches for embeddings
+            for i in range(0, len(all_contents), embedding_batch_size):
+                batch_contents = all_contents[i:i + embedding_batch_size]
+                batch_embeddings = await get_embeddings_batch(batch_contents)
+
+                # Update fact docs with embeddings
+                for j, embedding in enumerate(batch_embeddings):
+                    doc_idx = i + j
+                    if doc_idx < len(all_fact_docs) and embedding:
+                        all_fact_docs[doc_idx]["embedding"] = embedding
+                        results["embeddings_generated"] += 1
+                        stats.embeddings_generated += 1
+
+            logger.info(f"  Generated {results['embeddings_generated']} embeddings")
 
         # Bulk insert all facts
         if all_fact_docs:
@@ -426,6 +530,8 @@ def migrate_agent_facts(
         f"  Agent {agent_name}: "
         f"shards={results['shards_processed']}, "
         f"facts_migrated={results['facts_migrated']}, "
+        f"embeddings_new={results['embeddings_generated']}, "
+        f"embeddings_backfilled={results['embeddings_backfilled']}, "
         f"errors={len(results['errors'])}"
     )
 
@@ -441,16 +547,18 @@ def clear_memory2_facts():
     logger.info(f"  Deleted {result.deleted_count} Fact records")
 
 
-def run_facts_migration(
+async def run_facts_migration(
     dry_run: bool = False,
     agent_id: Optional[str] = None,
     clear_first: bool = False,
     activity_months: int = 6,
     batch_size: int = 500,
-    generate_embeddings: bool = False,
 ):
     """
     Run the facts migration.
+
+    Embeddings are ALWAYS generated for new facts. Existing facts with missing
+    embeddings will be backfilled automatically.
 
     Args:
         dry_run: If True, preview what would be migrated without making changes
@@ -458,7 +566,6 @@ def run_facts_migration(
         clear_first: If True, clear memory2 facts collection before migrating
         activity_months: Only migrate agents with activity in last N months (0=all)
         batch_size: Batch size for bulk inserts
-        generate_embeddings: If True, generate embeddings during migration (slower)
     """
     stats = FactsMigrationStats()
 
@@ -473,13 +580,7 @@ def run_facts_migration(
 
     logger.info(f"Activity filter: {activity_months} months")
     logger.info(f"Batch size: {batch_size}")
-    logger.info(f"Generate embeddings: {generate_embeddings}")
-
-    if generate_embeddings:
-        logger.warning(
-            "Embedding generation enabled - migration will be slower but "
-            "facts will be ready for RAG retrieval immediately"
-        )
+    logger.info("Embeddings: ALWAYS generated (required for RAG)")
 
     if clear_first and not dry_run:
         clear_memory2_facts()
@@ -507,7 +608,7 @@ def run_facts_migration(
     # Process each agent
     for agent in agents:
         try:
-            migrate_agent_facts(
+            await migrate_agent_facts(
                 agent,
                 active_agents=active_agents,
                 dry_run=dry_run,
@@ -527,7 +628,7 @@ def run_facts_migration(
 def main():
     """Main entry point for CLI usage."""
     parser = argparse.ArgumentParser(
-        description="Migrate facts from old memory system to memory2"
+        description="Migrate facts from old memory system to memory2 (always generates embeddings)"
     )
     parser.add_argument(
         "--dry-run",
@@ -556,11 +657,6 @@ def main():
         default=500,
         help="Batch size for bulk inserts (default: 500)",
     )
-    parser.add_argument(
-        "--generate-embeddings",
-        action="store_true",
-        help="Generate embeddings during migration (slower but facts ready for RAG)",
-    )
 
     args = parser.parse_args()
 
@@ -574,13 +670,14 @@ def main():
             logger.info("Migration cancelled.")
             return
 
-    run_facts_migration(
-        dry_run=args.dry_run,
-        agent_id=args.agent_id,
-        clear_first=args.clear_first,
-        activity_months=args.activity_months,
-        batch_size=args.batch_size,
-        generate_embeddings=args.generate_embeddings,
+    asyncio.run(
+        run_facts_migration(
+            dry_run=args.dry_run,
+            agent_id=args.agent_id,
+            clear_first=args.clear_first,
+            activity_months=args.activity_months,
+            batch_size=args.batch_size,
+        )
     )
 
 

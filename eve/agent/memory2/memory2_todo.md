@@ -1,12 +1,13 @@
 
 Core:
-- inject 'user' assign field for user memories and create corresponding user memories accordingly
-- migrate all old facts
+- inject 'assigned_user' field for user memories and create corresponding user memories in db accordingly
+- Create "search_memories" agent tool that uses RAG to retrieve FACTS
+- Create "get_old_memories" agent tool that retrieves old reflections from certain timewindow
 
 Optional:
-- add word counts to fully formed memory context
-- use the users main LLM models for memory (depending on subscription tier)
+- use the users main LLM models for memory system (tied to subscription tier)
+- auto-add word counts to consolidated memory blobs so agent is aware of context usage
 - optimize extraction prompts to omit empty memory sections (less distractions, less tokens)
 
 Final:
-- cleanup memoryv1 system
+- completely remove old memory_v1 system
