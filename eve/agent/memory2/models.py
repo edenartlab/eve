@@ -459,13 +459,14 @@ def get_recent_facts_fifo(
     agent_id: ObjectId,
     user_id: Optional[ObjectId] = None,
     limit: int = 50,
+    enabled_scopes: Optional[List[str]] = None,
 ) -> List[Fact]:
     """
     TEMPORARY: Get recent facts via simple FIFO query (no RAG/vector search).
 
-    Retrieves the N most recent facts for an agent, including:
-    - All agent-scoped facts
-    - User-scoped facts for the specified user (if user_id provided)
+    Retrieves the N most recent facts for an agent, filtered by enabled scopes:
+    - Agent-scoped facts (if "agent" in enabled_scopes)
+    - User-scoped facts for the specified user (if "user" in enabled_scopes and user_id provided)
 
     This is a temporary implementation until full RAG is enabled.
     Facts are sorted by formed_at descending (most recent first).
@@ -474,25 +475,38 @@ def get_recent_facts_fifo(
         agent_id: Agent ID
         user_id: User ID (optional, for user-scoped facts)
         limit: Maximum number of facts to return
+        enabled_scopes: List of enabled scopes ["user", "agent"] (default: both)
 
     Returns:
         List of Fact documents, most recent first
     """
+    # Default to all scopes if not specified
+    if enabled_scopes is None:
+        enabled_scopes = ["user", "agent"]
+
     try:
-        # Build query: agent-scoped facts + user-scoped facts for this user
-        if user_id:
-            query = {
-                "agent_id": agent_id,
-                "$or": [
-                    {"scope": "agent"},
-                    {"scope": "user", "user_id": user_id},
-                ],
-            }
+        # Build query based on enabled scopes
+        or_conditions = []
+
+        if "agent" in enabled_scopes:
+            or_conditions.append({"scope": "agent"})
+
+        if "user" in enabled_scopes and user_id:
+            or_conditions.append({"scope": "user", "user_id": user_id})
+
+        # If no conditions, return empty list
+        if not or_conditions:
+            return []
+
+        # Build final query
+        if len(or_conditions) == 1:
+            # Single condition: no need for $or
+            query = {"agent_id": agent_id, **or_conditions[0]}
         else:
-            # No user_id: only agent-scoped facts
+            # Multiple conditions: use $or
             query = {
                 "agent_id": agent_id,
-                "scope": "agent",
+                "$or": or_conditions,
             }
 
         # Find facts sorted by formed_at descending
