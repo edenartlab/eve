@@ -22,6 +22,8 @@ from eve.agent.memory2.constants import (
     LOCAL_DEV,
     FACTS_FIFO_ENABLED,
     FACTS_FIFO_LIMIT,
+    Memory2Config,
+    is_multi_user_session,
 )
 from eve.agent.memory2.models import (
     ConsolidatedMemory,
@@ -86,6 +88,7 @@ async def assemble_always_in_context_memory(
     session_id: Optional[ObjectId] = None,
     instrumentation: Optional["PromptSessionInstrumentation"] = None,
     print_context: bool = False,
+    config: Optional[Memory2Config] = None,
 ) -> str:
     """
     Assemble the always-in-context memory for prompt injection.
@@ -94,13 +97,19 @@ async def assemble_always_in_context_memory(
     The final memory_xml can be cached inside the session object to avoid
     running this for every message.
 
-    All memory scopes are fetched in parallel for optimal performance.
+    Only enabled scopes are fetched and assembled. Scopes are controlled by
+    the Memory2Config (user_memory_enabled, agent_memory_enabled flags).
+    Session memory is always included when any memory is enabled.
+
+    All enabled memory scopes are fetched in parallel for optimal performance.
 
     Args:
         agent_id: Agent ID
         user_id: User ID (optional, for user-scope memory)
         session_id: Session ID (optional, for session-scope memory)
         instrumentation: Optional instrumentation for timing logs
+        print_context: Whether to print context in LOCAL_DEV mode
+        config: Memory2Config with enabled scopes (loaded if not provided)
 
     Returns:
         XML-formatted memory context string
@@ -108,18 +117,29 @@ async def assemble_always_in_context_memory(
     try:
         start_time = time.time()
 
-        # Build list of coroutines to run in parallel
+        # Load config if not provided
+        if config is None:
+            config = Memory2Config.from_agent_id(agent_id)
+
+        # Note: We always proceed because session memory is ALWAYS active.
+        # config.reflection_scopes always includes "session" regardless of toggles.
+
+        # Get enabled scopes for reflections (always includes session)
+        enabled_scopes = config.reflection_scopes
+
+        # Build list of coroutines to run in parallel (only for enabled scopes)
         tasks: List[asyncio.Task] = []
 
-        # Always fetch agent scope
-        tasks.append(
-            asyncio.create_task(
-                _timed_get_scope_memory(scope="agent", agent_id=agent_id)
+        # Fetch agent scope if enabled
+        if "agent" in enabled_scopes:
+            tasks.append(
+                asyncio.create_task(
+                    _timed_get_scope_memory(scope="agent", agent_id=agent_id)
+                )
             )
-        )
 
-        # Optionally fetch user scope
-        if user_id:
+        # Fetch user scope if enabled and user_id provided
+        if "user" in enabled_scopes and user_id:
             tasks.append(
                 asyncio.create_task(
                     _timed_get_scope_memory(
@@ -128,8 +148,8 @@ async def assemble_always_in_context_memory(
                 )
             )
 
-        # Optionally fetch session scope
-        if session_id:
+        # Fetch session scope if enabled and session_id provided
+        if "session" in enabled_scopes and session_id:
             tasks.append(
                 asyncio.create_task(
                     _timed_get_scope_memory(
@@ -139,7 +159,7 @@ async def assemble_always_in_context_memory(
             )
 
         # Run all fetches in parallel
-        results = await asyncio.gather(*tasks)
+        results = await asyncio.gather(*tasks) if tasks else []
 
         # Process results and log timings
         agent_blob, agent_recent = None, None
@@ -166,16 +186,18 @@ async def assemble_always_in_context_memory(
             )
 
         # TEMPORARY: Fetch facts via FIFO when enabled (to be replaced by RAG)
-        # This retrieves the N most recent facts instead of semantic search.
-        # When migrating to full RAG, replace this with RAG retrieval.
+        # Only fetch facts if FIFO is enabled AND at least one fact scope is enabled
         facts_content = None
-        if FACTS_FIFO_ENABLED:
+        fact_scopes = config.fact_scopes
+        if FACTS_FIFO_ENABLED and fact_scopes:
             facts_start = time.time()
+            # Pass enabled scopes to filter facts
             facts = await asyncio.to_thread(
                 get_recent_facts_fifo,
                 agent_id,
-                user_id,
+                user_id if "user" in fact_scopes else None,
                 FACTS_FIFO_LIMIT,
+                fact_scopes,  # Filter by enabled scopes
             )
             if facts:
                 # Format facts with scope indicator
@@ -192,17 +214,18 @@ async def assemble_always_in_context_memory(
                 {
                     "duration_s": round(facts_duration, 3),
                     "fact_count": len(facts) if facts else 0,
+                    "enabled_scopes": fact_scopes,
                 },
             )
 
-        # Build XML context
+        # Build XML context (only include enabled scopes)
         memory_xml = _build_memory_xml(
-            agent_blob=agent_blob,
-            agent_recent=agent_recent,
-            user_blob=user_blob,
-            user_recent=user_recent,
-            session_blob=session_blob,
-            session_recent=session_recent,
+            agent_blob=agent_blob if "agent" in enabled_scopes else None,
+            agent_recent=agent_recent if "agent" in enabled_scopes else None,
+            user_blob=user_blob if "user" in enabled_scopes else None,
+            user_recent=user_recent if "user" in enabled_scopes else None,
+            session_blob=session_blob if "session" in enabled_scopes else None,
+            session_recent=session_recent if "session" in enabled_scopes else None,
             facts_content=facts_content,
         )
 
@@ -215,12 +238,13 @@ async def assemble_always_in_context_memory(
                 "duration_s": round(total_duration, 3),
                 "word_count": word_count,
                 "scopes_fetched": len(tasks),
+                "enabled_scopes": enabled_scopes,
             },
         )
 
         if LOCAL_DEV and print_context:
             print(f"\n{'='*60}")
-            print(f"MEMORY CONTEXT INJECTED INTO LLM ({word_count} words):")
+            print(f"MEMORY CONTEXT INJECTED INTO LLM ({word_count} words, scopes: {enabled_scopes}):")
             print(f"{'='*60}\n{memory_xml if memory_xml else '(empty)'}\n{'='*60}")
 
         return memory_xml
@@ -390,6 +414,10 @@ async def get_memory_context_for_session(
     This is the main entry point for getting memory context in the agent loop.
     It checks the session's cached memory context and refreshes if needed.
 
+    For multi-user sessions (group chats), user-specific memories are omitted
+    entirely to prevent memory leakage between users. Only agent and session
+    memories are included in such cases.
+
     Args:
         session: Session object (must have memory_context attribute)
         agent_id: Agent ID
@@ -398,13 +426,33 @@ async def get_memory_context_for_session(
         instrumentation: Optional instrumentation for timing logs
 
     Returns:
-        Memory context XML string
+        Memory context XML string (always includes session memory at minimum)
     """
+    # Get memory2 configuration for this agent and session context
+    # Multi-user sessions automatically disable user memory to prevent leakage
+    config = Memory2Config.from_agent_id(agent_id, session=session)
+
+    # Note: We always proceed because session memory is ALWAYS active.
+    # config.reflection_scopes always includes "session" regardless of toggles.
+
     try:
         start_time = time.time()
 
         # Ensure memory_context is an object (not dict)
         memory_context = _ensure_memory_context_object(session)
+
+        # For multi-user sessions, skip user memories entirely to prevent leakage.
+        # The cache is stored at session level without user differentiation, so
+        # including user-specific memories would leak one user's data to others.
+        is_multi_user = is_multi_user_session(session)
+        effective_user_id = None if is_multi_user else last_speaker_id
+
+        if is_multi_user and LOCAL_DEV:
+            session_users = getattr(session, "users", None) or []
+            logger.debug(
+                f"Multi-user session detected ({len(session_users)} users) - "
+                "skipping user memories to prevent leakage"
+            )
 
         # Check if we have a cached context
         if not force_refresh:
@@ -422,6 +470,7 @@ async def get_memory_context_for_session(
                         {
                             "cache_age_s": round(age_seconds, 1),
                             "word_count": len(cached.split()) if cached else 0,
+                            "is_multi_user": is_multi_user,
                         },
                     )
                     return cached
@@ -429,16 +478,22 @@ async def get_memory_context_for_session(
         _log_debug(
             "   🔄 Rebuilding memory context",
             instrumentation,
-            {"reason": "force_refresh" if force_refresh else "cache_miss_or_expired"},
+            {
+                "reason": "force_refresh" if force_refresh else "cache_miss_or_expired",
+                "is_multi_user": is_multi_user,
+                "enabled_scopes": config.reflection_scopes,
+            },
         )
 
-        # Assemble fresh context
+        # Assemble fresh context with config
+        # For multi-user sessions, effective_user_id is None so user memories are skipped
         memory_xml = await assemble_always_in_context_memory(
             agent_id=agent_id,
-            user_id=last_speaker_id,
+            user_id=effective_user_id,
             session_id=session.id if hasattr(session, "id") else None,
             instrumentation=instrumentation,
             print_context=True,  # Print when replying to user
+            config=config,
         )
 
         # Update session cache

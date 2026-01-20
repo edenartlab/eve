@@ -155,18 +155,21 @@ async def consolidate_reflections(
         )
         new_content = response.content.strip()
 
-        # Validate word count
-        word_count = len(new_content.split())
+        # Validate word count (before adding suffix)
+        word_count = _count_words(new_content)
         if word_count > consolidated.word_limit * 1.2:  # Allow 20% overflow
             logger.warning(
                 f"Consolidation exceeded word limit: {word_count} > {consolidated.word_limit}"
             )
 
+        # Append word count suffix so agent can see current blob size
+        new_content_with_count = _append_word_count(new_content)
+
         # Update consolidated memory atomically
         reflection_ids = [r.id for r in reflections]
         _update_consolidated_memory(
             consolidated=consolidated,
-            new_content=new_content,
+            new_content=new_content_with_count,
             absorbed_ids=reflection_ids,
         )
 
@@ -184,6 +187,17 @@ async def consolidate_reflections(
         logger.error(f"Error consolidating {scope} reflections: {e}")
         traceback.print_exc()
         return None
+
+
+def _count_words(text: str) -> int:
+    """Count words in a text string."""
+    return len(text.split())
+
+
+def _append_word_count(content: str) -> str:
+    """Append word count suffix to consolidated content."""
+    word_count = _count_words(content)
+    return f"{content}\n\n-- total words: {word_count}"
 
 
 def _get_consolidated_memory(
@@ -286,36 +300,44 @@ async def maybe_consolidate_all(
     user_id: Optional[ObjectId] = None,
     session_id: Optional[ObjectId] = None,
     agent_persona: Optional[str] = None,
+    enabled_scopes: Optional[List[str]] = None,
 ) -> dict:
     """
     Check and consolidate all applicable scopes if thresholds are met.
 
     Consolidations run in PARALLEL since they are independent of each other.
+    Only consolidates scopes that are enabled.
 
     Args:
         agent_id: Agent ID
         user_id: User ID (optional)
         session_id: Session ID (optional)
         agent_persona: The agent's persona/description for context
+        enabled_scopes: List of enabled scopes to consolidate (default: all)
 
     Returns:
         Dict with consolidation results for each scope
     """
+    # Default to all scopes if not specified
+    if enabled_scopes is None:
+        enabled_scopes = ["session", "user", "agent"]
+
     # Build list of consolidation tasks to run in parallel
     tasks = []
     scope_names = []
 
-    # Always check agent scope
-    tasks.append(consolidate_reflections(scope="agent", agent_id=agent_id, agent_persona=agent_persona))
-    scope_names.append("agent")
+    # Check agent scope if enabled
+    if "agent" in enabled_scopes:
+        tasks.append(consolidate_reflections(scope="agent", agent_id=agent_id, agent_persona=agent_persona))
+        scope_names.append("agent")
 
-    # Check user scope if user_id provided
-    if user_id:
+    # Check user scope if enabled and user_id provided
+    if "user" in enabled_scopes and user_id:
         tasks.append(consolidate_reflections(scope="user", agent_id=agent_id, user_id=user_id, agent_persona=agent_persona))
         scope_names.append("user")
 
-    # Check session scope if session_id provided
-    if session_id:
+    # Check session scope if enabled and session_id provided
+    if "session" in enabled_scopes and session_id:
         tasks.append(consolidate_reflections(scope="session", agent_id=agent_id, session_id=session_id, agent_persona=agent_persona))
         scope_names.append("session")
 

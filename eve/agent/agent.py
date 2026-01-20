@@ -118,8 +118,12 @@ class Agent(User):
     owner_pays: Optional[Literal["off", "deployments", "full"]] = "off"
     agent_extras: Optional[AgentExtras] = None
 
+    # Memory System v2 toggles - control both memory formation and context assembly
+    # user_memory_enabled: Controls user-scoped reflections and facts (personal memory)
+    # agent_memory_enabled: Controls agent-scoped reflections and facts (collective memory)
+    # Session memory is always active when either toggle is True
     user_memory_enabled: Optional[bool] = False
-    agent_memory_enabled: Optional[bool] = False  # Not yet used anywhere yet
+    agent_memory_enabled: Optional[bool] = False
 
     @classmethod
     def convert_from_yaml(cls, schema: dict, file_path: str = None) -> dict:

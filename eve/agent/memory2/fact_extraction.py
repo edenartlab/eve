@@ -22,10 +22,10 @@ from loguru import logger
 
 from eve.agent.llm.llm import async_prompt
 from eve.agent.memory2.constants import (
-    FACT_EXTRACTION_PROMPT,
     FACT_MAX_WORDS,
     LOCAL_DEV,
     MEMORY_LLM_MODEL_FAST,
+    build_fact_extraction_prompt,
 )
 from eve.utils.system_utils import async_exponential_backoff
 from eve.agent.memory2.models import (
@@ -49,6 +49,7 @@ async def extract_facts(
     session_id: Optional[ObjectId] = None,
     agent_persona: Optional[str] = None,
     model: str = MEMORY_LLM_MODEL_FAST,
+    enabled_scopes: Optional[List[str]] = None,
 ) -> List[ExtractedFact]:
     """
     Extract facts from conversation text using LLM.
@@ -67,15 +68,25 @@ async def extract_facts(
         session_id: Session ID (for tracing only)
         agent_persona: The agent's persona/description for context
         model: LLM model to use
+        enabled_scopes: List of enabled fact scopes ["user", "agent"] or subset
 
     Returns:
         List of ExtractedFact objects with content and scope
     """
+    # Default to all fact scopes if not specified
+    if enabled_scopes is None:
+        enabled_scopes = ["user", "agent"]
+
+    # Skip if no scopes enabled
+    if not enabled_scopes:
+        return []
+
     try:
-        # Build prompt
-        prompt = FACT_EXTRACTION_PROMPT.format(
+        # Build prompt with only enabled scopes
+        prompt = build_fact_extraction_prompt(
             conversation_text=conversation_text,
             agent_persona=agent_persona or "No agent persona available.",
+            enabled_scopes=enabled_scopes,
             max_words=FACT_MAX_WORDS,
         )
 
@@ -125,12 +136,18 @@ async def extract_facts(
 
         extracted = FactExtractionResponse(**json.loads(response.content))
 
+        # Filter facts to only include enabled scopes
+        filtered_facts = [
+            f for f in extracted.facts
+            if any(s in enabled_scopes for s in f.scope)
+        ]
+
         if LOCAL_DEV:
-            logger.debug(f"Extracted {len(extracted.facts)} facts")
-            for fact in extracted.facts:
+            logger.debug(f"Extracted {len(filtered_facts)} facts (enabled scopes: {enabled_scopes})")
+            for fact in filtered_facts:
                 logger.debug(f"  - [{', '.join(fact.scope)}] {fact.content[:60]}...")
 
-        return extracted.facts
+        return filtered_facts
 
     except Exception as e:
         logger.error(f"Error extracting facts: {e}")
@@ -145,12 +162,13 @@ async def extract_and_prepare_facts(
     session_id: Optional[ObjectId] = None,
     message_ids: Optional[List[ObjectId]] = None,
     agent_persona: Optional[str] = None,
+    enabled_scopes: Optional[List[str]] = None,
 ) -> Tuple[List[Dict], List[str]]:
     """
     Extract facts and prepare them for storage.
 
     This function:
-    1. Calls LLM to extract facts
+    1. Calls LLM to extract facts (only for enabled scopes)
     2. Prepares fact documents (without embedding - done in fact_management)
     3. Returns both prepared facts and simple content list for reflection extraction
 
@@ -161,18 +179,28 @@ async def extract_and_prepare_facts(
         session_id: Session ID
         message_ids: IDs of messages that were processed
         agent_persona: The agent's persona/description for context
+        enabled_scopes: List of enabled fact scopes ["user", "agent"] or subset
 
     Returns:
         Tuple of (prepared_fact_dicts, fact_content_strings)
     """
+    # Default to all fact scopes if not specified
+    if enabled_scopes is None:
+        enabled_scopes = ["user", "agent"]
+
+    # Skip if no scopes enabled
+    if not enabled_scopes:
+        return [], []
+
     try:
-        # Extract facts
+        # Extract facts for enabled scopes only
         extracted_facts = await extract_facts(
             conversation_text=conversation_text,
             agent_id=agent_id,
             user_id=user_id,
             session_id=session_id,
             agent_persona=agent_persona,
+            enabled_scopes=enabled_scopes,
         )
 
         if not extracted_facts:
@@ -183,9 +211,9 @@ async def extract_and_prepare_facts(
         fact_contents = []
 
         for ef in extracted_facts:
-            # Validate scope
-            if not ef.scope or not any(s in ["user", "agent"] for s in ef.scope):
-                logger.warning(f"Invalid scope for fact: {ef.scope}")
+            # Validate scope - must have at least one enabled scope
+            if not ef.scope or not any(s in enabled_scopes for s in ef.scope):
+                logger.warning(f"Invalid or disabled scope for fact: {ef.scope}")
                 continue
 
             # Skip empty content

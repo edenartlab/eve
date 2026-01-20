@@ -34,13 +34,15 @@ from eve.agent.memory2.constants import (
     MEMORY_FORMATION_MSG_INTERVAL,
     MEMORY_FORMATION_TOKEN_INTERVAL,
     NEVER_FORM_MEMORIES_LESS_THAN_N_MESSAGES,
+    RAG_ENABLED,
+    FACTS_FIFO_ENABLED,
+    Memory2Config,
 )
 from eve.agent.memory2.context_assembly import (
     assemble_always_in_context_memory,
     clear_memory_cache,
 )
 from eve.agent.memory2.reflection_extraction import extract_and_save_reflections
-from eve.agent.memory2.constants import RAG_ENABLED, FACTS_FIFO_ENABLED
 
 
 # Character weighting for token estimation (same as v1)
@@ -185,13 +187,14 @@ async def form_memories(
     user_id: Optional[ObjectId] = None,
     conversation_text: Optional[str] = None,
     char_counts: Optional[Dict[str, int]] = None,
+    config: Optional[Memory2Config] = None,
 ) -> bool:
     """
     Form memories from conversation messages.
 
     This is the main entry point for memory formation. It orchestrates:
-    1. Fact extraction (Phase 2)
-    2. Reflection extraction
+    1. Fact extraction (Phase 2) - only for enabled scopes
+    2. Reflection extraction - only for enabled scopes
     3. Storage and consolidation
     4. Context refresh
 
@@ -202,6 +205,7 @@ async def form_memories(
         user_id: User ID for user-scoped memories
         conversation_text: Pre-computed conversation text
         char_counts: Pre-computed character counts
+        config: Memory2Config with enabled scopes (loaded if not provided)
 
     Returns:
         True if memories were formed successfully
@@ -211,6 +215,15 @@ async def form_memories(
     try:
         if not messages or len(messages) < NEVER_FORM_MEMORIES_LESS_THAN_N_MESSAGES:
             return False
+
+        # Load config if not provided
+        # Pass session to detect multi-user context and disable user memory if needed
+        if config is None:
+            config = _get_memory2_config(agent_id, session=session)
+
+        # Note: We always proceed even if config.any_enabled is False
+        # because session reflections are ALWAYS formed regardless of toggles.
+        # config.reflection_scopes always includes "session".
 
         session_id = getattr(session, "id", None)
 
@@ -262,25 +275,26 @@ async def form_memories(
             logger.debug(f"  Agent ID: {agent_id}")
             logger.debug(f"  User ID: {user_id}")
             logger.debug(f"  Session ID: {session_id}")
+            logger.debug(f"  Multi-user session: {config.is_multi_user}")
+            if config.is_multi_user:
+                session_users = getattr(session, "users", []) or []
+                logger.debug(f"  Session users count: {len(session_users)} (user memory DISABLED)")
+            logger.debug(f"  Enabled scopes - facts: {config.fact_scopes}, reflections: {config.reflection_scopes}")
             logger.debug(f"  Messages to process: {len(recent_messages)}")
             logger.debug(f"  Conversation length: {len(conversation_text)} chars")
-            logger.debug(f"\nCONVERSATION TEXT:")
-            # Show first 2000 chars of conversation
-            #preview = conversation_text[:2000] + "..." if len(conversation_text) > 2000 else conversation_text
-            #logger.debug(f"{preview}")
             logger.debug(f"{'='*60}")
 
         # --- LLM CALL 1: Fact Extraction ---
-        # Facts are extracted when either RAG or FIFO mode is enabled.
-        # - RAG mode: Full pipeline with deduplication LLM call
-        # - FIFO mode: Direct storage with embeddings (skip dedup LLM)
+        # Facts are extracted when either RAG or FIFO mode is enabled AND
+        # at least one fact scope is enabled (user or agent).
         newly_formed_facts: List[str] = []
         fact_count = 0
+        saved_facts = []
 
-        if RAG_ENABLED or FACTS_FIFO_ENABLED:
+        if (RAG_ENABLED or FACTS_FIFO_ENABLED) and config.fact_scopes:
             from eve.agent.memory2.fact_extraction import extract_and_prepare_facts
 
-            # Extract facts (fast model, no memory context needed)
+            # Extract facts only for enabled scopes
             prepared_facts, fact_contents = await extract_and_prepare_facts(
                 conversation_text=conversation_text,
                 agent_id=agent_id,
@@ -288,6 +302,7 @@ async def form_memories(
                 session_id=session_id,
                 message_ids=message_ids,
                 agent_persona=agent_persona,
+                enabled_scopes=config.fact_scopes,
             )
 
             if prepared_facts:
@@ -303,14 +318,9 @@ async def form_memories(
                     fact_count = len(saved_facts)
                 else:
                     # TEMPORARY: FIFO mode - store facts with embeddings, skip dedup LLM
-                    # This path is used when FACTS_FIFO_ENABLED=True but RAG_ENABLED=False.
-                    # Facts are embedded and stored directly without the deduplication
-                    # LLM call (Call 1.5). Hash-based exact deduplication still applies.
-                    # See constants.py for migration instructions to full RAG.
                     from eve.agent.memory2.fact_storage import store_facts_batch
 
                     saved_facts = await store_facts_batch(prepared_facts)
-                    # Handle both Fact objects and dicts (save_many may return dicts)
                     newly_formed_facts = [
                         f.content if hasattr(f, 'content') else f.get('content', '')
                         for f in saved_facts
@@ -320,15 +330,14 @@ async def form_memories(
             if LOCAL_DEV:
                 mode = "RAG" if RAG_ENABLED else "FIFO"
                 if fact_count > 0:
-                    print(f"\n✓ Formed {fact_count} new facts ({mode} mode):")
+                    print(f"\n✓ Formed {fact_count} new facts ({mode} mode, scopes: {config.fact_scopes}):")
                     for fact in saved_facts:
-                        # Handle both Fact objects and dicts
                         scope = fact.scope if hasattr(fact, 'scope') else fact.get('scope', [])
                         content = fact.content if hasattr(fact, 'content') else fact.get('content', '')
                         scope_str = ", ".join(scope) if isinstance(scope, list) else str(scope)
                         print(f"    - [{scope_str}] {content[:80]}...")
                 else:
-                    print(f"No new facts generated.  ({mode} mode)")
+                    print(f"No new facts generated. ({mode} mode, scopes: {config.fact_scopes})")
 
         # --- LLM CALL 2: Reflection Extraction (with fact awareness) ---
         reflections_by_scope, reflection_count = await extract_and_save_reflections(
@@ -339,22 +348,24 @@ async def form_memories(
             message_ids=message_ids,
             newly_formed_facts=newly_formed_facts,
             agent_persona=agent_persona,
+            enabled_scopes=config.reflection_scopes,
         )
 
         if LOCAL_DEV:
-            print(f"\n✓ Formed {reflection_count} new reflections:")
+            print(f"\n✓ Formed {reflection_count} new reflections (scopes: {config.reflection_scopes}):")
             for scope, reflections in reflections_by_scope.items():
                 if reflections:
                     print(f"  {len(reflections)} x {scope}:")
                     for r in reflections:
                         print(f"    - {r.content[:100]}...")
 
-        # --- Check and trigger consolidation ---
+        # --- Check and trigger consolidation (only for enabled scopes) ---
         consolidation_results = await maybe_consolidate_all(
             agent_id=agent_id,
             user_id=user_id,
             session_id=session_id,
             agent_persona=agent_persona,
+            enabled_scopes=config.reflection_scopes,
         )
 
         if LOCAL_DEV:
@@ -368,6 +379,7 @@ async def form_memories(
             agent_id=agent_id,
             user_id=user_id,
             session_id=session_id,
+            config=config,
         )
 
         # Update session cache
@@ -387,6 +399,27 @@ async def form_memories(
         return False
 
 
+def _get_memory2_config(agent_id: ObjectId, session=None) -> Memory2Config:
+    """
+    Get the Memory2Config for the given agent and session context.
+
+    Memory2 is controlled by user_memory_enabled and agent_memory_enabled
+    flags on the Agent model. Session memory is always active when any
+    memory is enabled.
+
+    IMPORTANT: For multi-user sessions (group chats), user memory is automatically
+    disabled to prevent memory leakage between users.
+
+    Args:
+        agent_id: The agent's ObjectId
+        session: Optional session object to detect multi-user context
+
+    Returns:
+        Memory2Config with enabled scopes (user scope disabled for multi-user sessions)
+    """
+    return Memory2Config.from_agent_id(agent_id, session=session)
+
+
 async def maybe_form_memories(
     agent_id: ObjectId,
     session,
@@ -398,6 +431,10 @@ async def maybe_form_memories(
 
     This is the main entry point called from the agent loop.
 
+    Session reflections are ALWAYS formed, regardless of user/agent toggles.
+    User and agent reflections/facts are only formed when their respective
+    toggles are enabled.
+
     Args:
         agent_id: Agent ID
         session: Session object
@@ -407,6 +444,13 @@ async def maybe_form_memories(
     Returns:
         True if memories were formed
     """
+    # Get memory2 configuration for this agent and session context
+    # Multi-user sessions automatically disable user memory to prevent leakage
+    config = _get_memory2_config(agent_id, session=session)
+
+    # Session reflections are always formed - no early return here
+    # (config.reflection_scopes always includes "session")
+
     # Check if incognito mode
     if hasattr(session, "extras") and session.extras:
         if getattr(session.extras, "incognito", False):
@@ -428,6 +472,7 @@ async def maybe_form_memories(
         user_id=user_id,
         conversation_text=conversation_text,
         char_counts=char_counts,
+        config=config,
     )
 
 
@@ -568,6 +613,13 @@ async def process_cold_session(
     Returns:
         True if memories were formed
     """
+    # Get memory2 configuration for this agent and session context
+    # Multi-user sessions automatically disable user memory to prevent leakage
+    config = _get_memory2_config(agent_id, session=session)
+
+    # Note: We always proceed even if config.any_enabled is False
+    # because session reflections are ALWAYS formed regardless of toggles.
+
     messages = None
     try:
         # Import here to avoid circular imports
@@ -583,6 +635,7 @@ async def process_cold_session(
             session=session,
             messages=messages,
             user_id=user_id,
+            config=config,
         )
 
     except Exception as e:

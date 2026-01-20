@@ -1,6 +1,6 @@
 # Eden Memory System: Redesign Proposal v2
 
-*Document updated: 2025-12-26*
+*Document updated: 2026-01-20*
 *Purpose: Comprehensive reference for memory system refactoring*
 
 ---
@@ -220,17 +220,52 @@ Scope hierarchy: `agent` supersedes `user` supersedes `session`.
 {"content": "Eden is struggling finding product-market-fit and needs better marketing approach", "scope": ["agent"]}
 ```
 
-### 3.3 Scope Filtering
+### 3.3 Multi-User Sessions (Group Chats)
+
+**IMPORTANT**: User memory is automatically disabled for multi-user sessions to prevent memory leakage between users.
+
+A session is considered "multi-user" when `len(session.users) > 1`. In these scenarios:
+
+| Scope | Single-User Session | Multi-User Session |
+|-------|--------------------|--------------------|
+| `session` | ✅ Enabled | ✅ Enabled |
+| `user` | ✅ Enabled (if agent has `user_memory_enabled=True`) | ❌ **Disabled** |
+| `agent` | ✅ Enabled (if agent has `agent_memory_enabled=True`) | ✅ Enabled |
+
+**Why disable user memory in multi-user sessions?**
+1. **Privacy**: User-specific memories should not leak to other users in the same session
+2. **Attribution ambiguity**: In group chats, it's unclear whose memory should be formed/retrieved
+3. **Cache leakage**: Session-level memory caching could expose one user's memories to others
+
+**Implementation**: The `Memory2Config.from_agent()` and `Memory2Config.from_agent_id()` methods accept an optional `session` parameter. When provided, they automatically detect multi-user sessions and set `is_multi_user=True`, which disables user scope in both `fact_scopes` and `reflection_scopes` properties.
+
+```python
+# Multi-user detection helper
+def is_multi_user_session(session) -> bool:
+    if session is None:
+        return False
+    users = getattr(session, "users", None) or []
+    return len(users) > 1
+
+# Config automatically adjusts for multi-user sessions
+config = Memory2Config.from_agent(agent, session=session)
+# In multi-user session: config.fact_scopes = ["agent"] (no "user")
+# In multi-user session: config.reflection_scopes = ["session", "agent"] (no "user")
+```
+
+### 3.4 Scope Filtering
 
 ```python
 # For always-in-context memory (reflections):
 #   - Include agent-level consolidated blob + recent unabsorbed
 #   - Include user-level consolidated blob + recent unabsorbed (for current user)
+#     NOTE: User memory skipped in multi-user sessions
 #   - Include session-level consolidated blob + recent unabsorbed (for current session)
 
 # For RAG retrieval (facts only):
 #   - Include all agent-scoped facts
 #   - Include user-scoped facts for current user
+#     NOTE: User facts skipped in multi-user sessions
 #   - NO session-scoped facts exist (by design)
 ```
 
@@ -304,6 +339,16 @@ Facts are stored in the vector database for RAG retrieval. Session-scoped facts 
 - Be redundant with session reflections
 
 **Decision**: Facts only have `user` and/or `agent` scope. Session-level context is handled entirely by session reflections, which consolidate into a rolling summary of what happened.
+
+### 4.2.1 Multi-User Session Handling
+
+In multi-user sessions (group chats where `len(session.users) > 1`), the extraction pipeline automatically disables user-scoped memory:
+
+- **Fact extraction**: Only extracts `agent`-scoped facts (user facts disabled)
+- **Reflection extraction**: Only extracts `session` and `agent` reflections (user reflections disabled)
+- **Context assembly**: Only includes `session` and `agent` memory context (user memory skipped)
+
+This prevents memory leakage between users in group conversations. The `Memory2Config` class handles this automatically when a session is passed to `from_agent()` or `from_agent_id()`.
 
 ### 4.3 Why Sequential Calls?
 
@@ -1730,3 +1775,4 @@ The following FIFO-specific code can be removed after migration:
 7. **mem0-inspired RAG**: Vector storage, hybrid search, RRF fusion
 8. **Facts management via LLM decision** (mem0-inspired): After extraction, an LLM compares new facts against semantically similar existing facts and decides ADD/UPDATE/DELETE/NONE - handles duplicates, contradictions, and fact evolution
 9. **TEMPORARY: FIFO Facts Mode**: Pre-RAG implementation that extracts and embeds facts but uses simple FIFO retrieval instead of semantic search (see Section 12)
+10. **Multi-user session protection**: User memory (both facts and reflections) is automatically disabled for multi-user sessions (group chats) to prevent memory leakage between users. Only session and agent scoped memories are formed and retrieved in these contexts. (see Section 3.3)
