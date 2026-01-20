@@ -15,7 +15,13 @@ class ModalTool(Tool):
             f"api-{db.lower()}", "run", environment_name="main"
         )
         result = await func.remote.aio(
-            tool_key=self.parent_tool or self.key, args=context.args
+            tool_key=self.parent_tool or self.key,
+            args=context.args,
+            user=context.user,
+            agent=context.agent,
+            session=context.session,
+            message=context.message,
+            tool_call_id=context.tool_call_id,
         )
         return result
 
