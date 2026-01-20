@@ -155,18 +155,21 @@ async def consolidate_reflections(
         )
         new_content = response.content.strip()
 
-        # Validate word count
-        word_count = len(new_content.split())
+        # Validate word count (before adding suffix)
+        word_count = _count_words(new_content)
         if word_count > consolidated.word_limit * 1.2:  # Allow 20% overflow
             logger.warning(
                 f"Consolidation exceeded word limit: {word_count} > {consolidated.word_limit}"
             )
 
+        # Append word count suffix so agent can see current blob size
+        new_content_with_count = _append_word_count(new_content)
+
         # Update consolidated memory atomically
         reflection_ids = [r.id for r in reflections]
         _update_consolidated_memory(
             consolidated=consolidated,
-            new_content=new_content,
+            new_content=new_content_with_count,
             absorbed_ids=reflection_ids,
         )
 
@@ -184,6 +187,17 @@ async def consolidate_reflections(
         logger.error(f"Error consolidating {scope} reflections: {e}")
         traceback.print_exc()
         return None
+
+
+def _count_words(text: str) -> int:
+    """Count words in a text string."""
+    return len(text.split())
+
+
+def _append_word_count(content: str) -> str:
+    """Append word count suffix to consolidated content."""
+    word_count = _count_words(content)
+    return f"{content}\n\n-- total words: {word_count}"
 
 
 def _get_consolidated_memory(

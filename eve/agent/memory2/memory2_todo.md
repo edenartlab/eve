@@ -2,6 +2,7 @@
 
 
 Urgent:
+- migrate all FACTS on prod with embedding
 
 
 Next:
@@ -9,6 +10,10 @@ Next:
 - Create "get_old_memories" agent tool that retrieves old reflections from certain timewindow
 
 Optional:
+
+- use the users main LLM models for memory system (tied to subscription tier)
+- auto-add word counts to consolidated memory blobs so agent is aware of context usage
+- optimize extraction prompts to omit empty memory sections (less distractions, less tokens)
 
 cleanup injection formatting:
 ```
@@ -23,9 +28,6 @@ Recent context: - The current goal is to write a short story script with xander_
 </current_session_memory>
 ```
 
-- use the users main LLM models for memory system (tied to subscription tier)
-- auto-add word counts to consolidated memory blobs so agent is aware of context usage
-- optimize extraction prompts to omit empty memory sections (less distractions, less tokens)
 
 
 

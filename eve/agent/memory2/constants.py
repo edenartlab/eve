@@ -164,7 +164,7 @@ if LOCAL_DEV:
   CONSIDER_COLD_AFTER_MINUTES = 10
 else:
   MEMORY_FORMATION_MSG_INTERVAL = DEFAULT_SESSION_SELECTION_LIMIT  # Messages between formations
-  MEMORY_FORMATION_TOKEN_INTERVAL = 1000  # ~1k tokens triggers formation
+  MEMORY_FORMATION_TOKEN_INTERVAL = 1500  # ~1k tokens triggers formation
   NEVER_FORM_MEMORIES_LESS_THAN_N_MESSAGES = 4  # Minimum before attempting to form memories
   CONSIDER_COLD_AFTER_MINUTES = 10  # Session inactivity threshold for cold session processing
 
@@ -188,8 +188,8 @@ else:
 # Maximum word count for consolidated blobs
 CONSOLIDATED_WORD_LIMITS = {
     "agent": 1000,  # Largest - agent's full persona/project state
-    "user": 400,  # Medium - user preferences and interaction style
-    "session": 400,  # Rolling summary of session events and status
+    "user": 300,  # Medium - user preferences and interaction style
+    "session": 200,  # Rolling summary of session events and status
 }
 
 # -----------------------------------------------------------------------------
