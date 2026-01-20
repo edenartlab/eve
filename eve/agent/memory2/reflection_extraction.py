@@ -19,8 +19,8 @@ from eve.agent.llm.llm import async_prompt
 from eve.agent.memory2.constants import (
     LOCAL_DEV,
     MEMORY_LLM_MODEL_SLOW,
-    REFLECTION_EXTRACTION_PROMPT,
     REFLECTION_MAX_WORDS,
+    build_reflection_extraction_prompt,
 )
 from eve.utils.system_utils import async_exponential_backoff
 from eve.agent.memory2.models import (
@@ -46,6 +46,7 @@ async def extract_reflections(
     newly_formed_facts: Optional[List[str]] = None,
     agent_persona: Optional[str] = None,
     model: str = MEMORY_LLM_MODEL_SLOW,
+    enabled_scopes: Optional[List[str]] = None,
 ) -> Dict[str, List[str]]:
     """
     Extract reflections from conversation text using LLM.
@@ -53,7 +54,7 @@ async def extract_reflections(
     This is the second LLM call in the extraction pipeline, called AFTER
     fact extraction. It receives newly formed facts to avoid redundancy.
 
-    Reflections are extracted hierarchically:
+    Reflections are extracted hierarchically (only for enabled scopes):
     1. Agent reflections (broadest scope) - extracted first
     2. User reflections - only what's NOT in agent reflections
     3. Session reflections - only what's NOT in agent/user reflections
@@ -66,25 +67,32 @@ async def extract_reflections(
         newly_formed_facts: Facts extracted from the same conversation (for deduplication)
         agent_persona: The agent's persona/description for context
         model: LLM model to use
+        enabled_scopes: List of enabled scopes ["session", "user", "agent"] or subset
 
     Returns:
-        Dictionary with keys "agent", "user", "session" containing lists of reflection strings
+        Dictionary with keys for enabled scopes containing lists of reflection strings
     """
-    try:
-        # Gather existing memory context
-        memory_context = await _gather_memory_context(agent_id, user_id, session_id)
+    # Default to all scopes if not specified
+    if enabled_scopes is None:
+        enabled_scopes = ["session", "user", "agent"]
 
-        # Build prompt
-        prompt = REFLECTION_EXTRACTION_PROMPT.format(
+    # Skip if no scopes enabled
+    if not enabled_scopes:
+        return {"agent": [], "user": [], "session": []}
+
+    try:
+        # Gather existing memory context (only for enabled scopes)
+        memory_context = await _gather_memory_context(
+            agent_id, user_id, session_id, enabled_scopes=enabled_scopes
+        )
+
+        # Build prompt with only enabled scopes
+        prompt = build_reflection_extraction_prompt(
             conversation_text=conversation_text,
             agent_persona=agent_persona or "No agent persona available.",
-            consolidated_agent_blob=memory_context["agent_blob"] or "None yet",
-            recent_agent_reflections=memory_context["agent_recent"] or "None",
-            consolidated_user_blob=memory_context["user_blob"] or "None yet",
-            recent_user_reflections=memory_context["user_recent"] or "None",
-            consolidated_session_blob=memory_context["session_blob"] or "None yet",
-            recent_session_reflections=memory_context["session_recent"] or "None",
+            memory_context=memory_context,
             newly_formed_facts=_format_facts(newly_formed_facts),
+            enabled_scopes=enabled_scopes,
             max_words=REFLECTION_MAX_WORDS,
         )
 
@@ -136,16 +144,26 @@ async def extract_reflections(
 
         extracted = ReflectionExtractionResponse(**json.loads(response.content))
 
-        # Convert to simple dict format
-        result = {
-            "agent": [r.content for r in extracted.agent_reflections],
-            "user": [r.content for r in extracted.user_reflections],
-            "session": [r.content for r in extracted.session_reflections],
-        }
+        # Convert to simple dict format, only including enabled scopes
+        result = {}
+        if "agent" in enabled_scopes:
+            result["agent"] = [r.content for r in extracted.agent_reflections]
+        else:
+            result["agent"] = []
+
+        if "user" in enabled_scopes:
+            result["user"] = [r.content for r in extracted.user_reflections]
+        else:
+            result["user"] = []
+
+        if "session" in enabled_scopes:
+            result["session"] = [r.content for r in extracted.session_reflections]
+        else:
+            result["session"] = []
 
         if LOCAL_DEV:
             total = sum(len(v) for v in result.values())
-            logger.debug(f"Extracted {total} reflections:")
+            logger.debug(f"Extracted {total} reflections (enabled scopes: {enabled_scopes}):")
             for scope, reflections in result.items():
                 if reflections:
                     logger.debug(f"  {scope}: {len(reflections)}")
@@ -164,12 +182,25 @@ async def _gather_memory_context(
     agent_id: ObjectId,
     user_id: Optional[ObjectId],
     session_id: Optional[ObjectId],
+    enabled_scopes: Optional[List[str]] = None,
 ) -> Dict[str, Optional[str]]:
     """
     Gather existing memory context for reflection extraction.
 
-    Returns consolidated blobs and recent unabsorbed reflections for all scopes.
+    Returns consolidated blobs and recent unabsorbed reflections for enabled scopes only.
+
+    Args:
+        agent_id: Agent ID
+        user_id: User ID for user-scoped context
+        session_id: Session ID for session-scoped context
+        enabled_scopes: List of enabled scopes to gather context for
+
+    Returns:
+        Dict with keys like "agent_blob", "agent_recent", etc.
     """
+    if enabled_scopes is None:
+        enabled_scopes = ["session", "user", "agent"]
+
     context = {
         "agent_blob": None,
         "agent_recent": None,
@@ -180,26 +211,27 @@ async def _gather_memory_context(
     }
 
     try:
-        # Agent-level memory
-        agent_consolidated = ConsolidatedMemory.find_one({
-            "scope_type": "agent",
-            "agent_id": agent_id,
-        })
-        if agent_consolidated:
-            context["agent_blob"] = agent_consolidated.consolidated_content
+        # Agent-level memory (only if enabled)
+        if "agent" in enabled_scopes:
+            agent_consolidated = ConsolidatedMemory.find_one({
+                "scope_type": "agent",
+                "agent_id": agent_id,
+            })
+            if agent_consolidated:
+                context["agent_blob"] = agent_consolidated.consolidated_content
 
-        agent_reflections = get_unabsorbed_reflections(
-            scope="agent",
-            agent_id=agent_id,
-            limit=10,
-        )
-        if agent_reflections:
-            context["agent_recent"] = "\n".join(
-                f"- {r.content}" for r in agent_reflections
+            agent_reflections = get_unabsorbed_reflections(
+                scope="agent",
+                agent_id=agent_id,
+                limit=10,
             )
+            if agent_reflections:
+                context["agent_recent"] = "\n".join(
+                    f"- {r.content}" for r in agent_reflections
+                )
 
-        # User-level memory (if user_id provided)
-        if user_id:
+        # User-level memory (only if enabled and user_id provided)
+        if "user" in enabled_scopes and user_id:
             user_consolidated = ConsolidatedMemory.find_one({
                 "scope_type": "user",
                 "agent_id": agent_id,
@@ -219,8 +251,8 @@ async def _gather_memory_context(
                     f"- {r.content}" for r in user_reflections
                 )
 
-        # Session-level memory (if session_id provided)
-        if session_id:
+        # Session-level memory (only if enabled and session_id provided)
+        if "session" in enabled_scopes and session_id:
             session_consolidated = ConsolidatedMemory.find_one({
                 "scope_type": "session",
                 "agent_id": agent_id,
@@ -263,12 +295,13 @@ async def extract_and_save_reflections(
     message_ids: Optional[List[ObjectId]] = None,
     newly_formed_facts: Optional[List[str]] = None,
     agent_persona: Optional[str] = None,
+    enabled_scopes: Optional[List[str]] = None,
 ) -> Tuple[Dict[str, List[Reflection]], int]:
     """
     Extract reflections from conversation and save to database.
 
     This is the main entry point for reflection extraction. It:
-    1. Calls LLM to extract reflections
+    1. Calls LLM to extract reflections (only for enabled scopes)
     2. Creates Reflection documents for each extracted reflection
     3. Saves to MongoDB
     4. Updates consolidated memory unabsorbed_ids lists
@@ -281,12 +314,17 @@ async def extract_and_save_reflections(
         message_ids: IDs of messages that were processed
         newly_formed_facts: Facts extracted from the same conversation
         agent_persona: The agent's persona/description for context
+        enabled_scopes: List of enabled scopes ["session", "user", "agent"] or subset
 
     Returns:
         Tuple of (reflections_by_scope dict, total count)
     """
+    # Default to all scopes if not specified
+    if enabled_scopes is None:
+        enabled_scopes = ["session", "user", "agent"]
+
     try:
-        # Extract reflections
+        # Extract reflections for enabled scopes only
         extracted = await extract_reflections(
             conversation_text=conversation_text,
             agent_id=agent_id,
@@ -294,13 +332,18 @@ async def extract_and_save_reflections(
             session_id=session_id,
             newly_formed_facts=newly_formed_facts,
             agent_persona=agent_persona,
+            enabled_scopes=enabled_scopes,
         )
 
         reflections_by_scope = {"agent": [], "user": [], "session": []}
         total_count = 0
 
-        # Process each scope
+        # Process each enabled scope
         for scope, contents in extracted.items():
+            # Skip scopes that aren't enabled
+            if scope not in enabled_scopes:
+                continue
+
             if not contents:
                 continue
 

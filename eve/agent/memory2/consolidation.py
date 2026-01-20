@@ -286,36 +286,44 @@ async def maybe_consolidate_all(
     user_id: Optional[ObjectId] = None,
     session_id: Optional[ObjectId] = None,
     agent_persona: Optional[str] = None,
+    enabled_scopes: Optional[List[str]] = None,
 ) -> dict:
     """
     Check and consolidate all applicable scopes if thresholds are met.
 
     Consolidations run in PARALLEL since they are independent of each other.
+    Only consolidates scopes that are enabled.
 
     Args:
         agent_id: Agent ID
         user_id: User ID (optional)
         session_id: Session ID (optional)
         agent_persona: The agent's persona/description for context
+        enabled_scopes: List of enabled scopes to consolidate (default: all)
 
     Returns:
         Dict with consolidation results for each scope
     """
+    # Default to all scopes if not specified
+    if enabled_scopes is None:
+        enabled_scopes = ["session", "user", "agent"]
+
     # Build list of consolidation tasks to run in parallel
     tasks = []
     scope_names = []
 
-    # Always check agent scope
-    tasks.append(consolidate_reflections(scope="agent", agent_id=agent_id, agent_persona=agent_persona))
-    scope_names.append("agent")
+    # Check agent scope if enabled
+    if "agent" in enabled_scopes:
+        tasks.append(consolidate_reflections(scope="agent", agent_id=agent_id, agent_persona=agent_persona))
+        scope_names.append("agent")
 
-    # Check user scope if user_id provided
-    if user_id:
+    # Check user scope if enabled and user_id provided
+    if "user" in enabled_scopes and user_id:
         tasks.append(consolidate_reflections(scope="user", agent_id=agent_id, user_id=user_id, agent_persona=agent_persona))
         scope_names.append("user")
 
-    # Check session scope if session_id provided
-    if session_id:
+    # Check session scope if enabled and session_id provided
+    if "session" in enabled_scopes and session_id:
         tasks.append(consolidate_reflections(scope="session", agent_id=agent_id, session_id=session_id, agent_persona=agent_persona))
         scope_names.append("session")
 
