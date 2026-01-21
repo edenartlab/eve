@@ -9,13 +9,8 @@ Optional:
 - use the users main LLM models for memory system (tied to subscription tier)
 
 
-
-
 Final:
 - completely remove old memory_v1 system in both eve and eden
-
-
-
 
 
 
