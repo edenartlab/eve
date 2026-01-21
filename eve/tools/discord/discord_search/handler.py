@@ -1,3 +1,4 @@
+import os
 import re
 import traceback
 from datetime import datetime, timedelta, timezone
@@ -11,7 +12,13 @@ from pydantic import BaseModel
 from eve.agent.agent import Agent
 from eve.agent.llm.llm import async_prompt
 from eve.agent.llm.metadata import ToolMetadataBuilder
-from eve.agent.session.models import ChatMessage, Deployment, LLMConfig, LLMContext
+from eve.agent.session.models import (
+    ChatMessage,
+    ClientType,
+    Deployment,
+    LLMConfig,
+    LLMContext,
+)
 from eve.mongo import MongoDocumentNotFound
 from eve.tool import ToolContext
 
@@ -108,11 +115,23 @@ Behavior:
 
     # Create Discord HTTP client directly
     http = discord.http.HTTPClient()
-    if not deployment.secrets or not deployment.secrets.discord:
-        raise Exception("Discord deployment secrets missing")
-    if not deployment.secrets.discord.token:
-        raise Exception("Discord search requires a bot token for API access")
-    await http.static_login(deployment.secrets.discord.token)
+    token: Optional[str] = None
+    if deployment.platform == ClientType.DISCORD_V3:
+        token = os.getenv("DISCORD_BOT_TOKEN")
+        if not token and deployment.secrets and deployment.secrets.discord:
+            token = deployment.secrets.discord.token
+        if not token:
+            raise Exception(
+                "DISCORD_BOT_TOKEN is required for discord_search on discord_v3 deployments"
+            )
+    else:
+        if not deployment.secrets or not deployment.secrets.discord:
+            raise Exception("Discord deployment secrets missing")
+        token = deployment.secrets.discord.token
+        if not token:
+            raise Exception("Discord search requires a bot token for API access")
+
+    await http.static_login(token)
 
     try:
         messages: List[Dict[str, Any]] = []
