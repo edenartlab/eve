@@ -38,10 +38,7 @@ from eve.agent.memory2.constants import (
     FACTS_FIFO_ENABLED,
     Memory2Config,
 )
-from eve.agent.memory2.context_assembly import (
-    assemble_always_in_context_memory,
-    clear_memory_cache,
-)
+from eve.agent.memory2.context_assembly import get_memory_context_for_session
 from eve.agent.memory2.reflection_extraction import extract_and_save_reflections
 
 
@@ -84,8 +81,12 @@ def messages_to_text(
         if skip_trigger_messages and getattr(msg, "trigger", False):
             continue
 
+        # Skip messages with no content
+        content = (msg.content or "").strip()
+        if not content and not (hasattr(msg, "tool_calls") and msg.tool_calls):
+            continue
+
         speaker = sender_map.get(msg.sender) or msg.name or msg.role
-        content = msg.content or ""
 
         # Count characters by source
         if msg.role == "user":
@@ -373,17 +374,13 @@ async def form_memories(
             if consolidated_scopes:
                 print(f"\n✓ Consolidated scopes: {', '.join(consolidated_scopes)}")
 
-        # --- Refresh memory context ---
-        await clear_memory_cache(session)
-        memory_xml = await assemble_always_in_context_memory(
+        # --- Refresh memory context (force rebuild after forming memories) ---
+        memory_xml = await get_memory_context_for_session(
+            session=session,
             agent_id=agent_id,
-            user_id=user_id,
-            session_id=session_id,
-            config=config,
+            last_speaker_id=user_id,
+            force_refresh=True,
         )
-
-        # Update session cache
-        _update_session_cache(session, memory_xml)
 
         elapsed = time.time() - start_time
         if LOCAL_DEV:
@@ -514,23 +511,10 @@ def _update_memory_context(
 
         # Save to database
         session.update(memory_context=memory_context.model_dump())
+        _ensure_memory_context_object(session)  # Re-instantiate as model object
 
     except Exception as e:
         logger.error(f"Error updating memory context: {e}")
-
-
-def _update_session_cache(session, memory_xml: str) -> None:
-    """
-    Update the session's cached memory context.
-    """
-    try:
-        memory_context = _ensure_memory_context_object(session)
-        memory_context.cached_memory_context = memory_xml
-        memory_context.memory_context_timestamp = datetime.now(timezone.utc)
-        # Note: We don't save here - the cache is transient and will be saved
-        # with the next session update
-    except Exception as e:
-        logger.error(f"Error updating session cache: {e}")
 
 
 def _extract_user_id(

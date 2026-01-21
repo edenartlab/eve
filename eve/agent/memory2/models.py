@@ -172,10 +172,11 @@ class Fact(Document):
         """Ensure indexes exist for optimal query performance."""
         collection = cls.get_collection()
 
-        # Deduplication index
+        # Deduplication index (UNIQUE to prevent duplicate facts)
         collection.create_index(
             [("hash", 1), ("agent_id", 1)],
             name="fact_dedup_idx",
+            unique=True,
             background=True,
         )
 

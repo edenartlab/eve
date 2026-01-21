@@ -280,9 +280,14 @@ async def _gather_memory_context(
 
 
 def _format_facts(facts: Optional[List[str]]) -> str:
-    """Format newly formed facts for inclusion in prompt."""
+    """
+    Format newly formed facts for inclusion in prompt.
+
+    Returns empty string if no facts, allowing the facts section
+    to be completely omitted from the prompt.
+    """
     if not facts:
-        return "None extracted in this pass"
+        return ""
 
     return "\n".join(f"- {fact}" for fact in facts)
 

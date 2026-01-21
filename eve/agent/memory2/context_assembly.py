@@ -59,6 +59,66 @@ def ensure_utc(dt: Optional[datetime]) -> Optional[datetime]:
     return dt
 
 
+def format_temporal_age(dt: datetime) -> str:
+    """
+    Format a datetime as a concise human-readable age suffix.
+
+    Returns strings like: "4m ago", "2h ago", "3d ago", "1 week ago", "2 months ago"
+    """
+    dt = ensure_utc(dt)
+    now = datetime.now(timezone.utc)
+    delta = now - dt
+
+    total_seconds = delta.total_seconds()
+
+    # Less than 1 hour: show minutes
+    if total_seconds < 3600:
+        minutes = max(1, int(total_seconds / 60))
+        return f"{minutes}m ago"
+
+    # Less than 24 hours: show hours
+    if total_seconds < 86400:
+        hours = int(total_seconds / 3600)
+        return f"{hours}h ago"
+
+    # Less than 7 days: show days
+    if total_seconds < 604800:
+        days = int(total_seconds / 86400)
+        return f"{days}d ago"
+
+    # Less than 4 weeks: show weeks
+    if total_seconds < 2419200:
+        weeks = int(total_seconds / 604800)
+        return f"{weeks} week{'s' if weeks > 1 else ''} ago"
+
+    # Less than 12 months: show months
+    if total_seconds < 31536000:
+        months = int(total_seconds / 2592000)
+        return f"{months} month{'s' if months > 1 else ''} ago"
+
+    # 1+ years
+    years = int(total_seconds / 31536000)
+    return f"{years} year{'s' if years > 1 else ''} ago"
+
+
+def format_fact_with_age(fact) -> str:
+    """
+    Format a Fact's content with a temporal age suffix.
+
+    Uses updated_at if the fact was edited, otherwise uses formed_at.
+
+    Args:
+        fact: A Fact object with content, formed_at, and optional updated_at fields
+
+    Returns:
+        Fact content with age suffix, e.g. "User likes coffee (3d ago)"
+    """
+    # Use updated_at if fact was edited, otherwise use formed_at
+    timestamp = fact.updated_at if fact.updated_at else fact.formed_at
+    age_suffix = format_temporal_age(timestamp)
+    return f"{fact.content} ({age_suffix})"
+
+
 async def _timed_get_scope_memory(
     scope: str,
     agent_id: ObjectId,
@@ -200,11 +260,12 @@ async def assemble_always_in_context_memory(
                 fact_scopes,  # Filter by enabled scopes
             )
             if facts:
-                # Format facts with scope indicator
+                # Format facts with scope indicator and temporal age
                 facts_lines = []
                 for fact in facts:
                     scope_str = fact.scope[0] if isinstance(fact.scope, list) else fact.scope
-                    facts_lines.append(f"- [{scope_str}] {fact.content}")
+                    fact_with_age = format_fact_with_age(fact)
+                    facts_lines.append(f"- [{scope_str}] {fact_with_age}")
                 facts_content = "\n".join(facts_lines)
 
             facts_duration = time.time() - facts_start
@@ -496,9 +557,11 @@ async def get_memory_context_for_session(
             config=config,
         )
 
-        # Update session cache
+        # Update session cache and persist to DB
         memory_context.cached_memory_context = memory_xml
         memory_context.memory_context_timestamp = datetime.now(timezone.utc)
+        session.update(memory_context=memory_context.model_dump())
+        _ensure_memory_context_object(session)  # Re-instantiate as model object
 
         total_duration = time.time() - start_time
         _log_debug(
@@ -597,25 +660,3 @@ def _ensure_memory_context_object(session):
         session.memory_context = SessionMemoryContext(**session.memory_context)
 
     return session.memory_context
-
-
-async def clear_memory_cache(session) -> None:
-    """
-    Clear the cached memory context for a session.
-
-    Call this when you know the memory has changed and you want
-    the next context assembly to be fresh.
-
-    Args:
-        session: Session object
-    """
-    try:
-        memory_context = _ensure_memory_context_object(session)
-        memory_context.cached_memory_context = None
-        memory_context.memory_context_timestamp = None
-
-        if LOCAL_DEV:
-            logger.debug("Cleared memory context cache")
-
-    except Exception as e:
-        logger.error(f"Error clearing memory cache: {e}")
