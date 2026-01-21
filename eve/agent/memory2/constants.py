@@ -1,23 +1,35 @@
 """
-Memory System v2 - Constants and Configuration
+Memory System v2 - Constants and Configuration (Refactored)
 
 This module contains all configurable thresholds, limits, and prompts for the
 memory system. Values are tuned based on production experience from memory v1.
 
-Prompts are structured as modular chunks that can be conditionally assembled
-based on which memory scopes are enabled (user_memory_enabled, agent_memory_enabled).
+REFACTORED APPROACH:
+- Prompts are now defined as complete, readable templates with section markers
+- Section markers use {# SECTION:name #} ... {# END:name #} syntax
+- A post-processor removes disabled sections and cleans up whitespace
+- This makes prompts readable as complete documents while preserving conditional behavior
+
 Session memory is always active when any memory is enabled.
 """
 
+import re
 from dataclasses import dataclass
-from typing import List, Literal, Optional
+from typing import List, Optional, Set
 
 from eve.agent.session.config import DEFAULT_SESSION_SELECTION_LIMIT
 
 
-# -----------------------------------------------------------------------------
-# Memory2 Configuration
-# -----------------------------------------------------------------------------
+# =============================================================================
+# Development/Production Toggle
+# =============================================================================
+LOCAL_DEV = False  # Set to False for production
+
+
+
+# =============================================================================
+# Memory2 Configuration (unchanged from original)
+# =============================================================================
 @dataclass
 class Memory2Config:
     """
@@ -139,14 +151,10 @@ def is_multi_user_session(session) -> bool:
     users = getattr(session, "users", None) or []
     return len(users) > 1
 
-# -----------------------------------------------------------------------------
-# Development/Production Toggle
-# -----------------------------------------------------------------------------
-LOCAL_DEV = False  # Set to False for production
 
-# -----------------------------------------------------------------------------
+# =============================================================================
 # LLM Model Configuration
-# -----------------------------------------------------------------------------
+# =============================================================================
 if LOCAL_DEV:
     MEMORY_LLM_MODEL_FAST = "gemini-3-flash-preview"
     MEMORY_LLM_MODEL_SLOW = "gemini-3-flash-preview"
@@ -154,36 +162,38 @@ else:
     MEMORY_LLM_MODEL_FAST = "gemini-3-flash-preview"
     MEMORY_LLM_MODEL_SLOW = "gemini-3-flash-preview"
 
-# -----------------------------------------------------------------------------
+
+# =============================================================================
 # Memory Formation Triggers
-# -----------------------------------------------------------------------------
+# =============================================================================
 if LOCAL_DEV:
-  MEMORY_FORMATION_MSG_INTERVAL = 4
-  MEMORY_FORMATION_TOKEN_INTERVAL = 500
-  NEVER_FORM_MEMORIES_LESS_THAN_N_MESSAGES = 2
-  CONSIDER_COLD_AFTER_MINUTES = 10
+    MEMORY_FORMATION_MSG_INTERVAL = 4
+    MEMORY_FORMATION_TOKEN_INTERVAL = 500
+    NEVER_FORM_MEMORIES_LESS_THAN_N_MESSAGES = 2
+    CONSIDER_COLD_AFTER_MINUTES = 10
 else:
-  MEMORY_FORMATION_MSG_INTERVAL = DEFAULT_SESSION_SELECTION_LIMIT  # Messages between formations
-  MEMORY_FORMATION_TOKEN_INTERVAL = 1500  # ~1k tokens triggers formation
-  NEVER_FORM_MEMORIES_LESS_THAN_N_MESSAGES = 4  # Minimum before attempting to form memories
-  CONSIDER_COLD_AFTER_MINUTES = 10  # Session inactivity threshold for cold session processing
+    MEMORY_FORMATION_MSG_INTERVAL = DEFAULT_SESSION_SELECTION_LIMIT  # Messages between formations
+    MEMORY_FORMATION_TOKEN_INTERVAL = 1500  # ~1.5k tokens triggers formation
+    NEVER_FORM_MEMORIES_LESS_THAN_N_MESSAGES = 4  # Minimum before attempting to form memories
+    CONSIDER_COLD_AFTER_MINUTES = 10  # Session inactivity threshold for cold session processing
 
-# -----------------------------------------------------------------------------
+
+# =============================================================================
 # Consolidation Thresholds
-# -----------------------------------------------------------------------------
+# =============================================================================
 # Number of unabsorbed reflections before triggering consolidation
 if LOCAL_DEV:
-  CONSOLIDATION_THRESHOLDS = {
-    "agent": 2,
-    "user": 2,
-    "session": 2,
-  }
+    CONSOLIDATION_THRESHOLDS = {
+        "agent": 2,
+        "user": 2,
+        "session": 2,
+    }
 else:
-  CONSOLIDATION_THRESHOLDS = {
-    "agent": 8,
-    "user": 4,
-    "session": 4,
-  }
+    CONSOLIDATION_THRESHOLDS = {
+        "agent": 8,
+        "user": 4,
+        "session": 4,
+    }
 
 # Maximum word count for consolidated blobs
 CONSOLIDATED_WORD_LIMITS = {
@@ -192,29 +202,33 @@ CONSOLIDATED_WORD_LIMITS = {
     "session": 200,  # Rolling summary of session events and status
 }
 
-# -----------------------------------------------------------------------------
+
+# =============================================================================
 # Memory Word Limits (individual items)
-# -----------------------------------------------------------------------------
+# =============================================================================
 FACT_MAX_WORDS = 30  # Per fact item
 REFLECTION_MAX_WORDS = 35  # Per reflection item
 
-# -----------------------------------------------------------------------------
+
+# =============================================================================
 # RAG Configuration
-# -----------------------------------------------------------------------------
+# =============================================================================
 SIMILARITY_THRESHOLD = 0.7  # Threshold for candidate retrieval in deduplication
 RAG_TOP_K = 10  # Number of facts to retrieve in RAG queries
 EMBEDDING_MODEL = "text-embedding-3-small"
 EMBEDDING_DIMENSIONS = 1536
 
-# -----------------------------------------------------------------------------
+
+# =============================================================================
 # Feature Toggles
-# -----------------------------------------------------------------------------
+# =============================================================================
 RAG_ENABLED = False  # Can be toggled independently
 ALWAYS_IN_CONTEXT_ENABLED = True  # Can be toggled independently
 
-# -----------------------------------------------------------------------------
+
+# =============================================================================
 # TEMPORARY: Facts FIFO Mode
-# -----------------------------------------------------------------------------
+# =============================================================================
 # This is a TEMPORARY setup that enables fact extraction without full RAG.
 # Facts are extracted, embedded, and stored - but retrieved via simple FIFO
 # (most recent N facts) instead of semantic vector search.
@@ -230,22 +244,116 @@ ALWAYS_IN_CONTEXT_ENABLED = True  # Can be toggled independently
 # 4. Facts already have embeddings, so no migration needed for existing data
 #
 # See memory2.md section "Temporary FIFO Facts Mode" for full documentation.
-# -----------------------------------------------------------------------------
+# =============================================================================
 FACTS_FIFO_ENABLED = True   # Enable simple FIFO facts (temporary, pre-RAG)
 FACTS_FIFO_LIMIT = 50       # Number of recent facts to include in context
 
-# -----------------------------------------------------------------------------
-# Prompt Templates - Modular Chunks
-# -----------------------------------------------------------------------------
-# Prompts are broken into modular chunks that can be conditionally assembled
-# based on enabled memory scopes (user_memory_enabled, agent_memory_enabled).
+
+# =============================================================================
+# TEMPLATE POST-PROCESSOR
+# =============================================================================
+# Section marker pattern: {# SECTION:name #} ... {# END:name #}
+
+def _process_template(
+    template: str,
+    values: dict,
+    enabled_sections: Set[str],
+) -> str:
+    """
+    Process a template by:
+    1. Removing disabled sections (between {# SECTION:x #} and {# END:x #})
+    2. Removing section markers from enabled sections
+    3. Formatting with provided values
+    4. Cleaning up extra blank lines
+
+    Args:
+        template: The template string with section markers
+        values: Dict of values to format into the template
+        enabled_sections: Set of section names to keep (others are removed)
+
+    Returns:
+        Processed template string
+    """
+    result = template
+
+    # Find all section names in the template
+    all_sections = set(re.findall(r'\{# SECTION:(\w+) #\}', result))
+
+    # Remove disabled sections entirely (including their content)
+    for section in all_sections - enabled_sections:
+        # Pattern matches from SECTION marker to END marker, including newlines
+        pattern = rf'\{{# SECTION:{section} #\}}.*?\{{# END:{section} #\}}\n?'
+        result = re.sub(pattern, '', result, flags=re.DOTALL)
+
+    # Strip section markers from enabled sections (keep content)
+    result = re.sub(r'\{# SECTION:\w+ #\}\n?', '', result)
+    result = re.sub(r'\{# END:\w+ #\}\n?', '', result)
+
+    # Format with values
+    result = result.format(**values)
+
+    # Clean up multiple consecutive blank lines (3+ newlines -> 2)
+    result = re.sub(r'\n{3,}', '\n\n', result)
+
+    return result.strip()
+
+
+def _has_content(value: Optional[str]) -> bool:
+    """Check if a value has actual content (not None, empty, or placeholder)."""
+    if value is None:
+        return False
+    stripped = value.strip()
+    return bool(stripped) and stripped.lower() not in ("none", "none yet")
+
+
+def _format_memory_section(
+    scope: str,
+    blob: Optional[str],
+    recent: Optional[str],
+) -> str:
+    """
+    Format a memory section with blob and recent content.
+
+    Returns empty string if both blob and recent are empty/None.
+    Only includes lines that have actual content.
+
+    Args:
+        scope: The scope type ("agent", "user", "session")
+        blob: Consolidated blob content (or None)
+        recent: Recent reflections content (or None)
+
+    Returns:
+        Formatted memory section string, or empty string if no content
+    """
+    has_blob = _has_content(blob)
+    has_recent = _has_content(recent)
+
+    # Return empty if no content at all
+    if not has_blob and not has_recent:
+        return ""
+
+    tag_name = f"current_{scope}_memory"
+    lines = [f"<{tag_name}>"]
+
+    if has_blob:
+        lines.append(blob.strip())
+
+    if has_recent:
+        lines.append(f"Recent context: {recent.strip()}")
+
+    lines.append(f"</{tag_name}>")
+
+    return "\n".join(lines)
 
 
 # =============================================================================
-# FACT EXTRACTION PROMPT CHUNKS
+# FACT EXTRACTION PROMPT TEMPLATE
 # =============================================================================
+# This is the complete fact extraction prompt with section markers.
+# Sections marked with {# SECTION:user #} are included only when user scope is enabled.
+# Sections marked with {# SECTION:agent #} are included only when agent scope is enabled.
 
-FACT_PROMPT_HEADER = """You are the 'Librarian' for an AI agent system. Your job is to extract concrete, searchable data points from a conversation to be stored in a RAG (retrieval) database system.
+FACT_EXTRACTION_TEMPLATE = """You are the 'Librarian' for an AI agent system. Your job is to extract concrete, searchable data points from a conversation to be stored in a RAG (retrieval) database system.
 
 The following is the persona/description of the agent whose database you are managing. Use this to understand the agent's identity and purpose when deciding what facts to extract.
 <agent_persona_context>
@@ -276,15 +384,17 @@ DO NOT extract as facts:
 - **Current Context:** "We are debugging the login issue"
 - **Opinions:** "Bob thinks we should use React"
 - **Ephemeral State:** "There is a bug in production right now" or "Gene has lost his headphones"
-All of the above will be captured as reflections and are not FACTS."""
+All of the above will be captured as reflections and are not FACTS.
 
-# Scope definition chunks - conditionally included
-FACT_SCOPE_USER = """* **"user"**: Private details about the specific user interacting right now (names, contact info, job, specific preferences that act as data)."""
+## SCOPE DEFINITIONS
+{# SECTION:user #}
+* **"user"**: Private details about the specific user interacting right now (names, contact info, job, specific preferences that act as data).
+{# END:user #}
+{# SECTION:agent #}
+* **"agent"**: Collective knowledge, world-building, or project details that apply to *anyone* talking to this agent (team roster, project specs, global deadlines).
+{# END:agent #}
 
-FACT_SCOPE_AGENT = """* **"agent"**: Collective knowledge, world-building, or project details that apply to *anyone* talking to this agent (team roster, project specs, global deadlines)."""
-
-# Example chunks - conditionally included based on enabled scopes
-FACT_EXAMPLES_HEADER = """## EXAMPLES
+## EXAMPLES
 | Text | Extract? | Scope | Reasoning |
 | :--- | :--- | :--- | :--- |
 | "My name is John Doe." | NO | - | This is a highly salient detail that should always be in context. (Reflection) |
@@ -292,21 +402,22 @@ FACT_EXAMPLES_HEADER = """## EXAMPLES
 | "We are debugging the login." | NO | - | This is a current status/state (Reflection). |
 | "I'm feeling sad today." | NO | - | Temporary emotional state. |
 | "I'm currently camping in Paris." | NO | - | Temporary state. |
-| "Jordan requested an image of a buff golden retriever." | NO | - | This is an ephemeral event, not actionable information. |"""
-
-FACT_EXAMPLES_USER = """| "My personal email is j.smith@gmail.com." | YES | user | Specific, retrieval-worthy data. |"""
-
-FACT_EXAMPLES_AGENT = """| "The total project budget is $50k." | YES | agent | Specific number, relevant to the project. |
+| "Jordan requested an image of a buff golden retriever." | NO | - | This is an ephemeral event, not actionable information. |
+{# SECTION:agent #}
+| "The total project budget is $50k." | YES | agent | Specific number, relevant to the project. |
 | "The server IP is 192.168.1.1" | YES | agent | Specific, retrieval-worthy data. |
-| "The Figma link for the new design is figma.com/file/xyz..." | YES | agent | Specific, retrieval-worthy data. |"""
+| "The Figma link for the new design is figma.com/file/xyz..." | YES | agent | Specific, retrieval-worthy data. |
+{# END:agent #}
+{# SECTION:user #}
+| "My personal email is j.smith@gmail.com." | YES | user | Specific, retrieval-worthy data. |
+{# END:user #}
 
-FACT_PROMPT_FOOTER = """
 ## INSTRUCTIONS
-Read the conversation below. Extract ONLY facts that meet the criteria (if any). Most conversations have FEW or NO facts.
+Read the conversation_segment below. Extract ONLY facts that meet the criteria (if any). Most conversations have FEW or NO facts.
 
-<conversation>
+<conversation_segment>
 {conversation_text}
-</conversation>
+</conversation_segment>
 
 Return a JSON object:
 {{
@@ -316,9 +427,6 @@ Return a JSON object:
 }}
 If no facts are found, return {{ "facts": [] }}.
 """
-
-FACT_JSON_EXAMPLE_USER = '    {{ "content": "User\'s email is john@example.com", "scope": "user" }}'
-FACT_JSON_EXAMPLE_AGENT = '    {{ "content": "Project Apollo launch date is June 1st", "scope": "agent" }}'
 
 
 def build_fact_extraction_prompt(
@@ -342,45 +450,41 @@ def build_fact_extraction_prompt(
     if not enabled_scopes:
         return ""
 
-    parts = [FACT_PROMPT_HEADER.format(agent_persona=agent_persona, max_words=max_words)]
-
-    # Add scope definitions
-    scope_defs = []
-    if "user" in enabled_scopes:
-        scope_defs.append(FACT_SCOPE_USER)
-    if "agent" in enabled_scopes:
-        scope_defs.append(FACT_SCOPE_AGENT)
-
-    if scope_defs:
-        parts.append("\n\n## SCOPE DEFINITIONS")
-        parts.append("\n".join(scope_defs))
-
-    # Add examples
-    parts.append("\n\n" + FACT_EXAMPLES_HEADER)
-    if "agent" in enabled_scopes:
-        parts.append(FACT_EXAMPLES_AGENT)
-    if "user" in enabled_scopes:
-        parts.append(FACT_EXAMPLES_USER)
-
-    # Add footer with JSON examples
+    # Build JSON examples based on enabled scopes (user first, then agent - matches original)
+    # Note: Double braces {{ }} are literal characters that appear in output (not format escapes)
     json_examples = []
     if "user" in enabled_scopes:
-        json_examples.append(FACT_JSON_EXAMPLE_USER)
+        json_examples.append('    {{ "content": "User\'s email is john@example.com", "scope": "user" }}')
     if "agent" in enabled_scopes:
-        json_examples.append(FACT_JSON_EXAMPLE_AGENT)
+        json_examples.append('    {{ "content": "Project Apollo launch date is June 1st", "scope": "agent" }}')
 
-    parts.append(FACT_PROMPT_FOOTER.format(
-        conversation_text=conversation_text,
-        json_examples=",\n".join(json_examples) if json_examples else ""
-    ))
+    # Determine enabled sections
+    enabled_sections = set()
+    if "user" in enabled_scopes:
+        enabled_sections.add("user")
+    if "agent" in enabled_scopes:
+        enabled_sections.add("agent")
 
-    return "\n".join(parts)
+    return _process_template(
+        template=FACT_EXTRACTION_TEMPLATE,
+        values={
+            "agent_persona": agent_persona,
+            "max_words": max_words,
+            "conversation_text": conversation_text,
+            "json_examples": ",\n".join(json_examples) if json_examples else "",
+        },
+        enabled_sections=enabled_sections,
+    )
+
 
 # =============================================================================
-# REFLECTION EXTRACTION PROMPT CHUNKS
+# REFLECTION EXTRACTION PROMPT TEMPLATE
 # =============================================================================
+# This is the complete reflection extraction prompt with section markers.
+# Memory sections are injected as pre-formatted content.
+# Hierarchy sections are conditionally included based on enabled scopes.
 
-REFLECTION_PROMPT_HEADER = """You are the 'Memory Manager' for an AI agent. Your goal is to update the agent's "Working Memory" (Reflections) based on a recent conversation_segment.
+REFLECTION_EXTRACTION_TEMPLATE = """You are the 'Memory Manager' for an AI agent. Your goal is to update the agent's "Working Memory" (Reflections) based on a recent conversation_segment.
 
 The following is the persona/description of the agent whose memory you are forming. Use this to understand the agent's identity and purpose when deciding what reflections to extract.
 <agent_persona_context>
@@ -392,102 +496,38 @@ Reflections are **Always-On Context** memories. They are injected into the promp
 Look at what happened in the conversation and decide: "What does the agent need to remember to behave optimally in the future?"
 
 ## CURRENT MEMORY STATE (don't extract anything the agent already knows)
-"""
-
-# Memory context chunks - now built dynamically via _build_memory_section()
-# These constants are kept for reference but the actual building is done conditionally
-
-REFLECTION_FACTS_SECTION = """
-These new FACTS were extracted from the same conversation_segment and will be retrievable by the agent through a RAG tool-call when needed to answer specific questions.
+{memory_sections}{# SECTION:has_facts #}These new FACTS were extracted from the same conversation_segment and will be retrievable by the agent through a RAG tool-call when needed to answer specific questions.
 These FACTS however, won't be in context by default. Sometimes important REFLECTIONS (that should influence default agent behavior) can therefore overlap with these FACTS.
 <newly_formed_facts>
 {newly_formed_facts}
 </newly_formed_facts>
-"""
 
+{# END:has_facts #}## EXTRACTION HIERARCHY - each level should only contain information not already captured at a higher level
+{# SECTION:agent #}
 
-def _has_content(value: Optional[str]) -> bool:
-    """Check if a value has actual content (not None, empty, or placeholder)."""
-    if value is None:
-        return False
-    stripped = value.strip()
-    return bool(stripped) and stripped.lower() not in ("none", "none yet")
-
-
-def _build_memory_section(
-    scope: str,
-    blob: Optional[str],
-    recent: Optional[str],
-) -> Optional[str]:
-    """
-    Build a memory section only if it has actual content.
-
-    Returns None if both blob and recent are empty/None.
-    Only includes lines that have actual content.
-
-    Args:
-        scope: The scope type ("agent", "user", "session")
-        blob: Consolidated blob content (or None)
-        recent: Recent reflections content (or None)
-
-    Returns:
-        Formatted memory section string, or None if no content
-    """
-    has_blob = _has_content(blob)
-    has_recent = _has_content(recent)
-
-    # Skip entire section if no content at all
-    if not has_blob and not has_recent:
-        return None
-
-    tag_name = f"current_{scope}_memory"
-    lines = [f"<{tag_name}>"]
-
-    if has_blob:
-        lines.append(blob.strip())
-
-    if has_recent:
-        lines.append(f"Recent context: {recent.strip()}")
-
-    lines.append(f"</{tag_name}>")
-
-    return "\n".join(lines)
-
-REFLECTION_CONVERSATION_SECTION = """
-## Actual conversation text to extract reflections from:
-<conversation_segment>
-{conversation_text}
-</conversation_segment>
-
-## EXTRACTION HIERARCHY - each level should only contain information not already captured at a higher level
-"""
-
-# Hierarchy chunks - conditionally included based on enabled scopes
-REFLECTION_HIERARCHY_AGENT = """
-### AGENT REFLECTIONS (Global Knowledge)
+### {agent_hierarchy_num}.AGENT REFLECTIONS (Global Knowledge)
 *Information that applies to ALL conversations with all users and the Agent's core identity & behavior.*
 * **Projects & Milestones:** "The Mars Festival project has moved to Phase 2."
 * **Learnings:** "Xander is working on a collective creative event and looking for collaborators."
 * **World State:** "The API is currently in maintenance mode."
-"""
+{# END:agent #}
+{# SECTION:user #}
 
-REFLECTION_HIERARCHY_USER = """
-### USER REFLECTIONS (Personal Profile - affects all conversations with THIS user only)
+### {user_hierarchy_num}.USER REFLECTIONS (Personal Profile - affects all conversations with THIS user only)
 *Evolving context with a specific user.*
 * **Behavioral Rules:** "Jmill prefers Python over C++." / "Seth always wants to confirm before running expensive toolcalls"
 * **Skills / Interests / Goals:** "Xander is a programmer interested in projection mapping and wants to become a DJ."
 * **Project Tracking:** "Gene is working on a realtime, physical interface for AI agents"
-"""
+{# END:user #}
+{# SECTION:session #}
 
-REFLECTION_HIERARCHY_SESSION = """
-### SESSION REFLECTIONS (The "Thread")
+### {session_hierarchy_num}.SESSION REFLECTIONS (The "Thread")
 *Important context relevant to the CURRENT session that will disappear when the current conversation_segment disappears from context.*
 * **High level goals:** "We are generating a short AI movie about Mars College with 5 scenes."
 * **Assets to pin:** "Jmill provided the main character image at https://d14i3advvh2bvd.cloudfront.net/..."
 * **Corrections:** "Xander does not like impressionistic styles and wants the character to always be centered."
-"""
+{# END:session #}
 
-REFLECTION_PROMPT_RULES = """
 ## EXTRACTION RULES
 - Avoid extracting ephemeral statements that won't be true for longer than a few hours.
 - Any information you do not extract as a reflection here (and is not already in CURRENT MEMORY STATE) is permanently lost from the agents memory.
@@ -501,6 +541,11 @@ REFLECTION_PROMPT_RULES = """
 * **Redundancy:** Do not extract things already present in CURRENT MEMORY STATE unless the status has *changed*.
 * **Chitchat:** "User said hello" is not a reflection.
 * **Ephemeral information:** "There is a small bug on staging right now" will likely no longer be true in the very near future.
+
+## Actual conversation text to extract reflections from:
+<conversation_segment>
+{conversation_text}
+</conversation_segment>
 
 Return JSON:
 {{
@@ -536,66 +581,61 @@ def build_reflection_extraction_prompt(
     Returns:
         Complete prompt string
     """
-    parts = [REFLECTION_PROMPT_HEADER.format(agent_persona=agent_persona)]
-
-    # Add memory context sections for enabled scopes (only if they have content)
-    memory_sections_added = False
+    # Build memory sections for enabled scopes (only if they have content)
+    memory_parts = []
 
     if "agent" in enabled_scopes:
-        agent_section = _build_memory_section(
+        agent_section = _format_memory_section(
             scope="agent",
             blob=memory_context.get("agent_blob"),
             recent=memory_context.get("agent_recent"),
         )
         if agent_section:
-            parts.append("\n" + agent_section)
-            memory_sections_added = True
+            memory_parts.append(agent_section)
 
     if "user" in enabled_scopes:
-        user_section = _build_memory_section(
+        user_section = _format_memory_section(
             scope="user",
             blob=memory_context.get("user_blob"),
             recent=memory_context.get("user_recent"),
         )
         if user_section:
-            parts.append("\n" + user_section)
-            memory_sections_added = True
+            memory_parts.append(user_section)
 
     if "session" in enabled_scopes:
-        session_section = _build_memory_section(
+        session_section = _format_memory_section(
             scope="session",
             blob=memory_context.get("session_blob"),
             recent=memory_context.get("session_recent"),
         )
         if session_section:
-            parts.append("\n" + session_section)
-            memory_sections_added = True
+            memory_parts.append(session_section)
 
-    # If no memory sections were added, add a note
-    if not memory_sections_added:
-        parts.append("\nNo existing memory context yet.")
+    # If no memory sections, add placeholder note
+    # Each section needs leading \n (for blank line before it) to match original
+    # Also add trailing \n to separate from next section
+    if memory_parts:
+        memory_sections = "".join("\n" + part for part in memory_parts) + "\n"
+    else:
+        memory_sections = "\nNo existing memory context yet.\n\n"
 
-    # Add facts section only if there are newly formed facts
-    if newly_formed_facts and newly_formed_facts.strip():
-        parts.append(REFLECTION_FACTS_SECTION.format(newly_formed_facts=newly_formed_facts))
-
-    # Add conversation section
-    parts.append(REFLECTION_CONVERSATION_SECTION.format(conversation_text=conversation_text))
-
-    # Add hierarchy sections for enabled scopes (order: agent -> user -> session)
+    # Calculate hierarchy numbers based on enabled scopes (order: agent -> user -> session)
     hierarchy_num = 1
+    agent_hierarchy_num = ""
+    user_hierarchy_num = ""
+    session_hierarchy_num = ""
+
     if "agent" in enabled_scopes:
-        parts.append(f"\n### {hierarchy_num}." + REFLECTION_HIERARCHY_AGENT.lstrip("\n### "))
+        agent_hierarchy_num = str(hierarchy_num)
         hierarchy_num += 1
-
     if "user" in enabled_scopes:
-        parts.append(f"\n### {hierarchy_num}." + REFLECTION_HIERARCHY_USER.lstrip("\n### "))
+        user_hierarchy_num = str(hierarchy_num)
         hierarchy_num += 1
-
     if "session" in enabled_scopes:
-        parts.append(f"\n### {hierarchy_num}." + REFLECTION_HIERARCHY_SESSION.lstrip("\n### "))
+        session_hierarchy_num = str(hierarchy_num)
 
     # Build JSON fields based on enabled scopes
+    # Note: Double braces {{ }} are literal characters that appear in output (not format escapes)
     json_fields = []
     if "agent" in enabled_scopes:
         json_fields.append('  "agent_reflections": [{{"content": "..."}}]')
@@ -604,14 +644,37 @@ def build_reflection_extraction_prompt(
     if "session" in enabled_scopes:
         json_fields.append('  "session_reflections": [{{"content": "..."}}]')
 
-    parts.append(REFLECTION_PROMPT_RULES.format(
-        max_words=max_words,
-        json_fields=",\n".join(json_fields),
-    ))
+    # Determine enabled sections
+    enabled_sections = set()
+    if "agent" in enabled_scopes:
+        enabled_sections.add("agent")
+    if "user" in enabled_scopes:
+        enabled_sections.add("user")
+    if "session" in enabled_scopes:
+        enabled_sections.add("session")
+    if newly_formed_facts and newly_formed_facts.strip():
+        enabled_sections.add("has_facts")
 
-    return "".join(parts)
+    return _process_template(
+        template=REFLECTION_EXTRACTION_TEMPLATE,
+        values={
+            "agent_persona": agent_persona,
+            "memory_sections": memory_sections,
+            "newly_formed_facts": newly_formed_facts,
+            "conversation_text": conversation_text,
+            "agent_hierarchy_num": agent_hierarchy_num,
+            "user_hierarchy_num": user_hierarchy_num,
+            "session_hierarchy_num": session_hierarchy_num,
+            "max_words": max_words,
+            "json_fields": ",\n".join(json_fields),
+        },
+        enabled_sections=enabled_sections,
+    )
 
-# Consolidation prompt template (used for all scope levels)
+
+# =============================================================================
+# CONSOLIDATION PROMPT (unchanged - already follows good pattern)
+# =============================================================================
 CONSOLIDATION_PROMPT = """You are consolidating {scope_type} memory reflections for an AI agent. Your job is to merge new reflections into the agent's long-term memory blob.
 Since memories consume context, your goal is to preserve highly salient, important and actionable information while discarding irrelevant or outdated memories.
 
@@ -651,7 +714,9 @@ Return ONLY the updated consolidated memory text.
 """
 
 
-# Memory Update Decision prompt (for fact deduplication)
+# =============================================================================
+# MEMORY UPDATE DECISION PROMPT (unchanged - for fact deduplication)
+# =============================================================================
 MEMORY_UPDATE_DECISION_PROMPT = """You are managing a fact database. Compare new facts against existing memories
 and decide what action to take for each.
 
@@ -713,7 +778,10 @@ Guidelines:
 - When in doubt between UPDATE and ADD, prefer UPDATE to avoid duplicates
 """
 
-# Scope-specific consolidation instructions
+
+# =============================================================================
+# SCOPE-SPECIFIC CONSOLIDATION INSTRUCTIONS (unchanged)
+# =============================================================================
 CONSOLIDATION_INSTRUCTIONS = {
     "agent": """**Agent Memory**
 Focus on the agent's behavior and world state, ongoing projects, plans and roadmaps shared across all users

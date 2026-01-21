@@ -88,7 +88,6 @@ from eve.agent.memory2.formation import (
 # Context assembly
 from eve.agent.memory2.context_assembly import (
     assemble_always_in_context_memory,
-    clear_memory_cache,
     get_memory_context_for_session,
     get_memory_stats,
 )
@@ -196,7 +195,6 @@ __all__ = [
     # Context assembly
     "assemble_always_in_context_memory",
     "get_memory_context_for_session",
-    "clear_memory_cache",
     "get_memory_stats",
     # Consolidation
     "consolidate_reflections",

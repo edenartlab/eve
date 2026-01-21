@@ -1,6 +1,4 @@
 
-
-
 Urgent:
 
 Next:
@@ -9,32 +7,12 @@ Next:
 
 Optional:
 - use the users main LLM models for memory system (tied to subscription tier)
-- optimize extraction prompts to omit empty memory sections (less distractions, less tokens)
-
-cleanup injection formatting:
-```
-[ACTIVE PROJECTS]
-- Collaborative story project: Writing a story where friends contribute scene ideas via a WhatsApp group.
-Recent context: None
-</current_user_memory>
-
-<current_session_memory>
-None yet
-Recent context: - The current goal is to write a short story script with xander_eden. The agent is awaiting details on genre, premise, and format.
-</current_session_memory>
-```
 
 
 
 
 Final:
 - completely remove old memory_v1 system in both eve and eden
-
-
-Check if fixed:
-- fix user caching issue in context assembly (multi-user sessions no longer inject user memory)
-- user memory disabled in multi-user sessions
-
 
 
 
