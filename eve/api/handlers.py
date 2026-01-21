@@ -7,6 +7,7 @@ import os
 import random
 import time
 import uuid
+from typing import List, Optional
 
 import aiohttp
 import modal
@@ -589,59 +590,255 @@ async def handle_session_stream(session_id: str):
     )
 
 
+async def _send_ably_cancel_signal(request: CancelSessionRequest):
+    """Send cancellation signal via Ably."""
+    from ably import AblyRest
+
+    ably_client = AblyRest(os.getenv("ABLY_PUBLISHER_KEY"))
+    channel_name = f"{os.getenv('DB')}-session-cancel-{request.session_id}"
+    channel = ably_client.channels.get(channel_name)
+
+    cancel_message = {
+        "session_id": request.session_id,
+        "user_id": request.user_id,
+        "timestamp": time.time(),
+    }
+
+    if request.trace_id:
+        cancel_message["trace_id"] = request.trace_id
+    if request.tool_call_id:
+        cancel_message["tool_call_id"] = request.tool_call_id
+    if request.tool_call_index is not None:
+        cancel_message["tool_call_index"] = request.tool_call_index
+
+    await channel.publish("cancel", cancel_message)
+
+
+async def _cancel_session_tasks(session: Session) -> List[str]:
+    """Cancel all pending/running tasks in a session via Modal."""
+    tasks = Task.find(
+        {"session": session.id, "status": {"$in": ["pending", "running"]}}
+    )
+
+    cancelled = []
+    for task in tasks:
+        try:
+            tool = Tool.load(key=task.tool)
+            await tool.async_cancel(task)
+            cancelled.append(str(task.id))
+        except Exception as e:
+            logger.warning(f"Failed to cancel task {task.id}: {e}")
+
+    return cancelled
+
+
+async def _cancel_child_sessions(
+    session: Session, user_id: str, cancelled_ids: set = None
+) -> List[str]:
+    """Cancel all child sessions recursively.
+
+    Uses two methods to find child sessions:
+    1. Tool calls with child_session field (from session_post, media_editor, etc.)
+    2. Direct query for sessions with parent_session field
+    """
+    if cancelled_ids is None:
+        cancelled_ids = set()
+
+    # Prevent circular references
+    if str(session.id) in cancelled_ids:
+        return []
+
+    cancelled_ids.add(str(session.id))
+    cancelled = []
+
+    # Method 1: Find child sessions from tool calls (regardless of tool call status)
+    messages = ChatMessage.find({"session": session.id})
+
+    for msg in messages:
+        if not msg.tool_calls:
+            continue
+
+        updated = False
+        for tc in msg.tool_calls:
+            # Cancel ANY child session, not just pending/running tool calls
+            # The child session might still be running even if the tool call failed
+            if tc.child_session:
+                child_session_id = str(tc.child_session)
+                if child_session_id in cancelled_ids:
+                    continue
+
+                try:
+                    child_session = Session.from_mongo(tc.child_session)
+                    if child_session and child_session.status not in [
+                        "archived",
+                        "finished",
+                    ]:
+                        # Recursively cancel child session
+                        child_request = CancelSessionRequest(
+                            session_id=child_session_id, user_id=user_id
+                        )
+                        await _send_ably_cancel_signal(child_request)
+                        await _cancel_session_tasks(child_session)
+
+                        # Recursively cancel grandchildren
+                        grandchildren = await _cancel_child_sessions(
+                            child_session, user_id, cancelled_ids
+                        )
+                        cancelled.extend(grandchildren)
+
+                        cancelled.append(child_session_id)
+
+                    # Update tool call status if it was pending/running
+                    if tc.status in ["pending", "running"]:
+                        tc.status = "cancelled"
+                        tc.result = [
+                            {"status": "cancelled", "message": "Task cancelled by user"}
+                        ]
+                        updated = True
+                except Exception as e:
+                    logger.warning(
+                        f"Failed to cancel child session {tc.child_session}: {e}"
+                    )
+
+        if updated:
+            msg.save()
+
+    # Method 2: Direct query for child sessions by parent_session field
+    # This catches any orphaned sessions not linked via tool calls
+    child_sessions = Session.find(
+        {"parent_session": session.id, "status": {"$nin": ["archived", "finished"]}}
+    )
+
+    for child_session in child_sessions:
+        child_session_id = str(child_session.id)
+        if child_session_id in cancelled_ids:
+            continue
+
+        try:
+            child_request = CancelSessionRequest(
+                session_id=child_session_id, user_id=user_id
+            )
+            await _send_ably_cancel_signal(child_request)
+            await _cancel_session_tasks(child_session)
+
+            # Recursively cancel grandchildren
+            grandchildren = await _cancel_child_sessions(
+                child_session, user_id, cancelled_ids
+            )
+            cancelled.extend(grandchildren)
+
+            cancelled.append(child_session_id)
+        except Exception as e:
+            logger.warning(f"Failed to cancel child session {child_session_id}: {e}")
+
+    return cancelled
+
+
+async def _cancel_tool_call_child_session(
+    session: Session, user_id: str, tool_call_id: str, tool_call_index: Optional[int]
+) -> List[str]:
+    """Cancel the child session for a specific tool call."""
+    messages = ChatMessage.find({"session": session.id})
+    cancelled = []
+
+    for msg in messages:
+        if not msg.tool_calls:
+            continue
+
+        for idx, tc in enumerate(msg.tool_calls):
+            # Match by tool_call_id, or by index if provided
+            if tc.id == tool_call_id or (
+                tool_call_index is not None and idx == tool_call_index
+            ):
+                # Cancel child session regardless of tool call status
+                # The child session might still be running even if tool call failed
+                if tc.child_session:
+                    try:
+                        child_session = Session.from_mongo(tc.child_session)
+                        if child_session and child_session.status not in [
+                            "archived",
+                            "finished",
+                        ]:
+                            child_request = CancelSessionRequest(
+                                session_id=str(tc.child_session), user_id=user_id
+                            )
+                            await _send_ably_cancel_signal(child_request)
+                            await _cancel_session_tasks(child_session)
+
+                            # Recursively cancel grandchildren
+                            grandchildren = await _cancel_child_sessions(
+                                child_session, user_id
+                            )
+                            cancelled.extend(grandchildren)
+
+                            cancelled.append(str(tc.child_session))
+
+                        # Update tool call status if it was pending/running
+                        if tc.status in ["pending", "running"]:
+                            tc.status = "cancelled"
+                            tc.result = [
+                                {
+                                    "status": "cancelled",
+                                    "message": "Task cancelled by user",
+                                }
+                            ]
+                            msg.save()
+                    except Exception as e:
+                        logger.warning(
+                            f"Failed to cancel child session {tc.child_session}: {e}"
+                        )
+                break
+
+    return cancelled
+
+
 @handle_errors
 async def handle_session_cancel(request: CancelSessionRequest):
-    """Cancel a running prompt session by sending a cancel signal via Ably."""
+    """Cancel a running prompt session."""
+    session = Session.from_mongo(ObjectId(request.session_id))
+    if not session:
+        raise APIError(f"Session not found: {request.session_id}", status_code=404)
+
+    if str(session.owner) != request.user_id:
+        raise APIError("Unauthorized: User does not own this session", status_code=403)
+
+    cancelled_tasks = []
+    cancelled_children = []
+
     try:
-        from ably import AblyRest
-
-        # Verify session exists and user has permission
-        session = Session.from_mongo(ObjectId(request.session_id))
-        if not session:
-            raise APIError(f"Session not found: {request.session_id}", status_code=404)
-
-        # Check if user has permission to cancel this session
-        if str(session.owner) != request.user_id:
-            raise APIError(
-                "Unauthorized: User does not own this session", status_code=403
-            )
-
-        # Send cancel signal via Ably
-        ably_client = AblyRest(os.getenv("ABLY_PUBLISHER_KEY"))
-        channel_name = f"{os.getenv('DB')}-session-cancel-{request.session_id}"
-        channel = ably_client.channels.get(channel_name)
-
-        cancel_message = {
-            "session_id": request.session_id,
-            "user_id": request.user_id,
-            "timestamp": time.time(),
-        }
-
-        # Include trace_id if provided for trace-specific cancellation
-        if request.trace_id:
-            cancel_message["trace_id"] = request.trace_id
-
-        # Include tool call specific cancellation
         if request.tool_call_id:
-            cancel_message["tool_call_id"] = request.tool_call_id
-        if request.tool_call_index is not None:
-            cancel_message["tool_call_index"] = request.tool_call_index
+            # Specific tool call cancellation - only cancel the child session
+            # Do NOT send cancel signal to parent or cancel parent's tasks
+            cancelled_children = await _cancel_tool_call_child_session(
+                session, request.user_id, request.tool_call_id, request.tool_call_index
+            )
+        else:
+            # Full session cancellation
+            # 1. Send Ably cancel signal to this session
+            await _send_ably_cancel_signal(request)
 
-        await channel.publish("cancel", cancel_message)
+            # 2. Cancel all pending/running tasks in this session
+            cancelled_tasks = await _cancel_session_tasks(session)
+
+            # 3. Cancel all child sessions
+            cancelled_children = await _cancel_child_sessions(session, request.user_id)
 
         logger.info(
-            f"Sent cancellation signal for session {request.session_id}"
-            + (f" trace {request.trace_id}" if request.trace_id else "")
+            f"Cancelled session {request.session_id}: "
+            f"{len(cancelled_tasks)} tasks, {len(cancelled_children)} child sessions"
         )
+
         return {
-            "status": "cancel_signal_sent",
+            "status": "cancelled",
+            "message": "Task cancelled by user",
             "session_id": request.session_id,
-            "trace_id": request.trace_id,
+            "cancelled_tasks": cancelled_tasks,
+            "cancelled_child_sessions": cancelled_children,
         }
 
     except Exception as e:
-        logger.error(f"Error sending session cancel signal: {e}", exc_info=True)
-        raise APIError(f"Failed to send cancel signal: {str(e)}", status_code=500)
+        logger.error(f"Error cancelling session: {e}", exc_info=True)
+        raise APIError(f"Failed to cancel session: {str(e)}", status_code=500)
 
 
 @handle_errors

@@ -78,6 +78,19 @@ async def async_run_tool_call_with_cancellation(
                 f"Mapped tool call name from {tool_call.tool} to {stripped_tool}"
             )
             tool_call.tool = stripped_tool
+
+    # Fallback: try loading tool directly if not in llm_context
+    # This handles cases where hot-reload invalidated the tools dictionary
+    if not tool:
+        try:
+            tool = Tool.load(key=tool_call.tool)
+            if tool:
+                logger.warning(
+                    f"Tool {tool_call.tool} not in llm_context.tools, loaded directly as fallback"
+                )
+        except Exception as e:
+            logger.warning(f"Failed to load tool {tool_call.tool} as fallback: {e}")
+
     if not tool:
         raise KeyError(tool_call.tool)
 

@@ -33,6 +33,8 @@ from eve.agent.session.models import (
 )
 from eve.agent.session.tracing import trace_async_operation
 from eve.api.errors import APIError
+from eve.task import Task
+from eve.tool import Tool
 from eve.user import Manna, Transaction, increment_message_count
 from eve.utils import dumps_json
 
@@ -752,18 +754,36 @@ class PromptSessionRuntime:
 
     async def _handle_session_cancelled(self):
         try:
+            # Cancel any running tasks in this session
+            await self._cancel_session_tasks()
+
+            # Cancel ALL child sessions (from parent_session field)
+            await self._cancel_all_child_sessions()
+
             last_message = self._fetch_last_message()
             if last_message and last_message.tool_calls:
                 updated = False
                 for idx, tool_call in enumerate(last_message.tool_calls):
+                    # Cancel child session for any tool call that has one
+                    # regardless of tool call status
+                    if tool_call.child_session:
+                        await self._cancel_child_session(tool_call.child_session)
+
                     if tool_call.status in ["pending", "running"]:
                         tool_call.status = "cancelled"
+                        tool_call.result = [
+                            {"status": "cancelled", "message": "Task cancelled by user"}
+                        ]
                         updated = True
+
                         yield SessionUpdate(
                             type=UpdateType.TOOL_CANCELLED,
                             tool_name=tool_call.tool,
                             tool_index=idx,
-                            result={"status": "cancelled"},
+                            result={
+                                "status": "cancelled",
+                                "message": "Task cancelled by user",
+                            },
                             session_run_id=self.session_run_id,
                         )
 
@@ -806,6 +826,73 @@ class PromptSessionRuntime:
                 type=UpdateType.END_PROMPT, session_run_id=self.session_run_id
             )
 
+    async def _cancel_all_child_sessions(self):
+        """Cancel all child sessions by querying for sessions with parent_session field."""
+        child_sessions = Session.find(
+            {
+                "parent_session": self.session.id,
+                "status": {"$nin": ["archived", "finished"]},
+            }
+        )
+
+        for child_session in child_sessions:
+            try:
+                await self._cancel_child_session(child_session.id)
+            except Exception as e:
+                logger.warning(
+                    f"Failed to cancel child session {child_session.id}: {e}"
+                )
+
+    async def _cancel_session_tasks(self):
+        """Cancel all pending/running tasks in this session."""
+        tasks = Task.find(
+            {"session": self.session.id, "status": {"$in": ["pending", "running"]}}
+        )
+
+        for task in tasks:
+            try:
+                tool = Tool.load(key=task.tool)
+                await tool.async_cancel(task)
+            except Exception as e:
+                logger.warning(f"Failed to cancel task {task.id}: {e}")
+
+    async def _cancel_child_session(self, child_session_id: ObjectId):
+        """Cancel a child session by sending Ably signal and cancelling its tasks."""
+        try:
+            from ably import AblyRest
+
+            child_session = Session.from_mongo(child_session_id)
+            if not child_session:
+                return
+
+            # Send Ably cancel signal to child session
+            ably_client = AblyRest(os.getenv("ABLY_PUBLISHER_KEY"))
+            channel_name = f"{os.getenv('DB')}-session-cancel-{child_session_id}"
+            channel = ably_client.channels.get(channel_name)
+
+            await channel.publish(
+                "cancel",
+                {
+                    "session_id": str(child_session_id),
+                    "user_id": str(self.session.owner),
+                    "timestamp": datetime.now(timezone.utc).timestamp(),
+                },
+            )
+
+            # Cancel tasks in child session
+            child_tasks = Task.find(
+                {"session": child_session_id, "status": {"$in": ["pending", "running"]}}
+            )
+            for task in child_tasks:
+                try:
+                    tool = Tool.load(key=task.tool)
+                    await tool.async_cancel(task)
+                except Exception as e:
+                    logger.warning(f"Failed to cancel child task {task.id}: {e}")
+
+        except Exception as e:
+            logger.warning(f"Failed to cancel child session {child_session_id}: {e}")
+
     def _fetch_last_message(self) -> Optional[ChatMessage]:
         last_messages = ChatMessage.find(
             {"session": self.session.id},
@@ -818,6 +905,66 @@ class PromptSessionRuntime:
     def _ensure_not_cancelled(self):
         if self.cancellation_event.is_set():
             raise SessionCancelledException("Session cancelled by user")
+
+        # Database fallback check (runs periodically, not every call)
+        # This catches cancellations when Ably fails to deliver the signal
+        if self._should_check_db_cancellation():
+            if self._check_db_cancellation():
+                self.cancellation_event.set()
+                raise SessionCancelledException("Session cancelled by user")
+
+    def _should_check_db_cancellation(self) -> bool:
+        """Rate-limit database cancellation checks to avoid overhead."""
+        import time
+
+        if not hasattr(self, "_last_db_cancel_check"):
+            self._last_db_cancel_check = 0
+
+        now = time.time()
+        # Check database every 2 seconds
+        if now - self._last_db_cancel_check > 2.0:
+            self._last_db_cancel_check = now
+            return True
+        return False
+
+    def _check_db_cancellation(self) -> bool:
+        """Check database for cancellation indicators."""
+        try:
+            # Check for cancellation message in session
+            cancel_messages = ChatMessage.find(
+                {
+                    "session": self.session.id,
+                    "content": "Response cancelled by user",
+                    "role": "system",
+                },
+                limit=1,
+            )
+            if cancel_messages:
+                logger.info(
+                    f"Session {self.session.id} cancellation detected via database check"
+                )
+                return True
+
+            # Also check if any pending tool calls were marked as cancelled
+            messages = ChatMessage.find(
+                {"session": self.session.id},
+                sort="createdAt",
+                desc=True,
+                limit=3,
+            )
+            for msg in messages:
+                if msg.tool_calls:
+                    for tc in msg.tool_calls:
+                        if tc.status == "cancelled":
+                            logger.info(
+                                f"Session {self.session.id} cancellation detected via cancelled tool call"
+                            )
+                            return True
+
+            return False
+        except Exception as e:
+            logger.warning(f"Error checking database for cancellation: {e}")
+            return False
 
     async def _cleanup(self):
         self._remove_active_request()
