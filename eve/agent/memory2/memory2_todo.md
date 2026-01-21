@@ -2,7 +2,7 @@
 
 
 Urgent:
-- migrate all FACTS on prod with embedding
+- make sure 'user_memory' can only be toggled by agent editors / is per user individual
 
 Next:
 - Create "search_memories" agent tool that uses RAG to retrieve FACTS

@@ -7,10 +7,17 @@ without modifying or removing any old data.
 
 Migration mapping:
 - Old SessionMemory (memory_type="fact") → New Fact (scope=["agent"])
+- Old AgentMemory.is_active=True → New Agent.agent_memory_enabled=True
 
 Old facts were shard-level (agent-wide), so they map to agent scope in the new system.
 Vector embeddings are ALWAYS generated for every migrated fact (required for RAG retrieval).
 Additionally, any existing facts in the new system that are missing embeddings will be backfilled.
+
+Agent memory flag migration:
+- For each active agent, checks if they have any AgentMemory shards with is_active=True
+- If active shards exist, sets agent_memory_enabled=True in users3 collection
+- This ensures agents with active collective memories in the old system continue to use
+  collective memory in the new system
 
 Performance optimizations:
 - Filters agents by recent message activity (default: 6 months)
@@ -39,6 +46,7 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 
 from bson import ObjectId
 from loguru import logger
+from pymongo.errors import BulkWriteError
 
 from eve.agent.agent import Agent
 from eve.agent.memory.memory_models import AgentMemory, SessionMemory
@@ -81,6 +89,8 @@ class FactsMigrationStats:
         self.facts_skipped_empty_content = 0
         self.embeddings_generated = 0
         self.embeddings_backfilled = 0
+        self.agents_memory_flag_enabled = 0
+        self.agents_memory_flag_already_enabled = 0
         self.errors: List[str] = []
 
     def print_summary(self):
@@ -96,6 +106,8 @@ class FactsMigrationStats:
         logger.info(f"Facts skipped (empty content): {self.facts_skipped_empty_content}")
         logger.info(f"Embeddings generated (new):    {self.embeddings_generated}")
         logger.info(f"Embeddings backfilled:         {self.embeddings_backfilled}")
+        logger.info(f"Agent memory flag enabled:     {self.agents_memory_flag_enabled}")
+        logger.info(f"Agent memory flag (already):   {self.agents_memory_flag_already_enabled}")
         if self.errors:
             logger.info(f"\nErrors encountered: {len(self.errors)}")
             for error in self.errors[:10]:  # Show first 10 errors
@@ -253,6 +265,93 @@ async def backfill_missing_embeddings(
     return backfilled
 
 
+def has_active_memory_shards(agent_id: ObjectId) -> bool:
+    """
+    Check if an agent has any active collective memory shards in the old system.
+
+    Args:
+        agent_id: Agent ID to check
+
+    Returns:
+        True if the agent has at least one AgentMemory record with is_active=True
+    """
+    shard_collection = AgentMemory.get_collection()
+
+    # Check for at least one active shard
+    active_shard = shard_collection.find_one(
+        {"agent_id": agent_id, "is_active": True},
+        {"_id": 1}  # Only need to confirm existence
+    )
+
+    return active_shard is not None
+
+
+def migrate_agent_memory_flag(
+    agent: Agent,
+    dry_run: bool = False,
+    stats: FactsMigrationStats = None,
+) -> bool:
+    """
+    Migrate the active memory flag from old collective shards to the new system.
+
+    If the agent has any active collective memory shards (is_active=True) in the
+    memory_agent collection, enable agent_memory_enabled in users3 collection.
+
+    Args:
+        agent: The agent to migrate
+        dry_run: If True, preview only
+        stats: Migration statistics tracker
+
+    Returns:
+        True if the flag was enabled, False otherwise
+    """
+    agent_id = agent.id
+    agent_name = agent.username or str(agent_id)
+
+    # Check if agent already has agent_memory_enabled set to True
+    if getattr(agent, "agent_memory_enabled", False):
+        logger.debug(f"  Agent {agent_name} already has agent_memory_enabled=True")
+        if stats:
+            stats.agents_memory_flag_already_enabled += 1
+        return False
+
+    # Check if agent has any active shards in the old system
+    if not has_active_memory_shards(agent_id):
+        logger.debug(f"  Agent {agent_name} has no active memory shards")
+        return False
+
+    logger.info(f"  Agent {agent_name} has active shards, enabling agent_memory_enabled")
+
+    if dry_run:
+        if stats:
+            stats.agents_memory_flag_enabled += 1
+        return True
+
+    # Update the agent_memory_enabled flag in users3 collection
+    try:
+        agent_collection = Agent.get_collection()
+        result = agent_collection.update_one(
+            {"_id": agent_id},
+            {"$set": {"agent_memory_enabled": True}}
+        )
+
+        if result.modified_count > 0:
+            logger.info(f"  Enabled agent_memory_enabled for {agent_name}")
+            if stats:
+                stats.agents_memory_flag_enabled += 1
+            return True
+        else:
+            logger.warning(f"  Failed to update agent_memory_enabled for {agent_name}")
+            return False
+
+    except Exception as e:
+        error_msg = f"Error enabling agent_memory_enabled for agent={agent_id}: {e}"
+        logger.error(f"  {error_msg}")
+        if stats:
+            stats.errors.append(error_msg)
+        return False
+
+
 def compute_content_hash(content: str) -> str:
     """Compute MD5 hash for fact content deduplication."""
     return hashlib.md5(content.encode()).hexdigest()
@@ -352,28 +451,60 @@ def prepare_facts_batch(
 def bulk_insert_facts(
     fact_docs: List[Dict],
     dry_run: bool = False,
+    stats: FactsMigrationStats = None,
 ) -> int:
     """
     Perform bulk insert of Fact documents.
 
+    Handles duplicate key errors gracefully - the unique index on (hash, agent_id)
+    will reject any duplicates at the database level, providing a safety net
+    beyond the application-level deduplication.
+
     Args:
         fact_docs: List of Fact documents to insert
         dry_run: If True, don't actually insert
+        stats: Migration statistics tracker (for counting skipped duplicates)
 
     Returns:
-        Number of facts inserted
+        Number of facts actually inserted (excludes duplicates)
     """
     if dry_run or not fact_docs:
         return len(fact_docs)
 
     fact_collection = Fact.get_collection()
     try:
+        # ordered=False allows continuing after duplicate key errors
         result = fact_collection.insert_many(fact_docs, ordered=False)
         return len(result.inserted_ids)
+    except BulkWriteError as bwe:
+        # Handle duplicate key errors gracefully
+        # writeErrors contains failed inserts, nInserted contains successful count
+        write_errors = bwe.details.get("writeErrors", [])
+        n_inserted = bwe.details.get("nInserted", 0)
+
+        # Count duplicate key errors (code 11000) vs other errors
+        duplicate_count = sum(1 for e in write_errors if e.get("code") == 11000)
+        other_errors = len(write_errors) - duplicate_count
+
+        if duplicate_count > 0:
+            logger.debug(f"  Skipped {duplicate_count} duplicate facts (already in DB)")
+            if stats:
+                stats.facts_skipped_already_exists += duplicate_count
+
+        if other_errors > 0:
+            logger.warning(f"  {other_errors} non-duplicate errors in bulk insert")
+            if stats:
+                for e in write_errors:
+                    if e.get("code") != 11000:
+                        stats.errors.append(f"Bulk insert error: {e.get('errmsg', str(e))}")
+
+        return n_inserted
     except Exception as e:
-        # Handle partial failures (some docs may have been inserted)
-        logger.warning(f"Partial failure in facts bulk insert: {e}")
-        return len(fact_docs)  # Approximate
+        # Handle other unexpected errors
+        logger.warning(f"Unexpected error in facts bulk insert: {e}")
+        if stats:
+            stats.errors.append(f"Bulk insert error: {e}")
+        return 0
 
 
 async def migrate_agent_facts(
@@ -388,6 +519,10 @@ async def migrate_agent_facts(
 
     Embeddings are ALWAYS generated for new facts and backfilled for existing
     facts that are missing them.
+
+    Also migrates the agent_memory_enabled flag: if the agent has any active
+    collective memory shards (is_active=True) in the old memory_agent collection,
+    agent_memory_enabled will be set to True in users3.
 
     Args:
         agent: The agent to migrate
@@ -419,6 +554,9 @@ async def migrate_agent_facts(
         return results
 
     logger.info(f"\nMigrating facts for agent: {agent_name} ({agent_id})")
+
+    # Migrate agent_memory_enabled flag if agent has active shards in old system
+    migrate_agent_memory_flag(agent, dry_run, stats)
 
     # First, backfill any existing facts that are missing embeddings
     try:
@@ -511,7 +649,7 @@ async def migrate_agent_facts(
         if all_fact_docs:
             for i in range(0, len(all_fact_docs), batch_size):
                 batch_docs = all_fact_docs[i:i + batch_size]
-                inserted = bulk_insert_facts(batch_docs, dry_run)
+                inserted = bulk_insert_facts(batch_docs, dry_run, stats)
                 results["facts_migrated"] += inserted
                 stats.facts_migrated += inserted
 
