@@ -1,6 +1,7 @@
 import re
 import traceback
 from datetime import datetime, timedelta, timezone
+from types import SimpleNamespace
 from typing import Any, Dict, List, Optional
 
 import discord
@@ -11,6 +12,7 @@ from eve.agent.agent import Agent
 from eve.agent.llm.llm import async_prompt
 from eve.agent.llm.metadata import ToolMetadataBuilder
 from eve.agent.session.models import ChatMessage, Deployment, LLMConfig, LLMContext
+from eve.mongo import MongoDocumentNotFound
 from eve.tool import ToolContext
 
 DISCORD_EPOCH_MS = 1420070400000
@@ -31,9 +33,18 @@ async def handler(context: ToolContext):
     if not context.agent:
         raise Exception("Agent is required")
     agent = Agent.from_mongo(context.agent)
-    deployment = Deployment.load(agent=agent.id, platform="discord")
+    # Try to find Discord V3 deployment first, then fallback to legacy Discord
+    try:
+        deployment = Deployment.load(agent=agent.id, platform="discord_v3")
+    except MongoDocumentNotFound:
+        deployment = None
     if not deployment:
-        raise Exception("No valid discord deployments found")
+        try:
+            deployment = Deployment.load(agent=agent.id, platform="discord")
+        except MongoDocumentNotFound:
+            deployment = None
+    if not deployment:
+        raise Exception("No valid Discord deployments found")
 
     query = context.args.get("query")
     if not query:
@@ -42,17 +53,8 @@ async def handler(context: ToolContext):
     include_thread_messages = context.args.get("include_thread_messages", True)
     include_message_ids = context.args.get("include_message_ids", False)
 
-    # Get allowed channels from deployment config
-    allowed_channels = deployment.config.discord.channel_allowlist or []
-    read_access_channels = deployment.config.discord.read_access_channels or []
-
-    # Combine and deduplicate channels by ID
-    seen_ids = set()
-    all_channels = []
-    for channel in allowed_channels + read_access_channels:
-        if channel.id not in seen_ids:
-            seen_ids.add(channel.id)
-            all_channels.append(channel)
+    # Get allowed channels from deployment config (supports v3 + legacy)
+    all_channels = _get_searchable_channels(deployment)
     if not all_channels:
         raise Exception("No channels configured for this deployment")
 
@@ -106,6 +108,10 @@ Behavior:
 
     # Create Discord HTTP client directly
     http = discord.http.HTTPClient()
+    if not deployment.secrets or not deployment.secrets.discord:
+        raise Exception("Discord deployment secrets missing")
+    if not deployment.secrets.discord.token:
+        raise Exception("Discord search requires a bot token for API access")
     await http.static_login(deployment.secrets.discord.token)
 
     try:
@@ -143,6 +149,44 @@ Behavior:
 
     finally:
         await http.close()
+
+
+def _dedupe_channels(channels: List[Any]) -> List[Any]:
+    seen_ids = set()
+    deduped = []
+    for channel in channels:
+        channel_id = getattr(channel, "id", None)
+        if channel_id is None:
+            continue
+        channel_id_str = str(channel_id)
+        if channel_id_str in seen_ids:
+            continue
+        seen_ids.add(channel_id_str)
+        deduped.append(channel)
+    return deduped
+
+
+def _get_searchable_channels(deployment: Deployment) -> List[Any]:
+    if not deployment.config or not deployment.config.discord:
+        return []
+
+    discord_config = deployment.config.discord
+
+    # V3 webhook-based: use channel_configs for read access
+    if discord_config.channel_configs:
+        channels = []
+        for ch in discord_config.channel_configs:
+            if not ch or not ch.channel_id:
+                continue
+            channels.append(
+                SimpleNamespace(id=ch.channel_id, note=ch.channel_name or ch.channel_id)
+            )
+        return _dedupe_channels(channels)
+
+    # Legacy token-based: merge allowlist + read access channels
+    allowed_channels = discord_config.channel_allowlist or []
+    read_access_channels = discord_config.read_access_channels or []
+    return _dedupe_channels(allowed_channels + read_access_channels)
 
 
 def _parse_iso_timestamp(timestamp: str) -> Optional[datetime]:
