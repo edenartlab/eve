@@ -50,26 +50,32 @@ async def generate_content_with_retry(
             return response
 
         except genai_errors.ClientError as e:
+            logger.error(
+                f"Google API ClientError in nano_banana_pro: code={e.code}, message={e.message}, details={e.details}, attempt={attempt+1}/{max_retries+1}"
+            )
             # Handle rate limiting (429) with retry
-            if e.status_code == 429 and attempt < max_retries:
+            if e.code == 429 and attempt < max_retries:
                 # Exponential backoff: wait 1s, 2s, 4s, etc.
                 await asyncio.sleep(delay)
                 delay *= 2
                 continue
-            elif e.status_code == 429:
+            elif e.code == 429:
                 raise ValueError(
-                    "Google API rate limit reached. Please try again in a few moments."
+                    "Rate limit reached for this image model. Please try again later or use a different image model (e.g., model_preference='flux' or 'openai')."
                 )
-            elif e.status_code == 403:
+            elif e.code == 403:
                 raise ValueError(
                     "Google API access denied. Please check your API credentials and quotas."
                 )
-            elif e.status_code == 400:
+            elif e.code == 400:
                 raise ValueError(f"Invalid request to Google API: {e.message}")
             else:
-                raise ValueError(f"Google API error ({e.status_code}): {e.message}")
+                raise ValueError(f"Google API error ({e.code}): {e.message}")
 
         except genai_errors.ServerError as e:
+            logger.error(
+                f"Google API ServerError in nano_banana_pro: code={e.code}, message={e.message}, details={e.details}, attempt={attempt+1}/{max_retries+1}"
+            )
             # Retry server errors (5xx) with backoff
             if attempt < max_retries:
                 await asyncio.sleep(delay)
@@ -77,11 +83,14 @@ async def generate_content_with_retry(
                 continue
             else:
                 raise ValueError(
-                    f"Google API server error. Please try again later. ({e.status_code})"
+                    f"Google API server error. Please try again later or use a different image model. ({e.code})"
                 )
 
         except Exception as e:
             # Don't retry unexpected errors
+            logger.error(
+                f"Unexpected error in nano_banana_pro: {type(e).__name__}: {str(e)}"
+            )
             raise ValueError(f"Unexpected error calling Google API: {str(e)}")
 
     raise ValueError("Maximum retries exceeded for Google API call")
