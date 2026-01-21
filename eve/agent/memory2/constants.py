@@ -394,27 +394,8 @@ Look at what happened in the conversation and decide: "What does the agent need 
 ## CURRENT MEMORY STATE (don't extract anything the agent already knows)
 """
 
-# Memory context chunks - conditionally included
-REFLECTION_MEMORY_AGENT = """
-<current_agent_memory>
-{consolidated_agent_blob}
-Recent context: {recent_agent_reflections}
-</current_agent_memory>
-"""
-
-REFLECTION_MEMORY_USER = """
-<current_user_memory>
-{consolidated_user_blob}
-Recent context: {recent_user_reflections}
-</current_user_memory>
-"""
-
-REFLECTION_MEMORY_SESSION = """
-<current_session_memory>
-{consolidated_session_blob}
-Recent context: {recent_session_reflections}
-</current_session_memory>
-"""
+# Memory context chunks - now built dynamically via _build_memory_section()
+# These constants are kept for reference but the actual building is done conditionally
 
 REFLECTION_FACTS_SECTION = """
 These new FACTS were extracted from the same conversation_segment and will be retrievable by the agent through a RAG tool-call when needed to answer specific questions.
@@ -423,6 +404,54 @@ These FACTS however, won't be in context by default. Sometimes important REFLECT
 {newly_formed_facts}
 </newly_formed_facts>
 """
+
+
+def _has_content(value: Optional[str]) -> bool:
+    """Check if a value has actual content (not None, empty, or placeholder)."""
+    if value is None:
+        return False
+    stripped = value.strip()
+    return bool(stripped) and stripped.lower() not in ("none", "none yet")
+
+
+def _build_memory_section(
+    scope: str,
+    blob: Optional[str],
+    recent: Optional[str],
+) -> Optional[str]:
+    """
+    Build a memory section only if it has actual content.
+
+    Returns None if both blob and recent are empty/None.
+    Only includes lines that have actual content.
+
+    Args:
+        scope: The scope type ("agent", "user", "session")
+        blob: Consolidated blob content (or None)
+        recent: Recent reflections content (or None)
+
+    Returns:
+        Formatted memory section string, or None if no content
+    """
+    has_blob = _has_content(blob)
+    has_recent = _has_content(recent)
+
+    # Skip entire section if no content at all
+    if not has_blob and not has_recent:
+        return None
+
+    tag_name = f"current_{scope}_memory"
+    lines = [f"<{tag_name}>"]
+
+    if has_blob:
+        lines.append(blob.strip())
+
+    if has_recent:
+        lines.append(f"Recent context: {recent.strip()}")
+
+    lines.append(f"</{tag_name}>")
+
+    return "\n".join(lines)
 
 REFLECTION_CONVERSATION_SECTION = """
 ## Actual conversation text to extract reflections from:
@@ -493,11 +522,14 @@ def build_reflection_extraction_prompt(
     """
     Build reflection extraction prompt with only enabled scopes.
 
+    Empty sections are completely omitted to reduce token usage.
+    Only includes memory context sections that have actual content.
+
     Args:
         conversation_text: The conversation to extract reflections from
         agent_persona: Agent persona/description
         memory_context: Dict with keys like "agent_blob", "agent_recent", etc.
-        newly_formed_facts: Formatted string of newly formed facts
+        newly_formed_facts: Formatted string of newly formed facts (empty string if none)
         enabled_scopes: List of enabled scopes ["session", "user", "agent"]
         max_words: Maximum words per reflection
 
@@ -506,28 +538,46 @@ def build_reflection_extraction_prompt(
     """
     parts = [REFLECTION_PROMPT_HEADER.format(agent_persona=agent_persona)]
 
-    # Add memory context sections for enabled scopes
+    # Add memory context sections for enabled scopes (only if they have content)
+    memory_sections_added = False
+
     if "agent" in enabled_scopes:
-        parts.append(REFLECTION_MEMORY_AGENT.format(
-            consolidated_agent_blob=memory_context.get("agent_blob") or "None yet",
-            recent_agent_reflections=memory_context.get("agent_recent") or "None",
-        ))
+        agent_section = _build_memory_section(
+            scope="agent",
+            blob=memory_context.get("agent_blob"),
+            recent=memory_context.get("agent_recent"),
+        )
+        if agent_section:
+            parts.append("\n" + agent_section)
+            memory_sections_added = True
 
     if "user" in enabled_scopes:
-        parts.append(REFLECTION_MEMORY_USER.format(
-            consolidated_user_blob=memory_context.get("user_blob") or "None yet",
-            recent_user_reflections=memory_context.get("user_recent") or "None",
-        ))
+        user_section = _build_memory_section(
+            scope="user",
+            blob=memory_context.get("user_blob"),
+            recent=memory_context.get("user_recent"),
+        )
+        if user_section:
+            parts.append("\n" + user_section)
+            memory_sections_added = True
 
-    # Session is always included
     if "session" in enabled_scopes:
-        parts.append(REFLECTION_MEMORY_SESSION.format(
-            consolidated_session_blob=memory_context.get("session_blob") or "None yet",
-            recent_session_reflections=memory_context.get("session_recent") or "None",
-        ))
+        session_section = _build_memory_section(
+            scope="session",
+            blob=memory_context.get("session_blob"),
+            recent=memory_context.get("session_recent"),
+        )
+        if session_section:
+            parts.append("\n" + session_section)
+            memory_sections_added = True
 
-    # Add facts section
-    parts.append(REFLECTION_FACTS_SECTION.format(newly_formed_facts=newly_formed_facts))
+    # If no memory sections were added, add a note
+    if not memory_sections_added:
+        parts.append("\nNo existing memory context yet.")
+
+    # Add facts section only if there are newly formed facts
+    if newly_formed_facts and newly_formed_facts.strip():
+        parts.append(REFLECTION_FACTS_SECTION.format(newly_formed_facts=newly_formed_facts))
 
     # Add conversation section
     parts.append(REFLECTION_CONVERSATION_SECTION.format(conversation_text=conversation_text))
