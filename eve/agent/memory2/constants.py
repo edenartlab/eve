@@ -26,132 +26,6 @@ from eve.agent.session.config import DEFAULT_SESSION_SELECTION_LIMIT
 LOCAL_DEV = False  # Set to False for production
 
 
-
-# =============================================================================
-# Memory2 Configuration (unchanged from original)
-# =============================================================================
-@dataclass
-class Memory2Config:
-    """
-    Configuration for memory2 system based on agent settings.
-
-    Controls which memory scopes are enabled for both extraction and assembly.
-
-    IMPORTANT: Session memory is ALWAYS active, regardless of user/agent toggles.
-    This ensures session reflections are always formed and injected into context.
-
-    IMPORTANT: User memory is automatically disabled for multi-user sessions (group chats)
-    to prevent memory leakage between users. In multi-user sessions, only session and
-    agent scoped memories are formed.
-    """
-    user_enabled: bool = False
-    agent_enabled: bool = False
-    is_multi_user: bool = False  # True when session has multiple users
-
-    @property
-    def fact_scopes(self) -> List[str]:
-        """
-        Get enabled scopes for fact extraction (user/agent only, no session facts).
-
-        User scope is disabled for multi-user sessions to prevent leakage.
-        """
-        scopes = []
-        # User facts disabled in multi-user sessions
-        if self.user_enabled and not self.is_multi_user:
-            scopes.append("user")
-        if self.agent_enabled:
-            scopes.append("agent")
-        return scopes
-
-    @property
-    def reflection_scopes(self) -> List[str]:
-        """
-        Get enabled scopes for reflection extraction.
-
-        Session is ALWAYS included - session reflections are never disabled.
-        User scope is disabled for multi-user sessions to prevent leakage.
-        """
-        scopes = ["session"]  # Session ALWAYS active
-        # User reflections disabled in multi-user sessions
-        if self.user_enabled and not self.is_multi_user:
-            scopes.append("user")
-        if self.agent_enabled:
-            scopes.append("agent")
-        return scopes
-
-    @property
-    def any_enabled(self) -> bool:
-        """Check if user or agent memory is enabled (for fact extraction)."""
-        return self.user_enabled or self.agent_enabled
-
-    @property
-    def session_always_active(self) -> bool:
-        """Session memory is always active - this always returns True."""
-        return True
-
-    @classmethod
-    def from_agent(cls, agent, session=None) -> "Memory2Config":
-        """
-        Create config from an Agent object, optionally with session context.
-
-        Args:
-            agent: Agent object with memory settings
-            session: Optional session object to detect multi-user context
-
-        Returns:
-            Memory2Config with appropriate settings
-        """
-        is_multi_user = is_multi_user_session(session) if session else False
-
-        return cls(
-            user_enabled=getattr(agent, "user_memory_enabled", False),
-            agent_enabled=getattr(agent, "agent_memory_enabled", False),
-            is_multi_user=is_multi_user,
-        )
-
-    @classmethod
-    def from_agent_id(cls, agent_id, session=None) -> "Memory2Config":
-        """
-        Create config by loading agent from database, optionally with session context.
-
-        Args:
-            agent_id: Agent ObjectId
-            session: Optional session object to detect multi-user context
-
-        Returns:
-            Memory2Config with appropriate settings
-        """
-        try:
-            from eve.agent.agent import Agent
-            agent = Agent.from_mongo(agent_id)
-            if agent:
-                return cls.from_agent(agent, session=session)
-        except Exception:
-            pass
-        return cls()  # Default: all disabled
-
-
-def is_multi_user_session(session) -> bool:
-    """
-    Check if a session is a multi-user session (group chat).
-
-    Multi-user sessions have more than one user in the users list.
-    In multi-user sessions, user-scoped memories should be disabled
-    to prevent memory leakage between users.
-
-    Args:
-        session: Session object with users attribute (List[ObjectId] in MongoDB)
-
-    Returns:
-        True if session has multiple users, False otherwise
-    """
-    if session is None:
-        return False
-
-    users = getattr(session, "users", None) or []
-    return len(users) > 1
-
-
 # =============================================================================
 # LLM Model Configuration
 # =============================================================================
@@ -250,103 +124,6 @@ FACTS_FIFO_LIMIT = 50       # Number of recent facts to include in context
 
 
 # =============================================================================
-# TEMPLATE POST-PROCESSOR
-# =============================================================================
-# Section marker pattern: {# SECTION:name #} ... {# END:name #}
-
-def _process_template(
-    template: str,
-    values: dict,
-    enabled_sections: Set[str],
-) -> str:
-    """
-    Process a template by:
-    1. Removing disabled sections (between {# SECTION:x #} and {# END:x #})
-    2. Removing section markers from enabled sections
-    3. Formatting with provided values
-    4. Cleaning up extra blank lines
-
-    Args:
-        template: The template string with section markers
-        values: Dict of values to format into the template
-        enabled_sections: Set of section names to keep (others are removed)
-
-    Returns:
-        Processed template string
-    """
-    result = template
-
-    # Find all section names in the template
-    all_sections = set(re.findall(r'\{# SECTION:(\w+) #\}', result))
-
-    # Remove disabled sections entirely (including their content)
-    for section in all_sections - enabled_sections:
-        # Pattern matches from SECTION marker to END marker, including newlines
-        pattern = rf'\{{# SECTION:{section} #\}}.*?\{{# END:{section} #\}}\n?'
-        result = re.sub(pattern, '', result, flags=re.DOTALL)
-
-    # Strip section markers from enabled sections (keep content)
-    result = re.sub(r'\{# SECTION:\w+ #\}\n?', '', result)
-    result = re.sub(r'\{# END:\w+ #\}\n?', '', result)
-
-    # Format with values
-    result = result.format(**values)
-
-    # Clean up multiple consecutive blank lines (3+ newlines -> 2)
-    result = re.sub(r'\n{3,}', '\n\n', result)
-
-    return result.strip()
-
-
-def _has_content(value: Optional[str]) -> bool:
-    """Check if a value has actual content (not None, empty, or placeholder)."""
-    if value is None:
-        return False
-    stripped = value.strip()
-    return bool(stripped) and stripped.lower() not in ("none", "none yet")
-
-
-def _format_memory_section(
-    scope: str,
-    blob: Optional[str],
-    recent: Optional[str],
-) -> str:
-    """
-    Format a memory section with blob and recent content.
-
-    Returns empty string if both blob and recent are empty/None.
-    Only includes lines that have actual content.
-
-    Args:
-        scope: The scope type ("agent", "user", "session")
-        blob: Consolidated blob content (or None)
-        recent: Recent reflections content (or None)
-
-    Returns:
-        Formatted memory section string, or empty string if no content
-    """
-    has_blob = _has_content(blob)
-    has_recent = _has_content(recent)
-
-    # Return empty if no content at all
-    if not has_blob and not has_recent:
-        return ""
-
-    tag_name = f"current_{scope}_memory"
-    lines = [f"<{tag_name}>"]
-
-    if has_blob:
-        lines.append(blob.strip())
-
-    if has_recent:
-        lines.append(f"Recent context: {recent.strip()}")
-
-    lines.append(f"</{tag_name}>")
-
-    return "\n".join(lines)
-
-
-# =============================================================================
 # FACT EXTRACTION PROMPT TEMPLATE
 # =============================================================================
 # This is the complete fact extraction prompt with section markers.
@@ -367,24 +144,20 @@ Your goal is to extract information that answers specific Questions (Who, What, 
 ## CRITERIA FOR A VALID FACT
 1. **Searchable:** Is this a specific answer to a concrete question?
 2. **Specific:** Does it contain names, numbers, dates, or specific entities?
-3. **Enduring:** Is this information likely to remain true for at least a week?
+3. **Enduring:** Is this information highly likely to remain true for at least a month?
 4. **Cold Storage:** Is this information okay to "forget" until specifically searched for?
 
 This means facts should be SEARCHABLE ANSWERS to specific questions that are not otherwise relevant to the agent (and therefore shouldn't generally be in context).
 After this extraction step of FACTS, you will also get to extract REFLECTIONS from the same conversation, which are always-in-context memories.
-If knowledge needs to be always-in-context (eg to influence agent behavior), rather than explicitly retrieved, don't extract it as FACT, but leave it to the REFLECTION system.
-
-Guidelines:
-- Facts must be self-contained statements that make sense without any additional context. Reference specifics as much as possible (usernames, absolute dates, ...)
-- Maximum {max_words} words per fact, always be concise!
-- ALWAYS assign specific usernames (NEVER "User", "the user", or "they") and absolute dates (NEVER use "tomorrow")
+If knowledge needs to be always in context (to consistently influence agent behavior), rather than occasionally retrieved, don't extract it as FACT, but leave it to the REFLECTION system.
 
 DO NOT extract as facts:
 - **Preferences & Behavior:** "Alice likes concise responses"
 - **Current Context:** "We are debugging the login issue"
 - **Opinions:** "Bob thinks we should use React"
 - **Ephemeral State:** "There is a bug in production right now" or "Gene has lost his headphones"
-All of the above will be captured as reflections and are not FACTS.
+
+All of the above will be captured as REFLECTIONS and are thus not FACTS.
 
 ## SCOPE DEFINITIONS
 {# SECTION:user #}
@@ -413,6 +186,11 @@ All of the above will be captured as reflections and are not FACTS.
 {# END:user #}
 
 ## INSTRUCTIONS
+- Facts must be self-contained statements that make sense without any additional context.
+- ALWAYS assign specific usernames (NEVER "User", "the user", or "they") and absolute dates (NEVER use "tomorrow")
+- Maximum {max_words} words per fact, always be concise!
+- Prioritize information explicitly stated by users. Agent messages may contain assumptions, suggestions, or inferences that haven't been verified—only extract agent-stated information if the user confirmed or agreed with it.
+
 Read the conversation_segment below. Extract ONLY facts that meet the criteria (if any). Most conversations have FEW or NO facts.
 
 <conversation_segment>
@@ -427,54 +205,6 @@ Return a JSON object:
 }}
 If no facts are found, return {{ "facts": [] }}.
 """
-
-
-def build_fact_extraction_prompt(
-    conversation_text: str,
-    agent_persona: str,
-    enabled_scopes: List[str],
-    max_words: int = FACT_MAX_WORDS,
-) -> str:
-    """
-    Build fact extraction prompt with only enabled scopes.
-
-    Args:
-        conversation_text: The conversation to extract facts from
-        agent_persona: Agent persona/description
-        enabled_scopes: List of enabled scopes ["user", "agent"] or subset
-        max_words: Maximum words per fact
-
-    Returns:
-        Complete prompt string
-    """
-    if not enabled_scopes:
-        return ""
-
-    # Build JSON examples based on enabled scopes (user first, then agent - matches original)
-    # Note: Double braces {{ }} are literal characters that appear in output (not format escapes)
-    json_examples = []
-    if "user" in enabled_scopes:
-        json_examples.append('    {{ "content": "User\'s email is john@example.com", "scope": "user" }}')
-    if "agent" in enabled_scopes:
-        json_examples.append('    {{ "content": "Project Apollo launch date is June 1st", "scope": "agent" }}')
-
-    # Determine enabled sections
-    enabled_sections = set()
-    if "user" in enabled_scopes:
-        enabled_sections.add("user")
-    if "agent" in enabled_scopes:
-        enabled_sections.add("agent")
-
-    return _process_template(
-        template=FACT_EXTRACTION_TEMPLATE,
-        values={
-            "agent_persona": agent_persona,
-            "max_words": max_words,
-            "conversation_text": conversation_text,
-            "json_examples": ",\n".join(json_examples) if json_examples else "",
-        },
-        enabled_sections=enabled_sections,
-    )
 
 
 # =============================================================================
@@ -536,6 +266,7 @@ These FACTS however, won't be in context by default. Sometimes important REFLECT
 - ALWAYS assign specific usernames (NEVER "User", "the user", or "they") and absolute dates (NEVER use "tomorrow")
 - Occasionally, certain reflections may be relevant to multiple scopes. Eg "Gene is working on X" could be relevant for collective, agent scope but also useful for personal user context. In such cases, feel free to extract two reflections about the same information with different scope.
 - IMPORTANT: Maximum {max_words} words per reflection
+- Give more weight to information explicitly stated by users. Agent messages may contain assumptions, guesses, or hallucinations—only extract agent-stated information if the user confirmed or acknowledged it.
 
 ## WHAT NOT TO EXTRACT
 * **Redundancy:** Do not extract things already present in CURRENT MEMORY STATE unless the status has *changed*.
@@ -555,121 +286,6 @@ Return JSON:
 Return empty array(s) when there's nothing meaningful to extract.
 """
 
-
-def build_reflection_extraction_prompt(
-    conversation_text: str,
-    agent_persona: str,
-    memory_context: dict,
-    newly_formed_facts: str,
-    enabled_scopes: List[str],
-    max_words: int = REFLECTION_MAX_WORDS,
-) -> str:
-    """
-    Build reflection extraction prompt with only enabled scopes.
-
-    Empty sections are completely omitted to reduce token usage.
-    Only includes memory context sections that have actual content.
-
-    Args:
-        conversation_text: The conversation to extract reflections from
-        agent_persona: Agent persona/description
-        memory_context: Dict with keys like "agent_blob", "agent_recent", etc.
-        newly_formed_facts: Formatted string of newly formed facts (empty string if none)
-        enabled_scopes: List of enabled scopes ["session", "user", "agent"]
-        max_words: Maximum words per reflection
-
-    Returns:
-        Complete prompt string
-    """
-    # Build memory sections for enabled scopes (only if they have content)
-    memory_parts = []
-
-    if "agent" in enabled_scopes:
-        agent_section = _format_memory_section(
-            scope="agent",
-            blob=memory_context.get("agent_blob"),
-            recent=memory_context.get("agent_recent"),
-        )
-        if agent_section:
-            memory_parts.append(agent_section)
-
-    if "user" in enabled_scopes:
-        user_section = _format_memory_section(
-            scope="user",
-            blob=memory_context.get("user_blob"),
-            recent=memory_context.get("user_recent"),
-        )
-        if user_section:
-            memory_parts.append(user_section)
-
-    if "session" in enabled_scopes:
-        session_section = _format_memory_section(
-            scope="session",
-            blob=memory_context.get("session_blob"),
-            recent=memory_context.get("session_recent"),
-        )
-        if session_section:
-            memory_parts.append(session_section)
-
-    # If no memory sections, add placeholder note
-    # Each section needs leading \n (for blank line before it) to match original
-    # Also add trailing \n to separate from next section
-    if memory_parts:
-        memory_sections = "".join("\n" + part for part in memory_parts) + "\n"
-    else:
-        memory_sections = "\nNo existing memory context yet.\n\n"
-
-    # Calculate hierarchy numbers based on enabled scopes (order: agent -> user -> session)
-    hierarchy_num = 1
-    agent_hierarchy_num = ""
-    user_hierarchy_num = ""
-    session_hierarchy_num = ""
-
-    if "agent" in enabled_scopes:
-        agent_hierarchy_num = str(hierarchy_num)
-        hierarchy_num += 1
-    if "user" in enabled_scopes:
-        user_hierarchy_num = str(hierarchy_num)
-        hierarchy_num += 1
-    if "session" in enabled_scopes:
-        session_hierarchy_num = str(hierarchy_num)
-
-    # Build JSON fields based on enabled scopes
-    # Note: Double braces {{ }} are literal characters that appear in output (not format escapes)
-    json_fields = []
-    if "agent" in enabled_scopes:
-        json_fields.append('  "agent_reflections": [{{"content": "..."}}]')
-    if "user" in enabled_scopes:
-        json_fields.append('  "user_reflections": [{{"content": "..."}}]')
-    if "session" in enabled_scopes:
-        json_fields.append('  "session_reflections": [{{"content": "..."}}]')
-
-    # Determine enabled sections
-    enabled_sections = set()
-    if "agent" in enabled_scopes:
-        enabled_sections.add("agent")
-    if "user" in enabled_scopes:
-        enabled_sections.add("user")
-    if "session" in enabled_scopes:
-        enabled_sections.add("session")
-    if newly_formed_facts and newly_formed_facts.strip():
-        enabled_sections.add("has_facts")
-
-    return _process_template(
-        template=REFLECTION_EXTRACTION_TEMPLATE,
-        values={
-            "agent_persona": agent_persona,
-            "memory_sections": memory_sections,
-            "newly_formed_facts": newly_formed_facts,
-            "conversation_text": conversation_text,
-            "agent_hierarchy_num": agent_hierarchy_num,
-            "user_hierarchy_num": user_hierarchy_num,
-            "session_hierarchy_num": session_hierarchy_num,
-            "max_words": max_words,
-            "json_fields": ",\n".join(json_fields),
-        },
-        enabled_sections=enabled_sections,
-    )
 
 
 # =============================================================================
@@ -820,3 +436,391 @@ Focus on the "Narrative Thread" of the current interaction:
 - **Tone:** Urgent and brief. This is a "Working Memory" scratchpad.
 """
 }
+
+
+# =============================================================================
+# Memory2 Configuration (unchanged from original)
+# =============================================================================
+@dataclass
+class Memory2Config:
+    """
+    Configuration for memory2 system based on agent settings.
+
+    Controls which memory scopes are enabled for both extraction and assembly.
+
+    IMPORTANT: Session memory is ALWAYS active, regardless of user/agent toggles.
+    This ensures session reflections are always formed and injected into context.
+
+    IMPORTANT: User memory is automatically disabled for multi-user sessions (group chats)
+    to prevent memory leakage between users. In multi-user sessions, only session and
+    agent scoped memories are formed.
+    """
+    user_enabled: bool = False
+    agent_enabled: bool = False
+    is_multi_user: bool = False  # True when session has multiple users
+
+    @property
+    def fact_scopes(self) -> List[str]:
+        """
+        Get enabled scopes for fact extraction (user/agent only, no session facts).
+
+        User scope is disabled for multi-user sessions to prevent leakage.
+        """
+        scopes = []
+        # User facts disabled in multi-user sessions
+        if self.user_enabled and not self.is_multi_user:
+            scopes.append("user")
+        if self.agent_enabled:
+            scopes.append("agent")
+        return scopes
+
+    @property
+    def reflection_scopes(self) -> List[str]:
+        """
+        Get enabled scopes for reflection extraction.
+
+        Session is ALWAYS included - session reflections are never disabled.
+        User scope is disabled for multi-user sessions to prevent leakage.
+        """
+        scopes = ["session"]  # Session ALWAYS active
+        # User reflections disabled in multi-user sessions
+        if self.user_enabled and not self.is_multi_user:
+            scopes.append("user")
+        if self.agent_enabled:
+            scopes.append("agent")
+        return scopes
+
+    @property
+    def any_enabled(self) -> bool:
+        """Check if user or agent memory is enabled (for fact extraction)."""
+        return self.user_enabled or self.agent_enabled
+
+    @property
+    def session_always_active(self) -> bool:
+        """Session memory is always active - this always returns True."""
+        return True
+
+    @classmethod
+    def from_agent(cls, agent, session=None) -> "Memory2Config":
+        """
+        Create config from an Agent object, optionally with session context.
+
+        Args:
+            agent: Agent object with memory settings
+            session: Optional session object to detect multi-user context
+
+        Returns:
+            Memory2Config with appropriate settings
+        """
+        is_multi_user = is_multi_user_session(session) if session else False
+
+        return cls(
+            user_enabled=getattr(agent, "user_memory_enabled", False),
+            agent_enabled=getattr(agent, "agent_memory_enabled", False),
+            is_multi_user=is_multi_user,
+        )
+
+    @classmethod
+    def from_agent_id(cls, agent_id, session=None) -> "Memory2Config":
+        """
+        Create config by loading agent from database, optionally with session context.
+
+        Args:
+            agent_id: Agent ObjectId
+            session: Optional session object to detect multi-user context
+
+        Returns:
+            Memory2Config with appropriate settings
+        """
+        try:
+            from eve.agent.agent import Agent
+            agent = Agent.from_mongo(agent_id)
+            if agent:
+                return cls.from_agent(agent, session=session)
+        except Exception:
+            pass
+        return cls()  # Default: all disabled
+
+
+def is_multi_user_session(session) -> bool:
+    """
+    Check if a session is a multi-user session (group chat).
+
+    Multi-user sessions have more than one user in the users list.
+    In multi-user sessions, user-scoped memories should be disabled
+    to prevent memory leakage between users.
+
+    Args:
+        session: Session object with users attribute (List[ObjectId] in MongoDB)
+
+    Returns:
+        True if session has multiple users, False otherwise
+    """
+    if session is None:
+        return False
+
+    users = getattr(session, "users", None) or []
+    return len(users) > 1
+
+
+# =============================================================================
+# TEMPLATE POST-PROCESSOR
+# =============================================================================
+# Section marker pattern: {# SECTION:name #} ... {# END:name #}
+
+def _process_template(
+    template: str,
+    values: dict,
+    enabled_sections: Set[str],
+) -> str:
+    """
+    Process a template by:
+    1. Removing disabled sections (between {# SECTION:x #} and {# END:x #})
+    2. Removing section markers from enabled sections
+    3. Formatting with provided values
+    4. Cleaning up extra blank lines
+
+    Args:
+        template: The template string with section markers
+        values: Dict of values to format into the template
+        enabled_sections: Set of section names to keep (others are removed)
+
+    Returns:
+        Processed template string
+    """
+    result = template
+
+    # Find all section names in the template
+    all_sections = set(re.findall(r'\{# SECTION:(\w+) #\}', result))
+
+    # Remove disabled sections entirely (including their content)
+    for section in all_sections - enabled_sections:
+        # Pattern matches from SECTION marker to END marker, including newlines
+        pattern = rf'\{{# SECTION:{section} #\}}.*?\{{# END:{section} #\}}\n?'
+        result = re.sub(pattern, '', result, flags=re.DOTALL)
+
+    # Strip section markers from enabled sections (keep content)
+    result = re.sub(r'\{# SECTION:\w+ #\}\n?', '', result)
+    result = re.sub(r'\{# END:\w+ #\}\n?', '', result)
+
+    # Format with values
+    result = result.format(**values)
+
+    # Clean up multiple consecutive blank lines (3+ newlines -> 2)
+    result = re.sub(r'\n{3,}', '\n\n', result)
+
+    return result.strip()
+
+
+def _has_content(value: Optional[str]) -> bool:
+    """Check if a value has actual content (not None, empty, or placeholder)."""
+    if value is None:
+        return False
+    stripped = value.strip()
+    return bool(stripped) and stripped.lower() not in ("none", "none yet")
+
+
+def _format_memory_section(
+    scope: str,
+    blob: Optional[str],
+    recent: Optional[str],
+) -> str:
+    """
+    Format a memory section with blob and recent content.
+
+    Returns empty string if both blob and recent are empty/None.
+    Only includes lines that have actual content.
+
+    Args:
+        scope: The scope type ("agent", "user", "session")
+        blob: Consolidated blob content (or None)
+        recent: Recent reflections content (or None)
+
+    Returns:
+        Formatted memory section string, or empty string if no content
+    """
+    has_blob = _has_content(blob)
+    has_recent = _has_content(recent)
+
+    # Return empty if no content at all
+    if not has_blob and not has_recent:
+        return ""
+
+    tag_name = f"current_{scope}_memory"
+    lines = [f"<{tag_name}>"]
+
+    if has_blob:
+        lines.append(blob.strip())
+
+    if has_recent:
+        lines.append(f"Recent context: {recent.strip()}")
+
+    lines.append(f"</{tag_name}>")
+
+    return "\n".join(lines)
+
+
+
+def build_fact_extraction_prompt(
+    conversation_text: str,
+    agent_persona: str,
+    enabled_scopes: List[str],
+    max_words: int = FACT_MAX_WORDS,
+) -> str:
+    """
+    Build fact extraction prompt with only enabled scopes.
+
+    Args:
+        conversation_text: The conversation to extract facts from
+        agent_persona: Agent persona/description
+        enabled_scopes: List of enabled scopes ["user", "agent"] or subset
+        max_words: Maximum words per fact
+
+    Returns:
+        Complete prompt string
+    """
+    if not enabled_scopes:
+        return ""
+
+    # Build JSON examples based on enabled scopes (user first, then agent - matches original)
+    # Note: Double braces {{ }} are literal characters that appear in output (not format escapes)
+    json_examples = []
+    if "user" in enabled_scopes:
+        json_examples.append('    {{ "content": "User\'s email is john@example.com", "scope": "user" }}')
+    if "agent" in enabled_scopes:
+        json_examples.append('    {{ "content": "Project Apollo launch date is June 1st", "scope": "agent" }}')
+
+    # Determine enabled sections
+    enabled_sections = set()
+    if "user" in enabled_scopes:
+        enabled_sections.add("user")
+    if "agent" in enabled_scopes:
+        enabled_sections.add("agent")
+
+    return _process_template(
+        template=FACT_EXTRACTION_TEMPLATE,
+        values={
+            "agent_persona": agent_persona,
+            "max_words": max_words,
+            "conversation_text": conversation_text,
+            "json_examples": ",\n".join(json_examples) if json_examples else "",
+        },
+        enabled_sections=enabled_sections,
+    )
+
+
+
+def build_reflection_extraction_prompt(
+    conversation_text: str,
+    agent_persona: str,
+    memory_context: dict,
+    newly_formed_facts: str,
+    enabled_scopes: List[str],
+    max_words: int = REFLECTION_MAX_WORDS,
+) -> str:
+    """
+    Build reflection extraction prompt with only enabled scopes.
+
+    Empty sections are completely omitted to reduce token usage.
+    Only includes memory context sections that have actual content.
+
+    Args:
+        conversation_text: The conversation to extract reflections from
+        agent_persona: Agent persona/description
+        memory_context: Dict with keys like "agent_blob", "agent_recent", etc.
+        newly_formed_facts: Formatted string of newly formed facts (empty string if none)
+        enabled_scopes: List of enabled scopes ["session", "user", "agent"]
+        max_words: Maximum words per reflection
+
+    Returns:
+        Complete prompt string
+    """
+    # Build memory sections for enabled scopes (only if they have content)
+    memory_parts = []
+
+    if "agent" in enabled_scopes:
+        agent_section = _format_memory_section(
+            scope="agent",
+            blob=memory_context.get("agent_blob"),
+            recent=memory_context.get("agent_recent"),
+        )
+        if agent_section:
+            memory_parts.append(agent_section)
+
+    if "user" in enabled_scopes:
+        user_section = _format_memory_section(
+            scope="user",
+            blob=memory_context.get("user_blob"),
+            recent=memory_context.get("user_recent"),
+        )
+        if user_section:
+            memory_parts.append(user_section)
+
+    if "session" in enabled_scopes:
+        session_section = _format_memory_section(
+            scope="session",
+            blob=memory_context.get("session_blob"),
+            recent=memory_context.get("session_recent"),
+        )
+        if session_section:
+            memory_parts.append(session_section)
+
+    # If no memory sections, add placeholder note
+    # Each section needs leading \n (for blank line before it) to match original
+    # Also add trailing \n to separate from next section
+    if memory_parts:
+        memory_sections = "".join("\n" + part for part in memory_parts) + "\n"
+    else:
+        memory_sections = "\nNo existing memory context yet.\n\n"
+
+    # Calculate hierarchy numbers based on enabled scopes (order: agent -> user -> session)
+    hierarchy_num = 1
+    agent_hierarchy_num = ""
+    user_hierarchy_num = ""
+    session_hierarchy_num = ""
+
+    if "agent" in enabled_scopes:
+        agent_hierarchy_num = str(hierarchy_num)
+        hierarchy_num += 1
+    if "user" in enabled_scopes:
+        user_hierarchy_num = str(hierarchy_num)
+        hierarchy_num += 1
+    if "session" in enabled_scopes:
+        session_hierarchy_num = str(hierarchy_num)
+
+    # Build JSON fields based on enabled scopes
+    # Note: Double braces {{ }} are literal characters that appear in output (not format escapes)
+    json_fields = []
+    if "agent" in enabled_scopes:
+        json_fields.append('  "agent_reflections": [{{"content": "..."}}]')
+    if "user" in enabled_scopes:
+        json_fields.append('  "user_reflections": [{{"content": "..."}}]')
+    if "session" in enabled_scopes:
+        json_fields.append('  "session_reflections": [{{"content": "..."}}]')
+
+    # Determine enabled sections
+    enabled_sections = set()
+    if "agent" in enabled_scopes:
+        enabled_sections.add("agent")
+    if "user" in enabled_scopes:
+        enabled_sections.add("user")
+    if "session" in enabled_scopes:
+        enabled_sections.add("session")
+    if newly_formed_facts and newly_formed_facts.strip():
+        enabled_sections.add("has_facts")
+
+    return _process_template(
+        template=REFLECTION_EXTRACTION_TEMPLATE,
+        values={
+            "agent_persona": agent_persona,
+            "memory_sections": memory_sections,
+            "newly_formed_facts": newly_formed_facts,
+            "conversation_text": conversation_text,
+            "agent_hierarchy_num": agent_hierarchy_num,
+            "user_hierarchy_num": user_hierarchy_num,
+            "session_hierarchy_num": session_hierarchy_num,
+            "max_words": max_words,
+            "json_fields": ",\n".join(json_fields),
+        },
+        enabled_sections=enabled_sections,
+    )
