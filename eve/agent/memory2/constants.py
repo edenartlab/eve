@@ -144,24 +144,20 @@ Your goal is to extract information that answers specific Questions (Who, What, 
 ## CRITERIA FOR A VALID FACT
 1. **Searchable:** Is this a specific answer to a concrete question?
 2. **Specific:** Does it contain names, numbers, dates, or specific entities?
-3. **Enduring:** Is this information likely to remain true for at least a week?
+3. **Enduring:** Is this information highly likely to remain true for at least a month?
 4. **Cold Storage:** Is this information okay to "forget" until specifically searched for?
 
 This means facts should be SEARCHABLE ANSWERS to specific questions that are not otherwise relevant to the agent (and therefore shouldn't generally be in context).
 After this extraction step of FACTS, you will also get to extract REFLECTIONS from the same conversation, which are always-in-context memories.
-If knowledge needs to be always-in-context (eg to influence agent behavior), rather than explicitly retrieved, don't extract it as FACT, but leave it to the REFLECTION system.
-
-Guidelines:
-- Facts must be self-contained statements that make sense without any additional context. Reference specifics as much as possible (usernames, absolute dates, ...)
-- Maximum {max_words} words per fact, always be concise!
-- ALWAYS assign specific usernames (NEVER "User", "the user", or "they") and absolute dates (NEVER use "tomorrow")
+If knowledge needs to be always in context (to consistently influence agent behavior), rather than occasionally retrieved, don't extract it as FACT, but leave it to the REFLECTION system.
 
 DO NOT extract as facts:
 - **Preferences & Behavior:** "Alice likes concise responses"
 - **Current Context:** "We are debugging the login issue"
 - **Opinions:** "Bob thinks we should use React"
 - **Ephemeral State:** "There is a bug in production right now" or "Gene has lost his headphones"
-All of the above will be captured as reflections and are not FACTS.
+
+All of the above will be captured as REFLECTIONS and are thus not FACTS.
 
 ## SCOPE DEFINITIONS
 {# SECTION:user #}
@@ -190,6 +186,11 @@ All of the above will be captured as reflections and are not FACTS.
 {# END:user #}
 
 ## INSTRUCTIONS
+- Facts must be self-contained statements that make sense without any additional context.
+- ALWAYS assign specific usernames (NEVER "User", "the user", or "they") and absolute dates (NEVER use "tomorrow")
+- Maximum {max_words} words per fact, always be concise!
+- Prioritize information explicitly stated by users. Agent messages may contain assumptions, suggestions, or inferences that haven't been verified—only extract agent-stated information if the user confirmed or agreed with it.
+
 Read the conversation_segment below. Extract ONLY facts that meet the criteria (if any). Most conversations have FEW or NO facts.
 
 <conversation_segment>
@@ -265,6 +266,7 @@ These FACTS however, won't be in context by default. Sometimes important REFLECT
 - ALWAYS assign specific usernames (NEVER "User", "the user", or "they") and absolute dates (NEVER use "tomorrow")
 - Occasionally, certain reflections may be relevant to multiple scopes. Eg "Gene is working on X" could be relevant for collective, agent scope but also useful for personal user context. In such cases, feel free to extract two reflections about the same information with different scope.
 - IMPORTANT: Maximum {max_words} words per reflection
+- Give more weight to information explicitly stated by users. Agent messages may contain assumptions, guesses, or hallucinations—only extract agent-stated information if the user confirmed or acknowledged it.
 
 ## WHAT NOT TO EXTRACT
 * **Redundancy:** Do not extract things already present in CURRENT MEMORY STATE unless the status has *changed*.

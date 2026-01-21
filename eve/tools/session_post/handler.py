@@ -1,3 +1,4 @@
+import asyncio
 import json
 from enum import Enum
 from typing import List, Optional
@@ -242,15 +243,39 @@ async def run_session_prompt(
         return {"output": {"session_id": session_id}}
 
     # Otherwise, run session prompt and return to parent session
-    await remote_prompt_session(
-        session_id=session_id,
-        agent_id=agent_id,
-        user_id=user_id,
-        content=content,
-        attachments=attachments,
-        extra_tools=extra_tools,
-        selection_limit=selection_limit,
+    try:
+        await remote_prompt_session(
+            session_id=session_id,
+            agent_id=agent_id,
+            user_id=user_id,
+            content=content,
+            attachments=attachments,
+            extra_tools=extra_tools,
+            selection_limit=selection_limit,
+        )
+    except asyncio.CancelledError:
+        # Session was cancelled during execution
+        return {
+            "output": [],
+            "status": "cancelled",
+            "message": "Task cancelled by user",
+            "session_id": session_id,
+        }
+
+    # Check if session was cancelled (indicated by "Response cancelled by user" message)
+    last_messages = ChatMessage.find(
+        {"session": ObjectId(session_id)},
+        sort="createdAt",
+        desc=True,
+        limit=1,
     )
+    if last_messages and last_messages[0].content == "Response cancelled by user":
+        return {
+            "output": [],
+            "status": "cancelled",
+            "message": "Task cancelled by user",
+            "session_id": session_id,
+        }
 
     # Get structured output based on response type
     if response_type == ResponseType.SEED:

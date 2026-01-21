@@ -307,7 +307,13 @@ async def _task_handler(func, *args, **kwargs):
             results.extend([result])
 
             if i == n_samples - 1:
-                task_update = {"status": "completed", "result": results}
+                # Check if any result indicates cancellation
+                final_status = "completed"
+                for r in results:
+                    if isinstance(r, dict) and r.get("status") == "cancelled":
+                        final_status = "cancelled"
+                        break
+                task_update = {"status": final_status, "result": results}
 
             else:
                 task_update = {"status": "running", "result": results}

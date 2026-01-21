@@ -469,10 +469,28 @@ class Tool(Document, ABC):
         - No custom properties like 'file_type', 'is_array'
         """
         ALLOWED_KEYS = {
-            "type", "description", "properties", "required", "items",
-            "enum", "default", "minimum", "maximum", "minItems", "maxItems",
-            "minLength", "maxLength", "pattern", "format", "anyOf", "oneOf",
-            "allOf", "nullable", "title", "additionalProperties", "const",
+            "type",
+            "description",
+            "properties",
+            "required",
+            "items",
+            "enum",
+            "default",
+            "minimum",
+            "maximum",
+            "minItems",
+            "maxItems",
+            "minLength",
+            "maxLength",
+            "pattern",
+            "format",
+            "anyOf",
+            "oneOf",
+            "allOf",
+            "nullable",
+            "title",
+            "additionalProperties",
+            "const",
         }
 
         if not isinstance(schema, dict):
@@ -483,9 +501,9 @@ class Tool(Document, ABC):
             ref_path = schema["$ref"]
             # Handle "#/$defs/Name" or "#/definitions/Name" format
             if ref_path.startswith("#/$defs/"):
-                ref_name = ref_path[len("#/$defs/"):]
+                ref_name = ref_path[len("#/$defs/") :]
             elif ref_path.startswith("#/definitions/"):
-                ref_name = ref_path[len("#/definitions/"):]
+                ref_name = ref_path[len("#/definitions/") :]
             else:
                 ref_name = ref_path.split("/")[-1]
 
@@ -504,8 +522,7 @@ class Tool(Document, ABC):
                 continue
             if key == "properties" and isinstance(value, dict):
                 cleaned[key] = {
-                    k: self._to_gemini_schema(v, defs)
-                    for k, v in value.items()
+                    k: self._to_gemini_schema(v, defs) for k, v in value.items()
                 }
             elif key == "items" and isinstance(value, dict):
                 cleaned[key] = self._to_gemini_schema(value, defs)
@@ -596,7 +613,8 @@ class Tool(Document, ABC):
                 result = utils.upload_result(
                     result, save_thumbnails=save_thumbnails, tool_key=self.key
                 )
-                result["status"] = "completed"
+                # Preserve status if handler returned one (e.g., "cancelled"), otherwise default to "completed"
+                result["status"] = result.get("status", "completed")
                 sentry_sdk.add_breadcrumb(category="handle_run", data=result)
 
             except Exception as e:

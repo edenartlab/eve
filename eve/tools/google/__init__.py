@@ -5,6 +5,7 @@ import tempfile
 from urllib.parse import urlparse
 
 import httpx
+from loguru import logger
 
 from google import genai
 from google.genai import errors as genai_errors
@@ -90,23 +91,30 @@ async def veo_handler(args: dict, model: str):
     try:
         operation = await client.aio.models.generate_videos(**args_dict)
     except genai_errors.ClientError as e:
-        if e.status_code == 429:
+        logger.error(
+            f"Google API ClientError in veo_handler: code={e.code}, message={e.message}, details={e.details}"
+        )
+        if e.code == 429:
             raise ValueError(
-                "Google API rate limit reached. Please try again in a few moments."
+                "Rate limit reached for this video model. Please try again later or use a different video model (e.g., model_preference='kling' or 'runway')."
             )
-        elif e.status_code == 403:
+        elif e.code == 403:
             raise ValueError(
                 "Google API access denied. Please check your API credentials and quotas."
             )
-        elif e.status_code == 400:
+        elif e.code == 400:
             raise ValueError(f"Invalid request to Google API: {e.message}")
         else:
-            raise ValueError(f"Google API error ({e.status_code}): {e.message}")
+            raise ValueError(f"Google API error ({e.code}): {e.message}")
     except genai_errors.ServerError as e:
+        logger.error(
+            f"Google API ServerError in veo_handler: code={e.code}, message={e.message}, details={e.details}"
+        )
         raise ValueError(
-            f"Google API server error. Please try again later. ({e.status_code})"
+            f"Google API server error. Please try again later or use a different video model. ({e.code})"
         )
     except Exception as e:
+        logger.error(f"Unexpected error in veo_handler: {type(e).__name__}: {str(e)}")
         raise ValueError(f"Unexpected error calling Google API: {str(e)}")
 
     # ---- poll until done ----
@@ -121,7 +129,10 @@ async def veo_handler(args: dict, model: str):
         try:
             operation = await client.aio.operations.get(operation)
         except genai_errors.ClientError as e:
-            if e.status_code == 429:
+            logger.error(
+                f"Google API ClientError while polling: code={e.code}, message={e.message}, details={e.details}"
+            )
+            if e.code == 429:
                 # For polling, wait a bit longer before retrying
                 await asyncio.sleep(5)
                 continue
