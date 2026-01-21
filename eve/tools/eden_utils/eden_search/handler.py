@@ -106,6 +106,7 @@ COLLECTION_CONFIG = {
             "name",
             "description",
             "userImage",
+            "voice",
             "createdAt",
             "owner",
         ],
