@@ -13,6 +13,7 @@ from typing import List, Optional
 from bson import ObjectId
 
 from eve.mongo import get_collection
+from eve.s3 import get_full_url
 from eve.tool import ToolContext
 
 # ============================================================
@@ -106,6 +107,7 @@ COLLECTION_CONFIG = {
             "name",
             "description",
             "userImage",
+            "voice",
             "createdAt",
             "owner",
         ],
@@ -407,6 +409,8 @@ def format_output(docs: List[dict], config: dict) -> List[dict]:
                 # Resolve user/agent/owner to username
                 if field in ["user", "agent", "owner"] and isinstance(value, ObjectId):
                     item[field] = username_map.get(value, str(value))
+                elif field == "userImage" and value:
+                    item[field] = get_full_url(value)
                 elif isinstance(value, ObjectId):
                     item[field] = str(value)
                 elif isinstance(value, datetime):
