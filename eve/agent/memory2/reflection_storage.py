@@ -175,7 +175,7 @@ def get_buffer_size(
 
         consolidated = ConsolidatedMemory.find_one(query)
         if consolidated:
-            return len(consolidated.unabsorbed_ids)
+            return len(consolidated.unabsorbed_ids or [])
         return 0
 
     except Exception as e:
@@ -251,7 +251,7 @@ async def get_all_reflections_for_context(
             "agent_id": agent_id,
         })
         if agent_consolidated:
-            result["agent"]["consolidated"] = agent_consolidated.consolidated_content
+            result["agent"]["consolidated"] = agent_consolidated.consolidated_content or ""
 
         agent_reflections = get_unabsorbed_reflections(
             scope="agent",
@@ -268,7 +268,7 @@ async def get_all_reflections_for_context(
                 "user_id": user_id,
             })
             if user_consolidated:
-                result["user"]["consolidated"] = user_consolidated.consolidated_content
+                result["user"]["consolidated"] = user_consolidated.consolidated_content or ""
 
             user_reflections = get_unabsorbed_reflections(
                 scope="user",
@@ -287,7 +287,7 @@ async def get_all_reflections_for_context(
             })
             if session_consolidated:
                 result["session"]["consolidated"] = (
-                    session_consolidated.consolidated_content
+                    session_consolidated.consolidated_content or ""
                 )
 
             session_reflections = get_unabsorbed_reflections(

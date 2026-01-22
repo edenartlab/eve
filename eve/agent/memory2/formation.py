@@ -64,7 +64,7 @@ def messages_to_text(
         Tuple of (formatted_text, char_counts_by_source)
     """
     # Import here to avoid circular imports
-    from eve.agent.memory.memory_models import (
+    from eve.agent.memory2.utils import (
         get_sender_id_to_sender_name_map,
     )
 
@@ -350,6 +350,7 @@ async def form_memories(
             newly_formed_facts=newly_formed_facts,
             agent_persona=agent_persona,
             enabled_scopes=config.reflection_scopes,
+            model=config.slow_model,
         )
 
         if LOCAL_DEV:
@@ -367,6 +368,7 @@ async def form_memories(
             session_id=session_id,
             agent_persona=agent_persona,
             enabled_scopes=config.reflection_scopes,
+            model=config.slow_model,
         )
 
         if LOCAL_DEV:
@@ -387,6 +389,17 @@ async def form_memories(
             word_count = len(memory_xml.split()) if memory_xml else 0
             print(f"\n✓ Memory formation completed in {elapsed:.2f}s")
             print(f"  Memory context: {word_count} words")
+
+        # --- Always log a condensed DEBUG summary of memory formation ---
+        _log_memory_formation_summary(
+            agent_id=agent_id,
+            user_id=user_id,
+            session_id=session_id,
+            saved_facts=saved_facts,
+            reflections_by_scope=reflections_by_scope,
+            consolidation_results=consolidation_results,
+            elapsed=elapsed,
+        )
 
         return True
 
@@ -578,6 +591,111 @@ def _get_agent_persona(agent_id: ObjectId) -> Optional[str]:
         return None
 
 
+def _get_agent_name(agent_id: ObjectId) -> Optional[str]:
+    """
+    Fetch the agent's name from the database.
+
+    Args:
+        agent_id: The agent's ObjectId
+
+    Returns:
+        The agent's name string, or None if not found
+    """
+    try:
+        from eve.agent.agent import Agent
+
+        agent = Agent.from_mongo(agent_id)
+        if agent:
+            return agent.name
+        return None
+
+    except Exception as e:
+        logger.error(f"Error fetching agent name: {e}")
+        return None
+
+
+def _log_memory_formation_summary(
+    agent_id: ObjectId,
+    user_id: Optional[ObjectId],
+    session_id: Optional[ObjectId],
+    saved_facts: List,
+    reflections_by_scope: Dict[str, List],
+    consolidation_results: Dict[str, bool],
+    elapsed: float,
+) -> None:
+    """
+    Log a condensed DEBUG summary of memory formation results.
+
+    This is always logged regardless of LOCAL_DEV flag to provide
+    visibility into memory formation in production.
+
+    Args:
+        agent_id: Agent ID
+        user_id: User ID
+        session_id: Session ID
+        saved_facts: List of saved fact objects
+        reflections_by_scope: Dict mapping scope -> list of reflections
+        consolidation_results: Dict mapping scope -> bool (whether consolidated)
+        elapsed: Time elapsed in seconds
+    """
+    try:
+        agent_name = _get_agent_name(agent_id) or "unknown"
+
+        # Count totals
+        total_facts = len(saved_facts) if saved_facts else 0
+        total_reflections = sum(len(r) for r in reflections_by_scope.values())
+        consolidated_scopes = [k for k, v in consolidation_results.items() if v]
+
+        # Build facts summary
+        facts_summary = []
+        for fact in (saved_facts or []):
+            scope = fact.scope if hasattr(fact, 'scope') else fact.get('scope', [])
+            content = fact.content if hasattr(fact, 'content') else fact.get('content', '')
+            scope_str = ",".join(scope) if isinstance(scope, list) else str(scope)
+            # Truncate long content
+            content_short = content[:60] + "..." if len(content) > 60 else content
+            facts_summary.append(f"[{scope_str}] {content_short}")
+
+        # Build reflections summary
+        reflections_summary = []
+        for scope, reflections in reflections_by_scope.items():
+            for r in reflections:
+                content = r.content if hasattr(r, 'content') else str(r)
+                content_short = content[:60] + "..." if len(content) > 60 else content
+                reflections_summary.append(f"[{scope}] {content_short}")
+
+        # Format the log message
+        log_parts = [
+            f"MEMORY_FORMATION_COMPLETE",
+            f"agent={agent_name}({agent_id})",
+            f"user={user_id}",
+            f"session={session_id}",
+            f"elapsed={elapsed:.2f}s",
+            f"facts={total_facts}",
+            f"reflections={total_reflections}",
+            f"consolidations={consolidated_scopes or 'none'}",
+        ]
+
+        summary_line = " | ".join(log_parts)
+
+        # Add details if there are any memories
+        details = []
+        if facts_summary:
+            details.append("  FACTS: " + "; ".join(facts_summary))
+        if reflections_summary:
+            details.append("  REFLECTIONS: " + "; ".join(reflections_summary))
+
+        if details:
+            full_log = summary_line + "\n" + "\n".join(details)
+        else:
+            full_log = summary_line + " (no new memories)"
+
+        logger.debug(full_log)
+
+    except Exception as e:
+        logger.error(f"Error logging memory formation summary: {e}")
+
+
 async def process_cold_session(
     session,
     agent_id: ObjectId,
@@ -607,7 +725,7 @@ async def process_cold_session(
     messages = None
     try:
         # Import here to avoid circular imports
-        from eve.agent.memory.memory_models import select_messages
+        from eve.agent.memory2.utils import select_messages
 
         messages = select_messages(session)
         if not messages:

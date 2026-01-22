@@ -5,12 +5,7 @@ from typing import Annotated, Any, Dict, List, Optional, Union
 
 import yaml
 from bson import ObjectId
-from pydantic import (
-    BaseModel,
-    ConfigDict,
-    Field,
-    ValidationError,
-)
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from pydantic.json_schema import SkipJsonSchema
 from pymongo import MongoClient
 from pymongo.server_api import ServerApi

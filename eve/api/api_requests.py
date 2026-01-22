@@ -266,15 +266,6 @@ class AgentPromptsExtractionRequest(BaseModel):
     agent_name: Optional[str] = None
 
 
-class RegenerateAgentMemoryRequest(BaseModel):
-    shard_id: str
-
-
-class RegenerateUserMemoryRequest(BaseModel):
-    agent_id: str
-    user_id: str
-
-
 class ReactionRequest(BaseModel):
     message_id: str
     tool_call_id: Optional[str] = None  # If reacting to a specific tool call

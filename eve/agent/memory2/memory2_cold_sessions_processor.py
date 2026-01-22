@@ -17,7 +17,9 @@ modal app logs memory2_process_cold_sessions
 modal app stop memory2_process_cold_sessions
 """
 
+import asyncio
 import os
+import time
 import traceback
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -28,6 +30,12 @@ from loguru import logger
 
 # Cleanup interval - how often this job runs
 CLEANUP_COLD_SESSIONS_EVERY_MINUTES = 10
+
+# Per-session timeout (10 minutes) - prevents any single session from blocking others
+SESSION_PROCESSING_TIMEOUT_SECONDS = 600
+
+# Concurrent session processing limit - balance between speed and API load
+MAX_CONCURRENT_SESSIONS = 3
 
 
 async def process_cold_sessions():
@@ -163,39 +171,81 @@ async def process_cold_sessions():
         )
         logger.debug(f"Found {len(cold_sessions)} total cold sessions to process")
 
-        processed_count = 0
-        skipped_count = 0
-        error_count = 0
+        # Process sessions in parallel with concurrency limit
+        semaphore = asyncio.Semaphore(MAX_CONCURRENT_SESSIONS)
+        results = {"processed": 0, "skipped": 0, "errors": 0, "timeout": 0}
+        start_time = time.time()
 
-        for session in cold_sessions:
-            try:
-                # Get the primary agent for this session
-                if not session.agents or len(session.agents) == 0:
-                    skipped_count += 1
-                    continue
+        async def process_single_session(session, index: int, total: int):
+            """Process a single session with timeout and logging."""
+            session_id = session.id
 
-                agent_id = session.agents[0]
+            # Skip sessions without agents
+            if not session.agents or len(session.agents) == 0:
+                logger.info(f"⏭️  [{index}/{total}] Skipping session {session_id} (no agents)")
+                return "skipped"
 
-                # Process memory formation using memory2
-                success = await process_cold_session(
-                    session=session,
-                    agent_id=agent_id,
-                )
+            agent_id = session.agents[0]
 
-                if success:
-                    processed_count += 1
+            async with semaphore:
+                logger.info(f"🔄 [{index}/{total}] Processing session {session_id}...")
+                session_start = time.time()
+
+                try:
+                    # Apply per-session timeout
+                    success = await asyncio.wait_for(
+                        process_cold_session(session=session, agent_id=agent_id),
+                        timeout=SESSION_PROCESSING_TIMEOUT_SECONDS,
+                    )
+
+                    elapsed = time.time() - session_start
+                    if success:
+                        logger.info(f"✅ [{index}/{total}] Session {session_id} completed in {elapsed:.1f}s")
+                        return "processed"
+                    else:
+                        logger.warning(f"⚠️  [{index}/{total}] Session {session_id} returned False in {elapsed:.1f}s")
+                        return "errors"
+
+                except asyncio.TimeoutError:
+                    elapsed = time.time() - session_start
+                    logger.error(
+                        f"⏰ [{index}/{total}] Session {session_id} timed out after {elapsed:.1f}s "
+                        f"(limit: {SESSION_PROCESSING_TIMEOUT_SECONDS}s)"
+                    )
+                    return "timeout"
+
+                except Exception as e:
+                    elapsed = time.time() - session_start
+                    logger.error(f"❌ [{index}/{total}] Session {session_id} failed after {elapsed:.1f}s: {e}")
+                    traceback.print_exc()
+                    return "errors"
+
+        # Create tasks for all sessions
+        total = len(cold_sessions)
+        tasks = [
+            process_single_session(session, i + 1, total)
+            for i, session in enumerate(cold_sessions)
+        ]
+
+        # Run all tasks (semaphore limits concurrency)
+        if tasks:
+            task_results = await asyncio.gather(*tasks, return_exceptions=True)
+
+            for result in task_results:
+                if isinstance(result, Exception):
+                    logger.error(f"Unexpected task exception: {result}")
+                    results["errors"] += 1
+                elif result in results:
+                    results[result] += 1
                 else:
-                    error_count += 1
+                    results["errors"] += 1
 
-            except Exception as e:
-                logger.error(f"❌ Error processing session {session.id}: {e}")
-                traceback.print_exc()
-                error_count += 1
-
-        total_sessions = processed_count + skipped_count + error_count
-        logger.debug(
-            f"✓ [Memory2] Cold session processing complete: {processed_count} processed, "
-            f"{skipped_count} skipped, {error_count} errors, {total_sessions} total"
+        total_elapsed = time.time() - start_time
+        total_sessions = sum(results.values())
+        logger.info(
+            f"✓ [Memory2] Cold session processing complete in {total_elapsed:.1f}s: "
+            f"{results['processed']} processed, {results['skipped']} skipped, "
+            f"{results['errors']} errors, {results['timeout']} timeouts, {total_sessions} total"
         )
 
     except Exception as e:

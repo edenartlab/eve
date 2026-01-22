@@ -15,7 +15,7 @@ Session memory is always active when any memory is enabled.
 
 import re
 from dataclasses import dataclass
-from typing import List, Optional, Set
+from typing import List, Optional, Set, Tuple
 
 from eve.agent.session.config import DEFAULT_SESSION_SELECTION_LIMIT
 
@@ -29,13 +29,12 @@ LOCAL_DEV = False  # Set to False for production
 # =============================================================================
 # LLM Model Configuration
 # =============================================================================
-if LOCAL_DEV:
-    MEMORY_LLM_MODEL_FAST = "gemini-3-flash-preview"
-    MEMORY_LLM_MODEL_SLOW = "gemini-3-flash-preview"
-else:
-    MEMORY_LLM_MODEL_FAST = "gemini-3-flash-preview"
-    MEMORY_LLM_MODEL_SLOW = "gemini-3-flash-preview"
+# Fast model is always flash - used for fact extraction
+MEMORY_LLM_MODEL_FAST = "gemini-3-flash-preview"
 
+# Model names for slow model (reflection extraction, consolidation)
+_MEMORY_LLM_MODEL_SLOW_FREE = "gemini-3-flash-preview"
+_MEMORY_LLM_MODEL_SLOW_PREMIUM = "gemini-3-pro-preview"
 
 # =============================================================================
 # Memory Formation Triggers
@@ -50,7 +49,6 @@ else:
     MEMORY_FORMATION_TOKEN_INTERVAL = 1500  # ~1.5k tokens triggers formation
     NEVER_FORM_MEMORIES_LESS_THAN_N_MESSAGES = 4  # Minimum before attempting to form memories
     CONSIDER_COLD_AFTER_MINUTES = 10  # Session inactivity threshold for cold session processing
-
 
 # =============================================================================
 # Consolidation Thresholds
@@ -71,11 +69,10 @@ else:
 
 # Maximum word count for consolidated blobs
 CONSOLIDATED_WORD_LIMITS = {
-    "agent": 1000,  # Largest - agent's full persona/project state
+    "agent": 1200,  # Largest - agent's full persona/project state
     "user": 300,  # Medium - user preferences and interaction style
     "session": 200,  # Rolling summary of session events and status
 }
-
 
 # =============================================================================
 # Memory Word Limits (individual items)
@@ -322,7 +319,7 @@ Merge the new reflections into the existing memory, creating an updated consolid
 3. **Resolve Conflicts:** If new info contradicts old info, NEW info typically wins. If the statements are opinions, try to maintain nuance and diversity.
 4. **Garbage Collection:** Remove information that is no longer relevant (e.g., completed tasks from 3 days ago, "Team bbq on friday jan 3rd" when the current date is jan 4th).
 5. **Deduplicate:** Do not list the same fact twice. Merge nuances.
-6. **Word Limit:** Keep strictly under {word_limit} words.
+6. **Word Limit:** The current_consolidated_memory is ~{current_word_count} words. Keep the new version strictly under {word_limit} words.
 
 If current_consolidated_memory is empty, create a new structure based on the reflections provided. DO NOT invent information.
 
@@ -437,6 +434,41 @@ Focus on the "Narrative Thread" of the current interaction:
 """
 }
 
+def get_memory_llm_model_slow(
+    subscription_tier: Optional[int] = None,
+    has_preview_flag: bool = False,
+) -> str:
+    """
+    Get the slow LLM model based on environment and subscription tier.
+
+    The slow model is used for reflection extraction and consolidation.
+    Premium users (subscriptionTier >= 1) or users with the "preview" feature flag
+    get the pro model for better quality.
+    Free users and local development use the flash model for cost savings.
+
+    Args:
+        subscription_tier: User's subscription tier (0 or None = free, >= 1 = premium)
+        has_preview_flag: True if the owner has the "preview" feature flag
+
+    Returns:
+        Model name: "gemini-3-flash-preview" for LOCAL_DEV or free users,
+                   "gemini-3-pro-preview" for premium users or preview flag holders
+    """
+    # Local development always uses fast/cheap model
+    if LOCAL_DEV:
+        return _MEMORY_LLM_MODEL_SLOW_FREE
+
+    # Preview flag holders get pro model (equivalent to premium)
+    if has_preview_flag:
+        return _MEMORY_LLM_MODEL_SLOW_PREMIUM
+
+    # Free users (tier < 1) or unknown tier get flash model
+    if subscription_tier is None or subscription_tier < 1:
+        return _MEMORY_LLM_MODEL_SLOW_FREE
+
+    # Premium users get pro model
+    return _MEMORY_LLM_MODEL_SLOW_PREMIUM
+
 
 # =============================================================================
 # Memory2 Configuration (unchanged from original)
@@ -458,6 +490,13 @@ class Memory2Config:
     user_enabled: bool = False
     agent_enabled: bool = False
     is_multi_user: bool = False  # True when session has multiple users
+    subscription_tier: Optional[int] = None  # Owner's subscription tier for model selection
+    has_preview_flag: bool = False  # True if owner has "preview" feature flag
+
+    @property
+    def slow_model(self) -> str:
+        """Get the slow LLM model based on owner's subscription tier or preview flag."""
+        return get_memory_llm_model_slow(self.subscription_tier, self.has_preview_flag)
 
     @property
     def fact_scopes(self) -> List[str]:
@@ -514,10 +553,15 @@ class Memory2Config:
         """
         is_multi_user = is_multi_user_session(session) if session else False
 
+        # Get owner's subscription tier and preview flag for model selection
+        subscription_tier, has_preview_flag = _get_owner_premium_status(agent)
+
         return cls(
             user_enabled=getattr(agent, "user_memory_enabled", False),
             agent_enabled=getattr(agent, "agent_memory_enabled", False),
             is_multi_user=is_multi_user,
+            subscription_tier=subscription_tier,
+            has_preview_flag=has_preview_flag,
         )
 
     @classmethod
@@ -561,6 +605,45 @@ def is_multi_user_session(session) -> bool:
 
     users = getattr(session, "users", None) or []
     return len(users) > 1
+
+
+def _get_owner_premium_status(agent) -> Tuple[Optional[int], bool]:
+    """
+    Get the premium status of the agent's owner.
+
+    Used to determine which LLM model to use for memory operations.
+    Premium users (tier >= 1) or users with the "preview" feature flag
+    get the pro model, free users get flash.
+
+    Args:
+        agent: Agent object with owner attribute
+
+    Returns:
+        Tuple of (subscription_tier, has_preview_flag):
+        - subscription_tier: Owner's subscription tier, or None if not found
+        - has_preview_flag: True if owner has "preview" in featureFlags
+    """
+    try:
+        owner_id = getattr(agent, "owner", None)
+        if owner_id is None:
+            return None, False
+
+        # Import here to avoid circular imports
+        from eve.user import User
+
+        owner = User.from_mongo(owner_id)
+        if owner is None:
+            return None, False
+
+        subscription_tier = getattr(owner, "subscriptionTier", None)
+        feature_flags = getattr(owner, "featureFlags", None) or []
+        has_preview_flag = "preview" in feature_flags
+
+        return subscription_tier, has_preview_flag
+
+    except Exception:
+        # Fail silently - default to free tier model if we can't determine
+        return None, False
 
 
 # =============================================================================

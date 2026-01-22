@@ -14,11 +14,11 @@ from eve.agent.llm.prompts.agent_session_template import agent_session_template
 from eve.agent.llm.prompts.social_media_template import social_media_template
 from eve.agent.llm.prompts.system_template import system_template
 from eve.agent.llm.util import is_fake_llm_mode, is_test_mode_prompt
-from eve.agent.memory.memory_models import (
+from eve.agent.memory2.backend import memory2_backend
+from eve.agent.memory2.utils import (
     get_sender_id_to_sender_name_map,
     select_messages,
 )
-from eve.agent.memory.service import memory_service
 from eve.agent.session.config import (
     build_llm_config_from_agent_settings,
     get_default_session_llm_config,
@@ -489,7 +489,7 @@ async def build_system_message(
     # Get memory
     memory = None
     if user:
-        memory = await memory_service.assemble_memory_context(
+        memory = await memory2_backend.assemble_memory_context(
             session,
             actor,
             user,
@@ -998,7 +998,7 @@ async def build_agent_session_system_message(
         user = User.from_mongo(parent_session.users[0])
 
     if user:
-        memory = await memory_service.assemble_memory_context(
+        memory = await memory2_backend.assemble_memory_context(
             agent_session,
             actor,
             user,

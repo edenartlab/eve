@@ -31,7 +31,7 @@ from eve.agent.memory2.constants import (
     CONSOLIDATION_PROMPT,
     CONSOLIDATION_THRESHOLDS,
     LOCAL_DEV,
-    MEMORY_LLM_MODEL_SLOW,
+    get_memory_llm_model_slow,
 )
 from eve.agent.memory2.models import (
     ConsolidatedMemory,
@@ -54,6 +54,7 @@ async def consolidate_reflections(
     session_id: Optional[ObjectId] = None,
     force: bool = False,
     agent_persona: Optional[str] = None,
+    model: Optional[str] = None,
 ) -> Optional[str]:
     """
     Consolidate buffered reflections into the consolidated blob.
@@ -72,10 +73,14 @@ async def consolidate_reflections(
         session_id: Session ID (required for session scope)
         force: Force consolidation even if threshold not met
         agent_persona: The agent's persona/description for context
+        model: LLM model to use (pass config.slow_model for tier-based selection)
 
     Returns:
         The new consolidated content, or None if no consolidation occurred
     """
+    # Default model to free tier if not specified
+    if model is None:
+        model = get_memory_llm_model_slow()
     try:
         # Get consolidated memory document
         consolidated = _get_consolidated_memory(scope, agent_id, user_id, session_id)
@@ -85,7 +90,7 @@ async def consolidate_reflections(
             return None
 
         # Check threshold unless forced
-        buffer_size = len(consolidated.unabsorbed_ids)
+        buffer_size = len(consolidated.unabsorbed_ids or [])
         threshold = CONSOLIDATION_THRESHOLDS.get(scope, 5)
 
         if not force and buffer_size < threshold:
@@ -101,11 +106,29 @@ async def consolidate_reflections(
             return None
 
         # Load unabsorbed reflections
-        reflections = _load_reflections_by_ids(consolidated.unabsorbed_ids)
-        if not reflections:
+        unabsorbed_ids = consolidated.unabsorbed_ids or []
+        reflections = _load_reflections_by_ids(unabsorbed_ids)
+
+        # Identify and clean up orphaned IDs (reflections that were deleted from DB)
+        found_ids = {r.id for r in reflections}
+        orphaned_ids = [rid for rid in unabsorbed_ids if rid not in found_ids]
+
+        if orphaned_ids:
             logger.warning(
-                f"Could not load any reflections from {len(consolidated.unabsorbed_ids)} IDs"
+                f"Found {len(orphaned_ids)} orphaned reflection IDs in {scope} scope - cleaning up"
             )
+            _remove_orphaned_ids_from_consolidated(consolidated, orphaned_ids)
+
+        if not reflections:
+            if orphaned_ids:
+                # All IDs were orphaned - we cleaned them up, nothing more to do
+                logger.info(
+                    f"All {len(orphaned_ids)} reflection IDs in {scope} were orphaned - cleaned up"
+                )
+            else:
+                logger.warning(
+                    f"Could not load any reflections from {len(unabsorbed_ids)} IDs"
+                )
             return None
 
         # Format reflections for prompt
@@ -113,6 +136,13 @@ async def consolidate_reflections(
 
         # Get scope-specific instructions
         scope_instructions = CONSOLIDATION_INSTRUCTIONS.get(scope, "")
+
+        # Calculate current word count for the prompt
+        current_word_count = (
+            _count_words(consolidated.consolidated_content)
+            if consolidated.consolidated_content
+            else 0
+        )
 
         # Build consolidation prompt
         prompt = CONSOLIDATION_PROMPT.format(
@@ -123,12 +153,13 @@ async def consolidate_reflections(
             new_reflections=reflections_text,
             scope_specific_instructions=scope_instructions,
             word_limit=consolidated.word_limit,
+            current_word_count=current_word_count,
         )
 
         # LLM call
         context = LLMContext(
             messages=[ChatMessage(role="user", content=prompt)],
-            config=LLMConfig(model=MEMORY_LLM_MODEL_SLOW),
+            config=LLMConfig(model=model),
             metadata=LLMContextMetadata(
                 session_id=f"{os.getenv('DB')}-memory2-consolidation-{scope}",
                 trace_name="FN_memory2_consolidation",
@@ -155,21 +186,18 @@ async def consolidate_reflections(
         )
         new_content = response.content.strip()
 
-        # Validate word count (before adding suffix)
+        # Validate word count
         word_count = _count_words(new_content)
         if word_count > consolidated.word_limit * 1.2:  # Allow 20% overflow
             logger.warning(
                 f"Consolidation exceeded word limit: {word_count} > {consolidated.word_limit}"
             )
 
-        # Append word count suffix so agent can see current blob size
-        new_content_with_count = _append_word_count(new_content)
-
         # Update consolidated memory atomically
         reflection_ids = [r.id for r in reflections]
         _update_consolidated_memory(
             consolidated=consolidated,
-            new_content=new_content_with_count,
+            new_content=new_content,
             absorbed_ids=reflection_ids,
         )
 
@@ -189,15 +217,11 @@ async def consolidate_reflections(
         return None
 
 
-def _count_words(text: str) -> int:
-    """Count words in a text string."""
+def _count_words(text: Optional[str]) -> int:
+    """Count words in a text string. Returns 0 if text is None or empty."""
+    if not text:
+        return 0
     return len(text.split())
-
-
-def _append_word_count(content: str) -> str:
-    """Append word count suffix to consolidated content."""
-    word_count = _count_words(content)
-    return f"{content}\n\n-- total words: {word_count}"
 
 
 def _get_consolidated_memory(
@@ -295,12 +319,58 @@ def _update_consolidated_memory(
         consolidated.save()
 
 
+def _remove_orphaned_ids_from_consolidated(
+    consolidated: ConsolidatedMemory,
+    orphaned_ids: List[ObjectId],
+) -> None:
+    """
+    Remove orphaned reflection IDs from consolidated memory.
+
+    Orphaned IDs are IDs that exist in unabsorbed_ids but the corresponding
+    reflections no longer exist in the database (deleted by devs or users).
+
+    Args:
+        consolidated: The consolidated memory document
+        orphaned_ids: List of orphaned IDs to remove
+    """
+    if not orphaned_ids:
+        return
+
+    try:
+        collection = ConsolidatedMemory.get_collection()
+
+        # Atomic removal of orphaned IDs
+        collection.update_one(
+            {"_id": consolidated.id},
+            {
+                "$pull": {"unabsorbed_ids": {"$in": orphaned_ids}},
+                "$currentDate": {"updatedAt": True},
+            },
+        )
+
+        # Update local state
+        orphaned_set = set(orphaned_ids)
+        consolidated.unabsorbed_ids = [
+            uid for uid in consolidated.unabsorbed_ids if uid not in orphaned_set
+        ]
+
+    except Exception as e:
+        logger.error(f"Error removing orphaned IDs: {e}")
+        # Fallback to non-atomic update
+        orphaned_set = set(orphaned_ids)
+        consolidated.unabsorbed_ids = [
+            uid for uid in consolidated.unabsorbed_ids if uid not in orphaned_set
+        ]
+        consolidated.save()
+
+
 async def maybe_consolidate_all(
     agent_id: ObjectId,
     user_id: Optional[ObjectId] = None,
     session_id: Optional[ObjectId] = None,
     agent_persona: Optional[str] = None,
     enabled_scopes: Optional[List[str]] = None,
+    model: Optional[str] = None,
 ) -> dict:
     """
     Check and consolidate all applicable scopes if thresholds are met.
@@ -314,6 +384,7 @@ async def maybe_consolidate_all(
         session_id: Session ID (optional)
         agent_persona: The agent's persona/description for context
         enabled_scopes: List of enabled scopes to consolidate (default: all)
+        model: LLM model to use (pass config.slow_model for tier-based selection)
 
     Returns:
         Dict with consolidation results for each scope
@@ -328,17 +399,17 @@ async def maybe_consolidate_all(
 
     # Check agent scope if enabled
     if "agent" in enabled_scopes:
-        tasks.append(consolidate_reflections(scope="agent", agent_id=agent_id, agent_persona=agent_persona))
+        tasks.append(consolidate_reflections(scope="agent", agent_id=agent_id, agent_persona=agent_persona, model=model))
         scope_names.append("agent")
 
     # Check user scope if enabled and user_id provided
     if "user" in enabled_scopes and user_id:
-        tasks.append(consolidate_reflections(scope="user", agent_id=agent_id, user_id=user_id, agent_persona=agent_persona))
+        tasks.append(consolidate_reflections(scope="user", agent_id=agent_id, user_id=user_id, agent_persona=agent_persona, model=model))
         scope_names.append("user")
 
     # Check session scope if enabled and session_id provided
     if "session" in enabled_scopes and session_id:
-        tasks.append(consolidate_reflections(scope="session", agent_id=agent_id, session_id=session_id, agent_persona=agent_persona))
+        tasks.append(consolidate_reflections(scope="session", agent_id=agent_id, session_id=session_id, agent_persona=agent_persona, model=model))
         scope_names.append("session")
 
     # Run all consolidations in parallel
@@ -365,6 +436,7 @@ async def force_consolidate_all(
     user_id: Optional[ObjectId] = None,
     session_id: Optional[ObjectId] = None,
     agent_persona: Optional[str] = None,
+    model: Optional[str] = None,
 ) -> dict:
     """
     Force consolidation for all applicable scopes, regardless of thresholds.
@@ -377,6 +449,7 @@ async def force_consolidate_all(
         user_id: User ID (optional)
         session_id: Session ID (optional)
         agent_persona: The agent's persona/description for context
+        model: LLM model to use (pass config.slow_model for tier-based selection)
 
     Returns:
         Dict with consolidation results for each scope
@@ -386,17 +459,17 @@ async def force_consolidate_all(
     scope_names = []
 
     # Always force agent scope
-    tasks.append(consolidate_reflections(scope="agent", agent_id=agent_id, force=True, agent_persona=agent_persona))
+    tasks.append(consolidate_reflections(scope="agent", agent_id=agent_id, force=True, agent_persona=agent_persona, model=model))
     scope_names.append("agent")
 
     # Force user scope if user_id provided
     if user_id:
-        tasks.append(consolidate_reflections(scope="user", agent_id=agent_id, user_id=user_id, force=True, agent_persona=agent_persona))
+        tasks.append(consolidate_reflections(scope="user", agent_id=agent_id, user_id=user_id, force=True, agent_persona=agent_persona, model=model))
         scope_names.append("user")
 
     # Force session scope if session_id provided
     if session_id:
-        tasks.append(consolidate_reflections(scope="session", agent_id=agent_id, session_id=session_id, force=True, agent_persona=agent_persona))
+        tasks.append(consolidate_reflections(scope="session", agent_id=agent_id, session_id=session_id, force=True, agent_persona=agent_persona, model=model))
         scope_names.append("session")
 
     # Run all consolidations in parallel
@@ -460,10 +533,8 @@ def get_consolidation_status(
             "threshold": threshold,
             "needs_consolidation": buffer_size >= threshold,
             "word_limit": CONSOLIDATED_WORD_LIMITS.get(scope, 400),
-            "current_word_count": (
-                len(consolidated.consolidated_content.split())
-                if consolidated and consolidated.consolidated_content
-                else 0
+            "current_word_count": _count_words(
+                consolidated.consolidated_content if consolidated else None
             ),
         }
 

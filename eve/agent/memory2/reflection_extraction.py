@@ -18,9 +18,9 @@ from loguru import logger
 from eve.agent.llm.llm import async_prompt
 from eve.agent.memory2.constants import (
     LOCAL_DEV,
-    MEMORY_LLM_MODEL_SLOW,
     REFLECTION_MAX_WORDS,
     build_reflection_extraction_prompt,
+    get_memory_llm_model_slow,
 )
 from eve.utils.system_utils import async_exponential_backoff
 from eve.agent.memory2.models import (
@@ -45,7 +45,7 @@ async def extract_reflections(
     session_id: Optional[ObjectId] = None,
     newly_formed_facts: Optional[List[str]] = None,
     agent_persona: Optional[str] = None,
-    model: str = MEMORY_LLM_MODEL_SLOW,
+    model: Optional[str] = None,
     enabled_scopes: Optional[List[str]] = None,
 ) -> Dict[str, List[str]]:
     """
@@ -66,7 +66,7 @@ async def extract_reflections(
         session_id: Session ID (always populated on all reflections)
         newly_formed_facts: Facts extracted from the same conversation (for deduplication)
         agent_persona: The agent's persona/description for context
-        model: LLM model to use
+        model: LLM model to use (defaults to free tier model if not specified)
         enabled_scopes: List of enabled scopes ["session", "user", "agent"] or subset
 
     Returns:
@@ -75,6 +75,10 @@ async def extract_reflections(
     # Default to all scopes if not specified
     if enabled_scopes is None:
         enabled_scopes = ["session", "user", "agent"]
+
+    # Default model to free tier if not specified (caller should pass config.slow_model)
+    if model is None:
+        model = get_memory_llm_model_slow()
 
     # Skip if no scopes enabled
     if not enabled_scopes:
@@ -301,6 +305,7 @@ async def extract_and_save_reflections(
     newly_formed_facts: Optional[List[str]] = None,
     agent_persona: Optional[str] = None,
     enabled_scopes: Optional[List[str]] = None,
+    model: Optional[str] = None,
 ) -> Tuple[Dict[str, List[Reflection]], int]:
     """
     Extract reflections from conversation and save to database.
@@ -320,6 +325,7 @@ async def extract_and_save_reflections(
         newly_formed_facts: Facts extracted from the same conversation
         agent_persona: The agent's persona/description for context
         enabled_scopes: List of enabled scopes ["session", "user", "agent"] or subset
+        model: LLM model to use (pass config.slow_model for tier-based selection)
 
     Returns:
         Tuple of (reflections_by_scope dict, total count)
@@ -338,6 +344,7 @@ async def extract_and_save_reflections(
             newly_formed_facts=newly_formed_facts,
             agent_persona=agent_persona,
             enabled_scopes=enabled_scopes,
+            model=model,
         )
 
         reflections_by_scope = {"agent": [], "user": [], "session": []}

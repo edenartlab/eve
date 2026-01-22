@@ -1,23 +1,28 @@
 
 Urgent:
 
+- memory should be on by default for new agents (collective only if agent creator has pro flag) --> disable agent memory when user loses pro tier (run check in ui when loading agent and update flag)
+
+- verify agent creation flow (form and conversation --> user memory on? agent memory depends on subscription tier?) and make sure memory2 stuff all works: prompts no longer needed, but two booleans should be set depending on subscription tier.
+
+- move consolidation word limits and other settings to db instead of hardcoded
+
+
+
 Next:
 - Create "search_memories" agent tool that uses RAG to retrieve FACTS
 - Create "get_old_memories" agent tool that retrieves old reflections from certain timewindow
 
-Optional:
-- use the users main LLM models for memory system (tied to subscription tier)
 
 
 Final:
 - completely remove old memory_v1 system in both eve and eden
 
 
-
 Remove memory1 from UI:
 
- Current Architecture                                                                                                                                                              
-                                                                                                                                                                                    
+ Current Architecture
+
   The memory UI has a toggle controlled by ?memory1=true query parameter:                                                                                                           
   - Default (memory2): Uses AgentMemoryView2 → UserMemory2 + CollectiveMemory2                                                                                                      
   - Legacy (memory1): Uses AgentMemoryView → embedded user memory + CollectiveMemory                                                                                                

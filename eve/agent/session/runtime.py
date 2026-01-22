@@ -14,8 +14,8 @@ from eve.agent.agent import Agent
 from eve.agent.llm.llm import async_prompt as provider_async_prompt
 from eve.agent.llm.llm import async_prompt_stream as provider_async_prompt_stream
 from eve.agent.llm.llm import get_provider
-from eve.agent.memory.memory_models import select_messages
-from eve.agent.memory.service import memory_service
+from eve.agent.memory2.backend import memory2_backend
+from eve.agent.memory2.utils import select_messages
 from eve.agent.session.debug_logger import SessionDebugger
 from eve.agent.session.models import (
     ChatMessage,
@@ -1344,7 +1344,7 @@ async def _run_prompt_session_internal(
             if background_tasks:
                 for actor in actors:
                     background_tasks.add_task(
-                        memory_service.maybe_form_memories, actor.id, session, actor
+                        memory2_backend.maybe_form_memories, actor.id, session, actor
                     )
 
                 if (

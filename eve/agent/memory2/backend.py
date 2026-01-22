@@ -1,24 +1,66 @@
 """
-Memory System v2 - Backend Adapter
+Memory System v2 - Backend
 
-This module provides a backend implementation compatible with the existing
-MemoryService facade, allowing memory2 to be swapped in without changing
-the session integration code.
+This module provides the memory backend abstraction and the Memory2Backend
+implementation that powers the memory system.
 """
 
+import logging
 import traceback
+from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, Any, Dict, Optional
 
 from bson import ObjectId
 from loguru import logger
 
-from eve.agent.memory.backends import MemoryBackend
 from eve.agent.memory2.constants import LOCAL_DEV
 
 if TYPE_CHECKING:
     from eve.agent import Agent
     from eve.agent.session.models import Session
     from eve.user import User
+
+# Use standard logging for abstract class
+_logger = logging.getLogger(__name__)
+
+
+class MemoryBackend(ABC):
+    """Minimal interface for memory backends."""
+
+    @abstractmethod
+    async def assemble_memory_context(
+        self,
+        session: "Session",
+        agent: "Agent",
+        user: "User",
+        *,
+        force_refresh: bool = False,
+        reason: str = "unknown",
+        skip_save: bool = False,
+        instrumentation=None,
+    ) -> str:
+        """Return the memory context string for the given session."""
+
+    @abstractmethod
+    async def maybe_form_memories(
+        self,
+        agent_id: ObjectId,
+        session: "Session",
+        agent: Optional["Agent"] = None,
+    ) -> bool:
+        """Conditionally form memories for the supplied session."""
+
+    @abstractmethod
+    async def form_memories(
+        self,
+        agent_id: ObjectId,
+        session: "Session",
+        agent: Optional["Agent"] = None,
+        *,
+        conversation_text: Optional[str] = None,
+        char_counts_by_source: Optional[Dict[str, Any]] = None,
+    ) -> bool:
+        """Force memory formation for the supplied session."""
 
 
 class Memory2Backend(MemoryBackend):
@@ -123,7 +165,7 @@ class Memory2Backend(MemoryBackend):
         self._ensure_indexes()
 
         try:
-            from eve.agent.memory.memory_models import select_messages
+            from eve.agent.memory2.utils import select_messages
             from eve.agent.memory2.formation import maybe_form_memories
 
             # Get messages for memory formation
@@ -159,7 +201,7 @@ class Memory2Backend(MemoryBackend):
         self._ensure_indexes()
 
         try:
-            from eve.agent.memory.memory_models import select_messages
+            from eve.agent.memory2.utils import select_messages
             from eve.agent.memory2.formation import form_memories
 
             # Get messages

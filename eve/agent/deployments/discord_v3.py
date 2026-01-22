@@ -496,6 +496,99 @@ class DiscordV3Client(PlatformClient):
         except Exception as e:
             raise Exception(f"Failed to notify Discord V3 gateway: {e}")
 
+    async def update(
+        self,
+        old_config: Optional[DeploymentConfig] = None,
+        new_config: Optional[DeploymentConfig] = None,
+        old_secrets: Optional[DeploymentSecrets] = None,
+        new_secrets: Optional[DeploymentSecrets] = None,
+    ) -> None:
+        """Ensure webhook info isn't lost on config updates."""
+        if not self.deployment or not new_config or not new_config.discord:
+            return
+
+        discord_config = new_config.discord
+        if not discord_config.channel_configs:
+            return
+
+        guild_id = discord_config.guild_id
+        if not guild_id:
+            return
+
+        old_by_id = {}
+        if old_config and old_config.discord and old_config.discord.channel_configs:
+            old_by_id = {
+                ch.channel_id: ch for ch in old_config.discord.channel_configs or []
+            }
+
+        updated_channels = []
+        changed = False
+        user_id = ObjectId(self.deployment.user) if self.deployment else None
+        bot_token = os.getenv("DISCORD_BOT_TOKEN")
+
+        for ch in discord_config.channel_configs:
+            webhook_id = ch.webhook_id
+            webhook_token = ch.webhook_token
+            channel_name = ch.channel_name
+
+            old = old_by_id.get(ch.channel_id)
+            if old:
+                if not webhook_id and old.webhook_id:
+                    webhook_id = old.webhook_id
+                    changed = True
+                if not webhook_token and old.webhook_token:
+                    webhook_token = old.webhook_token
+                    changed = True
+                if not channel_name and old.channel_name:
+                    channel_name = old.channel_name
+                    changed = True
+
+            if not webhook_id or not webhook_token:
+                cached = GuildWebhook.get_for_channel(guild_id, ch.channel_id)
+                if cached:
+                    if not webhook_id:
+                        webhook_id = cached.webhook_id
+                        changed = True
+                    if not webhook_token:
+                        webhook_token = cached.webhook_token
+                        changed = True
+
+            if (
+                bot_token
+                and ch.access == "read_write"
+                and (not webhook_id or not webhook_token)
+            ):
+                try:
+                    webhook_info = await get_or_create_webhook(
+                        guild_id, ch.channel_id, user_id
+                    )
+                    webhook_id = webhook_info["id"]
+                    webhook_token = webhook_info["token"]
+                    changed = True
+                except Exception as e:
+                    logger.warning(
+                        f"Failed to refresh webhook for channel {ch.channel_id}: {e}"
+                    )
+
+            if not channel_name:
+                channel_name = await fetch_channel_name(ch.channel_id)
+                if channel_name and channel_name != ch.channel_name:
+                    changed = True
+
+            updated_channels.append(
+                DiscordChannelConfig(
+                    channel_id=ch.channel_id,
+                    channel_name=channel_name,
+                    access=ch.access,
+                    webhook_id=webhook_id,
+                    webhook_token=webhook_token,
+                )
+            )
+
+        if changed:
+            self.deployment.config.discord.channel_configs = updated_channels
+            self.deployment.save()
+
     async def stop(self) -> None:
         """Stop Discord V3 client and clean up role."""
         if not self.deployment:

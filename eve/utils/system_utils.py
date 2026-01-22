@@ -69,11 +69,38 @@ async def async_exponential_backoff(
     max_attempts=5,
     initial_delay=1,
     max_jitter=1,
+    timeout_seconds: float | None = 300,  # 5 minute default timeout per attempt
 ):
+    """
+    Execute an async function with exponential backoff retry.
+
+    Args:
+        func: Async function to execute
+        max_attempts: Maximum number of retry attempts
+        initial_delay: Initial delay between retries (doubles each retry)
+        max_jitter: Random jitter added to delay
+        timeout_seconds: Timeout per attempt in seconds (default 5 min, None to disable)
+    """
     delay = initial_delay
     for attempt in range(1, max_attempts + 1):
         try:
-            return await func()
+            if timeout_seconds is not None:
+                return await asyncio.wait_for(func(), timeout=timeout_seconds)
+            else:
+                return await func()
+        except asyncio.TimeoutError:
+            if attempt == max_attempts:
+                raise TimeoutError(
+                    f"Operation timed out after {max_attempts} attempts "
+                    f"({timeout_seconds}s timeout per attempt)"
+                )
+            jitter = random.uniform(-max_jitter, max_jitter)
+            logger.warning(
+                f"Attempt {attempt} timed out after {timeout_seconds}s. "
+                f"Retrying in {delay + jitter:.1f} seconds..."
+            )
+            await asyncio.sleep(delay + jitter)
+            delay = delay * 2
         except Exception as e:
             if attempt == max_attempts:
                 raise e
