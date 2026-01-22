@@ -928,7 +928,12 @@ class PromptSessionRuntime:
         return False
 
     def _check_db_cancellation(self) -> bool:
-        """Check database for cancellation indicators."""
+        """Check database for cancellation indicators.
+
+        Note: We only check for the "Response cancelled by user" system message,
+        NOT for cancelled tool calls. A cancelled tool call (subsession) should
+        not cancel the parent session - only the child was cancelled.
+        """
         try:
             # Check for cancellation message in session
             cancel_messages = ChatMessage.find(
@@ -944,22 +949,6 @@ class PromptSessionRuntime:
                     f"Session {self.session.id} cancellation detected via database check"
                 )
                 return True
-
-            # Also check if any pending tool calls were marked as cancelled
-            messages = ChatMessage.find(
-                {"session": self.session.id},
-                sort="createdAt",
-                desc=True,
-                limit=3,
-            )
-            for msg in messages:
-                if msg.tool_calls:
-                    for tc in msg.tool_calls:
-                        if tc.status == "cancelled":
-                            logger.info(
-                                f"Session {self.session.id} cancellation detected via cancelled tool call"
-                            )
-                            return True
 
             return False
         except Exception as e:
