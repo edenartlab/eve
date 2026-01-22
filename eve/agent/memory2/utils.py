@@ -140,7 +140,7 @@ def messages_to_text(
                         content += fallback_content
                         char_counts_by_source["tool"] += len(fallback_content)
         text_parts.append(f"{speaker}: {content}")
-    return "\n".join(text_parts), char_counts_by_source
+    return "\n\n".join(text_parts), char_counts_by_source
 
 
 def select_messages(
