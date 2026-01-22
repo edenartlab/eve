@@ -133,7 +133,14 @@ class ToolCall(BaseModel):
     def anthropic_result_schema(self, truncate_images=False, include_thoughts=False):
         content = {"status": self.status}
 
-        if self.status == "completed":
+        # Include result for completed or cancelled status
+        if self.status == "cancelled":
+            content["result"] = (
+                prepare_result(self.result)
+                if self.result
+                else [{"status": "cancelled", "message": "Task cancelled by user"}]
+            )
+        elif self.status == "completed":
             content["result"] = prepare_result(self.result)
             file_outputs = [
                 o["url"]

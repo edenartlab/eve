@@ -236,15 +236,21 @@ async def process_tool_call(
             tool_cancellation_event and tool_cancellation_event.is_set()
         ):
             tool_call.status = "cancelled"
+            cancelled_result = [
+                {"status": "cancelled", "message": "Task cancelled by user"}
+            ]
+            tool_call.result = cancelled_result
             if assistant_message.tool_calls and tool_call_index < len(
                 assistant_message.tool_calls
             ):
-                assistant_message.update_tool_call(tool_call_index, status="cancelled")
+                assistant_message.update_tool_call(
+                    tool_call_index, status="cancelled", result=cancelled_result
+                )
             return SessionUpdate(
                 type=UpdateType.TOOL_CANCELLED,
                 tool_name=tool_call.tool,
                 tool_index=tool_call_index,
-                result={"status": "cancelled"},
+                result={"status": "cancelled", "result": cancelled_result},
             )
 
         # Use cancellation-aware tool execution
@@ -265,15 +271,21 @@ async def process_tool_call(
         # Check for cancellation after tool execution completes
         if cancellation_event and cancellation_event.is_set():
             tool_call.status = "cancelled"
+            cancelled_result = [
+                {"status": "cancelled", "message": "Task cancelled by user"}
+            ]
+            tool_call.result = cancelled_result
             if assistant_message.tool_calls and tool_call_index < len(
                 assistant_message.tool_calls
             ):
-                assistant_message.update_tool_call(tool_call_index, status="cancelled")
+                assistant_message.update_tool_call(
+                    tool_call_index, status="cancelled", result=cancelled_result
+                )
             return SessionUpdate(
                 type=UpdateType.TOOL_CANCELLED,
                 tool_name=tool_call.tool,
                 tool_index=tool_call_index,
-                result={"status": "cancelled"},
+                result={"status": "cancelled", "result": cancelled_result},
             )
 
         # Update the original tool call with result
@@ -304,6 +316,11 @@ async def process_tool_call(
 
         elif result["status"] == "cancelled":
             tool_call.status = "cancelled"
+            # Include the result from the handler if available, otherwise use default
+            cancelled_result = result.get("result") or [
+                {"status": "cancelled", "message": "Task cancelled by user"}
+            ]
+            tool_call.result = cancelled_result
 
             if assistant_message.tool_calls and tool_call_index < len(
                 assistant_message.tool_calls
@@ -311,6 +328,7 @@ async def process_tool_call(
                 assistant_message.update_tool_call(
                     tool_call_index,
                     status="cancelled",
+                    result=cancelled_result,
                     cost=result.get("cost", 0),
                     task=result.get("task"),
                 )
@@ -319,7 +337,7 @@ async def process_tool_call(
                 type=UpdateType.TOOL_CANCELLED,
                 tool_name=tool_call.tool,
                 tool_index=tool_call_index,
-                result={"status": "cancelled"},
+                result={"status": "cancelled", "result": cancelled_result},
             )
 
         else:
@@ -390,7 +408,8 @@ async def process_tool_calls(
             if tool_call_id not in tool_cancellation_events:
                 tool_cancellation_events[tool_call_id] = asyncio.Event()
 
-            if tool_call.status == "completed":
+            # Skip tool calls that are already completed or cancelled
+            if tool_call.status in ("completed", "cancelled"):
                 continue
 
             tasks.append(
