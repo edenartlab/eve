@@ -1,5 +1,10 @@
 
 Urgent:
+- fix ui toggle
+- clear chiba user memories
+- memory should be on by default for new agents (collective only if agent creator has pro flag) --> disable agent memory when user loses pro tier (run check in ui when loading agent and update flag)
+- make sure consolidations don't fail when any of the reflections are missing
+
 
 Next:
 - Create "search_memories" agent tool that uses RAG to retrieve FACTS
