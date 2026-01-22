@@ -15,7 +15,7 @@ Session memory is always active when any memory is enabled.
 
 import re
 from dataclasses import dataclass
-from typing import List, Optional, Set
+from typing import List, Optional, Set, Tuple
 
 from eve.agent.session.config import DEFAULT_SESSION_SELECTION_LIMIT
 
@@ -434,24 +434,33 @@ Focus on the "Narrative Thread" of the current interaction:
 """
 }
 
-def get_memory_llm_model_slow(subscription_tier: Optional[int] = None) -> str:
+def get_memory_llm_model_slow(
+    subscription_tier: Optional[int] = None,
+    has_preview_flag: bool = False,
+) -> str:
     """
     Get the slow LLM model based on environment and subscription tier.
 
     The slow model is used for reflection extraction and consolidation.
-    Premium users (subscriptionTier >= 1) get the pro model for better quality.
+    Premium users (subscriptionTier >= 1) or users with the "preview" feature flag
+    get the pro model for better quality.
     Free users and local development use the flash model for cost savings.
 
     Args:
         subscription_tier: User's subscription tier (0 or None = free, >= 1 = premium)
+        has_preview_flag: True if the owner has the "preview" feature flag
 
     Returns:
         Model name: "gemini-3-flash-preview" for LOCAL_DEV or free users,
-                   "gemini-3-pro-preview" for premium users
+                   "gemini-3-pro-preview" for premium users or preview flag holders
     """
     # Local development always uses fast/cheap model
     if LOCAL_DEV:
         return _MEMORY_LLM_MODEL_SLOW_FREE
+
+    # Preview flag holders get pro model (equivalent to premium)
+    if has_preview_flag:
+        return _MEMORY_LLM_MODEL_SLOW_PREMIUM
 
     # Free users (tier < 1) or unknown tier get flash model
     if subscription_tier is None or subscription_tier < 1:
@@ -482,11 +491,12 @@ class Memory2Config:
     agent_enabled: bool = False
     is_multi_user: bool = False  # True when session has multiple users
     subscription_tier: Optional[int] = None  # Owner's subscription tier for model selection
+    has_preview_flag: bool = False  # True if owner has "preview" feature flag
 
     @property
     def slow_model(self) -> str:
-        """Get the slow LLM model based on owner's subscription tier."""
-        return get_memory_llm_model_slow(self.subscription_tier)
+        """Get the slow LLM model based on owner's subscription tier or preview flag."""
+        return get_memory_llm_model_slow(self.subscription_tier, self.has_preview_flag)
 
     @property
     def fact_scopes(self) -> List[str]:
@@ -543,14 +553,15 @@ class Memory2Config:
         """
         is_multi_user = is_multi_user_session(session) if session else False
 
-        # Get owner's subscription tier for model selection
-        subscription_tier = _get_owner_subscription_tier(agent)
+        # Get owner's subscription tier and preview flag for model selection
+        subscription_tier, has_preview_flag = _get_owner_premium_status(agent)
 
         return cls(
             user_enabled=getattr(agent, "user_memory_enabled", False),
             agent_enabled=getattr(agent, "agent_memory_enabled", False),
             is_multi_user=is_multi_user,
             subscription_tier=subscription_tier,
+            has_preview_flag=has_preview_flag,
         )
 
     @classmethod
@@ -596,36 +607,43 @@ def is_multi_user_session(session) -> bool:
     return len(users) > 1
 
 
-def _get_owner_subscription_tier(agent) -> Optional[int]:
+def _get_owner_premium_status(agent) -> Tuple[Optional[int], bool]:
     """
-    Get the subscription tier of the agent's owner.
+    Get the premium status of the agent's owner.
 
     Used to determine which LLM model to use for memory operations.
-    Premium users (tier >= 1) get the pro model, free users get flash.
+    Premium users (tier >= 1) or users with the "preview" feature flag
+    get the pro model, free users get flash.
 
     Args:
         agent: Agent object with owner attribute
 
     Returns:
-        Owner's subscription tier, or None if not found
+        Tuple of (subscription_tier, has_preview_flag):
+        - subscription_tier: Owner's subscription tier, or None if not found
+        - has_preview_flag: True if owner has "preview" in featureFlags
     """
     try:
         owner_id = getattr(agent, "owner", None)
         if owner_id is None:
-            return None
+            return None, False
 
         # Import here to avoid circular imports
         from eve.user import User
 
         owner = User.from_mongo(owner_id)
         if owner is None:
-            return None
+            return None, False
 
-        return getattr(owner, "subscriptionTier", None)
+        subscription_tier = getattr(owner, "subscriptionTier", None)
+        feature_flags = getattr(owner, "featureFlags", None) or []
+        has_preview_flag = "preview" in feature_flags
+
+        return subscription_tier, has_preview_flag
 
     except Exception:
         # Fail silently - default to free tier model if we can't determine
-        return None
+        return None, False
 
 
 # =============================================================================
