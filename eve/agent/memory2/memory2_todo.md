@@ -4,6 +4,7 @@ Urgent:
 - fix ui toggle
 - clear chiba user memories
 - fix edit collective memory ui error
+- improve <conversation_segment> turn formatting (eg add timestamp, ...)
 
 - memory should be on by default for new agents (collective only if agent creator has pro flag) --> disable agent memory when user loses pro tier (run check in ui when loading agent and update flag)
 

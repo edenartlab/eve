@@ -50,7 +50,6 @@ else:
     NEVER_FORM_MEMORIES_LESS_THAN_N_MESSAGES = 4  # Minimum before attempting to form memories
     CONSIDER_COLD_AFTER_MINUTES = 10  # Session inactivity threshold for cold session processing
 
-
 # =============================================================================
 # Consolidation Thresholds
 # =============================================================================
@@ -70,11 +69,10 @@ else:
 
 # Maximum word count for consolidated blobs
 CONSOLIDATED_WORD_LIMITS = {
-    "agent": 1000,  # Largest - agent's full persona/project state
+    "agent": 1200,  # Largest - agent's full persona/project state
     "user": 300,  # Medium - user preferences and interaction style
     "session": 200,  # Rolling summary of session events and status
 }
-
 
 # =============================================================================
 # Memory Word Limits (individual items)
