@@ -322,7 +322,7 @@ Merge the new reflections into the existing memory, creating an updated consolid
 3. **Resolve Conflicts:** If new info contradicts old info, NEW info typically wins. If the statements are opinions, try to maintain nuance and diversity.
 4. **Garbage Collection:** Remove information that is no longer relevant (e.g., completed tasks from 3 days ago, "Team bbq on friday jan 3rd" when the current date is jan 4th).
 5. **Deduplicate:** Do not list the same fact twice. Merge nuances.
-6. **Word Limit:** Keep strictly under {word_limit} words.
+6. **Word Limit:** The current_consolidated_memory is ~{current_word_count} words. Keep the new version strictly under {word_limit} words.
 
 If current_consolidated_memory is empty, create a new structure based on the reflections provided. DO NOT invent information.
 
