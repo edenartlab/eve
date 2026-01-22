@@ -3,11 +3,11 @@ Urgent:
 
 - fix ui toggle
 - clear chiba user memories
-- fix edit collective memory ui error   
+- fix edit collective memory ui error
 
 - memory should be on by default for new agents (collective only if agent creator has pro flag) --> disable agent memory when user loses pro tier (run check in ui when loading agent and update flag)
 
-- verify agent creation flow (form and conversation) and make sure memory2 stuff all works: prompts no longer needed, but two booleans should be set depending on subscription tier.
+- verify agent creation flow (form and conversation --> user memory on? agent memory depends on subscription tier?) and make sure memory2 stuff all works: prompts no longer needed, but two booleans should be set depending on subscription tier.
 - move consolidation word limits and other settings to db instead of hardcoded
 
 Next:

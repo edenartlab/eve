@@ -50,8 +50,6 @@ from eve.api.api_requests import (
     ReactionRequest,
     RealtimeToolRequest,
     RefreshDiscordChannelsRequest,
-    RegenerateAgentMemoryRequest,
-    RegenerateUserMemoryRequest,
     RunTriggerRequest,
     SyncDiscordChannelsRequest,
     TaskRequest,
@@ -73,8 +71,6 @@ from eve.api.handlers import (
     handle_reaction,
     handle_realtime_tool,
     handle_refresh_discord_channels,
-    handle_regenerate_agent_memory,
-    handle_regenerate_user_memory,
     handle_replicate_webhook,
     handle_session_cancel,
     handle_session_fields_update,
@@ -441,21 +437,6 @@ async def extract_agent_prompts(
     request: AgentPromptsExtractionRequest, _: dict = Depends(auth.authenticate_admin)
 ):
     return await handle_extract_agent_prompts(request)
-
-
-# Memory regeneration endpoints
-@web_app.post("/memory/regenerate-agent-memory")
-async def regenerate_agent_memory(
-    request: RegenerateAgentMemoryRequest, _: dict = Depends(auth.authenticate_admin)
-):
-    return await handle_regenerate_agent_memory(request)
-
-
-@web_app.post("/memory/regenerate-user-memory")
-async def regenerate_user_memory(
-    request: RegenerateUserMemoryRequest, _: dict = Depends(auth.authenticate_admin)
-):
-    return await handle_regenerate_user_memory(request)
 
 
 # Development endpoints for local testing

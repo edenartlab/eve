@@ -9,8 +9,8 @@ from loguru import logger
 from eve.agent.agent import Agent, AgentPermission
 from eve.agent.llm.llm import async_prompt
 from eve.agent.llm.prompts.system_template import system_template
-from eve.agent.memory.memory_models import messages_to_text
-from eve.agent.memory.service import memory_service
+from eve.agent.memory2.backend import memory2_backend
+from eve.agent.memory2.utils import messages_to_text
 from eve.agent.session.models import ChatMessage, LLMConfig, LLMContext, Session
 from eve.concepts import Concept
 from eve.tool import ToolContext
@@ -343,7 +343,7 @@ Generate a friendly, personalized introduction message that presents these conne
     # Get concepts
     concepts = Concept.find({"agent": agent.id, "deleted": {"$ne": True}})
 
-    memory = await memory_service.assemble_memory_context(
+    memory = await memory2_backend.assemble_memory_context(
         session,
         agent,
         user,
@@ -588,8 +588,8 @@ async def handler(context: ToolContext):
 
         logger.info(f"Profile matching generated results for {len(users_data)} users")
 
-        # Step 5: Update memory_user content with extracted profiles
-        from eve.agent.memory.memory_models import UserMemory
+        # Step 5: Update memory2 ConsolidatedMemory with extracted profiles
+        from eve.agent.memory2.models import ConsolidatedMemory
 
         updated_memories = []
         failed_memory_updates = []
@@ -613,7 +613,7 @@ async def handler(context: ToolContext):
                     )
                     continue
 
-                # Find or create UserMemory document
+                # Find or create ConsolidatedMemory document for user scope
                 canonical_user_id = User.get_canonical_user_id(user_id)
                 if not canonical_user_id:
                     logger.warning(
@@ -624,16 +624,18 @@ async def handler(context: ToolContext):
                     )
                     continue
 
-                user_memory = UserMemory.find_one_or_create(
-                    {"agent_id": agent.id, "user_id": canonical_user_id}
+                user_memory = ConsolidatedMemory.get_or_create(
+                    scope_type="user",
+                    agent_id=agent.id,
+                    user_id=canonical_user_id,
                 )
 
                 # Prepend profile to any existing content (never overwrite)
-                existing_content = user_memory.content or ""
+                existing_content = user_memory.consolidated_content or ""
 
                 if existing_content:
                     # Prepend new profile with separator
-                    user_memory.content = (
+                    user_memory.consolidated_content = (
                         f"{profile_content}\n\n---\n\n{existing_content}"
                     )
                     logger.info(
@@ -641,10 +643,10 @@ async def handler(context: ToolContext):
                     )
                 else:
                     # No existing content, just set the profile
-                    user_memory.content = profile_content
+                    user_memory.consolidated_content = profile_content
                     logger.info(f"Set initial memory content for user {username}")
 
-                user_memory.last_updated_at = datetime.now(timezone.utc)
+                user_memory.last_consolidated_at = datetime.now(timezone.utc)
                 user_memory.save()
 
                 updated_memories.append(

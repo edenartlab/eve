@@ -64,7 +64,7 @@ def messages_to_text(
         Tuple of (formatted_text, char_counts_by_source)
     """
     # Import here to avoid circular imports
-    from eve.agent.memory.memory_models import (
+    from eve.agent.memory2.utils import (
         get_sender_id_to_sender_name_map,
     )
 
@@ -609,7 +609,7 @@ async def process_cold_session(
     messages = None
     try:
         # Import here to avoid circular imports
-        from eve.agent.memory.memory_models import select_messages
+        from eve.agent.memory2.utils import select_messages
 
         messages = select_messages(session)
         if not messages:

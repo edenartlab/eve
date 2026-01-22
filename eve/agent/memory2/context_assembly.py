@@ -35,19 +35,22 @@ if TYPE_CHECKING:
     from eve.agent.session.instrumentation import PromptSessionInstrumentation
 
 
-def _log_debug(
+def _log_memory_event(
     message: str,
     instrumentation: Optional["PromptSessionInstrumentation"] = None,
     payload: Optional[Dict[str, Any]] = None,
 ) -> None:
-    """Log debug message with optional instrumentation support."""
+    """Log memory event with optional instrumentation support.
+
+    Uses INFO level to ensure logs appear in production regardless of LOCAL_DEV.
+    """
     if instrumentation:
-        instrumentation.log_event(message, level="debug", payload=payload)
+        instrumentation.log_event(message, level="info", payload=payload)
     else:
         if payload:
-            logger.debug(f"{message} | {payload}")
+            logger.info(f"{message} | {payload}")
         else:
-            logger.debug(message)
+            logger.info(message)
 
 
 def ensure_utc(dt: Optional[datetime]) -> Optional[datetime]:
@@ -235,7 +238,7 @@ async def assemble_always_in_context_memory(
                 session_blob, session_recent = blob, recent
 
             scope_label = scope.capitalize()
-            _log_debug(
+            _log_memory_event(
                 f"   ⏱️  {scope_label} Memory Assembly",
                 instrumentation,
                 {
@@ -269,7 +272,7 @@ async def assemble_always_in_context_memory(
                 facts_content = "\n".join(facts_lines)
 
             facts_duration = time.time() - facts_start
-            _log_debug(
+            _log_memory_event(
                 "   ⏱️  Facts FIFO Retrieval",
                 instrumentation,
                 {
@@ -292,7 +295,7 @@ async def assemble_always_in_context_memory(
 
         total_duration = time.time() - start_time
         word_count = len(memory_xml.split()) if memory_xml else 0
-        _log_debug(
+        _log_memory_event(
             "   ✓ Memory context assembled (parallel)",
             instrumentation,
             {
@@ -525,7 +528,7 @@ async def get_memory_context_for_session(
                 timestamp = ensure_utc(timestamp)
                 age_seconds = (datetime.now(timezone.utc) - timestamp).total_seconds()
                 if age_seconds < 300:  # 5 minutes
-                    _log_debug(
+                    _log_memory_event(
                         "   ✓ Memory context cache hit",
                         instrumentation,
                         {
@@ -536,7 +539,7 @@ async def get_memory_context_for_session(
                     )
                     return cached
 
-        _log_debug(
+        _log_memory_event(
             "   🔄 Rebuilding memory context",
             instrumentation,
             {
@@ -564,7 +567,7 @@ async def get_memory_context_for_session(
         _ensure_memory_context_object(session)  # Re-instantiate as model object
 
         total_duration = time.time() - start_time
-        _log_debug(
+        _log_memory_event(
             "   ✓ Memory context rebuilt and cached",
             instrumentation,
             {"duration_s": round(total_duration, 3)},
