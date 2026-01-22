@@ -31,7 +31,7 @@ from eve.agent.memory2.constants import (
     CONSOLIDATION_PROMPT,
     CONSOLIDATION_THRESHOLDS,
     LOCAL_DEV,
-    MEMORY_LLM_MODEL_SLOW,
+    get_memory_llm_model_slow,
 )
 from eve.agent.memory2.models import (
     ConsolidatedMemory,
@@ -54,6 +54,7 @@ async def consolidate_reflections(
     session_id: Optional[ObjectId] = None,
     force: bool = False,
     agent_persona: Optional[str] = None,
+    model: Optional[str] = None,
 ) -> Optional[str]:
     """
     Consolidate buffered reflections into the consolidated blob.
@@ -72,10 +73,14 @@ async def consolidate_reflections(
         session_id: Session ID (required for session scope)
         force: Force consolidation even if threshold not met
         agent_persona: The agent's persona/description for context
+        model: LLM model to use (pass config.slow_model for tier-based selection)
 
     Returns:
         The new consolidated content, or None if no consolidation occurred
     """
+    # Default model to free tier if not specified
+    if model is None:
+        model = get_memory_llm_model_slow()
     try:
         # Get consolidated memory document
         consolidated = _get_consolidated_memory(scope, agent_id, user_id, session_id)
@@ -153,7 +158,7 @@ async def consolidate_reflections(
         # LLM call
         context = LLMContext(
             messages=[ChatMessage(role="user", content=prompt)],
-            config=LLMConfig(model=MEMORY_LLM_MODEL_SLOW),
+            config=LLMConfig(model=model),
             metadata=LLMContextMetadata(
                 session_id=f"{os.getenv('DB')}-memory2-consolidation-{scope}",
                 trace_name="FN_memory2_consolidation",
@@ -362,6 +367,7 @@ async def maybe_consolidate_all(
     session_id: Optional[ObjectId] = None,
     agent_persona: Optional[str] = None,
     enabled_scopes: Optional[List[str]] = None,
+    model: Optional[str] = None,
 ) -> dict:
     """
     Check and consolidate all applicable scopes if thresholds are met.
@@ -375,6 +381,7 @@ async def maybe_consolidate_all(
         session_id: Session ID (optional)
         agent_persona: The agent's persona/description for context
         enabled_scopes: List of enabled scopes to consolidate (default: all)
+        model: LLM model to use (pass config.slow_model for tier-based selection)
 
     Returns:
         Dict with consolidation results for each scope
@@ -389,17 +396,17 @@ async def maybe_consolidate_all(
 
     # Check agent scope if enabled
     if "agent" in enabled_scopes:
-        tasks.append(consolidate_reflections(scope="agent", agent_id=agent_id, agent_persona=agent_persona))
+        tasks.append(consolidate_reflections(scope="agent", agent_id=agent_id, agent_persona=agent_persona, model=model))
         scope_names.append("agent")
 
     # Check user scope if enabled and user_id provided
     if "user" in enabled_scopes and user_id:
-        tasks.append(consolidate_reflections(scope="user", agent_id=agent_id, user_id=user_id, agent_persona=agent_persona))
+        tasks.append(consolidate_reflections(scope="user", agent_id=agent_id, user_id=user_id, agent_persona=agent_persona, model=model))
         scope_names.append("user")
 
     # Check session scope if enabled and session_id provided
     if "session" in enabled_scopes and session_id:
-        tasks.append(consolidate_reflections(scope="session", agent_id=agent_id, session_id=session_id, agent_persona=agent_persona))
+        tasks.append(consolidate_reflections(scope="session", agent_id=agent_id, session_id=session_id, agent_persona=agent_persona, model=model))
         scope_names.append("session")
 
     # Run all consolidations in parallel
@@ -426,6 +433,7 @@ async def force_consolidate_all(
     user_id: Optional[ObjectId] = None,
     session_id: Optional[ObjectId] = None,
     agent_persona: Optional[str] = None,
+    model: Optional[str] = None,
 ) -> dict:
     """
     Force consolidation for all applicable scopes, regardless of thresholds.
@@ -438,6 +446,7 @@ async def force_consolidate_all(
         user_id: User ID (optional)
         session_id: Session ID (optional)
         agent_persona: The agent's persona/description for context
+        model: LLM model to use (pass config.slow_model for tier-based selection)
 
     Returns:
         Dict with consolidation results for each scope
@@ -447,17 +456,17 @@ async def force_consolidate_all(
     scope_names = []
 
     # Always force agent scope
-    tasks.append(consolidate_reflections(scope="agent", agent_id=agent_id, force=True, agent_persona=agent_persona))
+    tasks.append(consolidate_reflections(scope="agent", agent_id=agent_id, force=True, agent_persona=agent_persona, model=model))
     scope_names.append("agent")
 
     # Force user scope if user_id provided
     if user_id:
-        tasks.append(consolidate_reflections(scope="user", agent_id=agent_id, user_id=user_id, force=True, agent_persona=agent_persona))
+        tasks.append(consolidate_reflections(scope="user", agent_id=agent_id, user_id=user_id, force=True, agent_persona=agent_persona, model=model))
         scope_names.append("user")
 
     # Force session scope if session_id provided
     if session_id:
-        tasks.append(consolidate_reflections(scope="session", agent_id=agent_id, session_id=session_id, force=True, agent_persona=agent_persona))
+        tasks.append(consolidate_reflections(scope="session", agent_id=agent_id, session_id=session_id, force=True, agent_persona=agent_persona, model=model))
         scope_names.append("session")
 
     # Run all consolidations in parallel

@@ -29,13 +29,12 @@ LOCAL_DEV = False  # Set to False for production
 # =============================================================================
 # LLM Model Configuration
 # =============================================================================
-if LOCAL_DEV:
-    MEMORY_LLM_MODEL_FAST = "gemini-3-flash-preview"
-    MEMORY_LLM_MODEL_SLOW = "gemini-3-flash-preview"
-else:
-    MEMORY_LLM_MODEL_FAST = "gemini-3-flash-preview"
-    MEMORY_LLM_MODEL_SLOW = "gemini-3-flash-preview"
+# Fast model is always flash - used for fact extraction
+MEMORY_LLM_MODEL_FAST = "gemini-3-flash-preview"
 
+# Model names for slow model (reflection extraction, consolidation)
+_MEMORY_LLM_MODEL_SLOW_FREE = "gemini-3-flash-preview"
+_MEMORY_LLM_MODEL_SLOW_PREMIUM = "gemini-3-pro-preview"
 
 # =============================================================================
 # Memory Formation Triggers
@@ -437,6 +436,32 @@ Focus on the "Narrative Thread" of the current interaction:
 """
 }
 
+def get_memory_llm_model_slow(subscription_tier: Optional[int] = None) -> str:
+    """
+    Get the slow LLM model based on environment and subscription tier.
+
+    The slow model is used for reflection extraction and consolidation.
+    Premium users (subscriptionTier >= 1) get the pro model for better quality.
+    Free users and local development use the flash model for cost savings.
+
+    Args:
+        subscription_tier: User's subscription tier (0 or None = free, >= 1 = premium)
+
+    Returns:
+        Model name: "gemini-3-flash-preview" for LOCAL_DEV or free users,
+                   "gemini-3-pro-preview" for premium users
+    """
+    # Local development always uses fast/cheap model
+    if LOCAL_DEV:
+        return _MEMORY_LLM_MODEL_SLOW_FREE
+
+    # Free users (tier < 1) or unknown tier get flash model
+    if subscription_tier is None or subscription_tier < 1:
+        return _MEMORY_LLM_MODEL_SLOW_FREE
+
+    # Premium users get pro model
+    return _MEMORY_LLM_MODEL_SLOW_PREMIUM
+
 
 # =============================================================================
 # Memory2 Configuration (unchanged from original)
@@ -458,6 +483,12 @@ class Memory2Config:
     user_enabled: bool = False
     agent_enabled: bool = False
     is_multi_user: bool = False  # True when session has multiple users
+    subscription_tier: Optional[int] = None  # Owner's subscription tier for model selection
+
+    @property
+    def slow_model(self) -> str:
+        """Get the slow LLM model based on owner's subscription tier."""
+        return get_memory_llm_model_slow(self.subscription_tier)
 
     @property
     def fact_scopes(self) -> List[str]:
@@ -514,10 +545,14 @@ class Memory2Config:
         """
         is_multi_user = is_multi_user_session(session) if session else False
 
+        # Get owner's subscription tier for model selection
+        subscription_tier = _get_owner_subscription_tier(agent)
+
         return cls(
             user_enabled=getattr(agent, "user_memory_enabled", False),
             agent_enabled=getattr(agent, "agent_memory_enabled", False),
             is_multi_user=is_multi_user,
+            subscription_tier=subscription_tier,
         )
 
     @classmethod
@@ -561,6 +596,38 @@ def is_multi_user_session(session) -> bool:
 
     users = getattr(session, "users", None) or []
     return len(users) > 1
+
+
+def _get_owner_subscription_tier(agent) -> Optional[int]:
+    """
+    Get the subscription tier of the agent's owner.
+
+    Used to determine which LLM model to use for memory operations.
+    Premium users (tier >= 1) get the pro model, free users get flash.
+
+    Args:
+        agent: Agent object with owner attribute
+
+    Returns:
+        Owner's subscription tier, or None if not found
+    """
+    try:
+        owner_id = getattr(agent, "owner", None)
+        if owner_id is None:
+            return None
+
+        # Import here to avoid circular imports
+        from eve.user import User
+
+        owner = User.from_mongo(owner_id)
+        if owner is None:
+            return None
+
+        return getattr(owner, "subscriptionTier", None)
+
+    except Exception:
+        # Fail silently - default to free tier model if we can't determine
+        return None
 
 
 # =============================================================================

@@ -63,11 +63,11 @@ from eve.agent.memory2.constants import (
     EMBEDDING_MODEL,
     FACT_MAX_WORDS,
     MEMORY_LLM_MODEL_FAST,
-    MEMORY_LLM_MODEL_SLOW,
     RAG_ENABLED,
     RAG_TOP_K,
     REFLECTION_MAX_WORDS,
     SIMILARITY_THRESHOLD,
+    get_memory_llm_model_slow,
 )
 
 # Service layer
@@ -178,7 +178,7 @@ __all__ = [
     "CONSOLIDATION_THRESHOLDS",
     "CONSOLIDATED_WORD_LIMITS",
     "MEMORY_LLM_MODEL_FAST",
-    "MEMORY_LLM_MODEL_SLOW",
+    "get_memory_llm_model_slow",
     "SIMILARITY_THRESHOLD",
     "FACT_MAX_WORDS",
     "REFLECTION_MAX_WORDS",

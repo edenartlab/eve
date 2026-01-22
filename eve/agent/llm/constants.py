@@ -34,7 +34,7 @@ MODEL_PROVIDER_OVERRIDES = {
     "gpt-5-nano": ModelProvider.OPENAI,
     "gpt-5-mini": ModelProvider.OPENAI,
     # Gemini
-    #"gemini-3-pro-preview": ModelProvider.GEMINI,
+    "gemini-3-pro-preview": ModelProvider.GEMINI,
     "gemini-3-flash-preview": ModelProvider.GEMINI,
 }
 

@@ -350,6 +350,7 @@ async def form_memories(
             newly_formed_facts=newly_formed_facts,
             agent_persona=agent_persona,
             enabled_scopes=config.reflection_scopes,
+            model=config.slow_model,
         )
 
         if LOCAL_DEV:
@@ -367,6 +368,7 @@ async def form_memories(
             session_id=session_id,
             agent_persona=agent_persona,
             enabled_scopes=config.reflection_scopes,
+            model=config.slow_model,
         )
 
         if LOCAL_DEV:
