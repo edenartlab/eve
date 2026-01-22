@@ -94,11 +94,12 @@ async def async_exponential_backoff(
                     f"Operation timed out after {max_attempts} attempts "
                     f"({timeout_seconds}s timeout per attempt)"
                 )
+            jitter = random.uniform(-max_jitter, max_jitter)
             logger.warning(
                 f"Attempt {attempt} timed out after {timeout_seconds}s. "
-                f"Retrying in {delay} seconds..."
+                f"Retrying in {delay + jitter:.1f} seconds..."
             )
-            await asyncio.sleep(delay)
+            await asyncio.sleep(delay + jitter)
             delay = delay * 2
         except Exception as e:
             if attempt == max_attempts:
