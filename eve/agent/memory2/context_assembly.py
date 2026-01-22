@@ -62,12 +62,22 @@ def ensure_utc(dt: Optional[datetime]) -> Optional[datetime]:
     return dt
 
 
-def format_temporal_age(dt: datetime) -> str:
+def _count_words(text: Optional[str]) -> int:
+    """Count words in a text string. Returns 0 if text is None or empty."""
+    if not text:
+        return 0
+    return len(text.split())
+
+
+def format_temporal_age(dt: Optional[datetime]) -> str:
     """
     Format a datetime as a concise human-readable age suffix.
 
     Returns strings like: "4m ago", "2h ago", "3d ago", "1 week ago", "2 months ago"
+    Returns empty string if datetime is None.
     """
+    if dt is None:
+        return ""
     dt = ensure_utc(dt)
     now = datetime.now(timezone.utc)
     delta = now - dt
@@ -115,11 +125,14 @@ def format_fact_with_age(fact) -> str:
 
     Returns:
         Fact content with age suffix, e.g. "User likes coffee (3d ago)"
+        Returns just the content if no timestamp is available.
     """
     # Use updated_at if fact was edited, otherwise use formed_at
     timestamp = fact.updated_at if fact.updated_at else fact.formed_at
     age_suffix = format_temporal_age(timestamp)
-    return f"{fact.content} ({age_suffix})"
+    if age_suffix:
+        return f"{fact.content} ({age_suffix})"
+    return fact.content
 
 
 async def _timed_get_scope_memory(
@@ -631,10 +644,8 @@ def get_memory_stats(
 
             stats[scope] = {
                 "has_consolidated": consolidated is not None,
-                "consolidated_word_count": (
-                    len(consolidated.consolidated_content.split())
-                    if consolidated and consolidated.consolidated_content
-                    else 0
+                "consolidated_word_count": _count_words(
+                    consolidated.consolidated_content if consolidated else None
                 ),
                 "unabsorbed_count": len(reflections),
                 "last_consolidated_at": (

@@ -90,7 +90,7 @@ async def consolidate_reflections(
             return None
 
         # Check threshold unless forced
-        buffer_size = len(consolidated.unabsorbed_ids)
+        buffer_size = len(consolidated.unabsorbed_ids or [])
         threshold = CONSOLIDATION_THRESHOLDS.get(scope, 5)
 
         if not force and buffer_size < threshold:
@@ -106,11 +106,12 @@ async def consolidate_reflections(
             return None
 
         # Load unabsorbed reflections
-        reflections = _load_reflections_by_ids(consolidated.unabsorbed_ids)
+        unabsorbed_ids = consolidated.unabsorbed_ids or []
+        reflections = _load_reflections_by_ids(unabsorbed_ids)
 
         # Identify and clean up orphaned IDs (reflections that were deleted from DB)
         found_ids = {r.id for r in reflections}
-        orphaned_ids = [rid for rid in consolidated.unabsorbed_ids if rid not in found_ids]
+        orphaned_ids = [rid for rid in unabsorbed_ids if rid not in found_ids]
 
         if orphaned_ids:
             logger.warning(
@@ -126,7 +127,7 @@ async def consolidate_reflections(
                 )
             else:
                 logger.warning(
-                    f"Could not load any reflections from {len(consolidated.unabsorbed_ids)} IDs"
+                    f"Could not load any reflections from {len(unabsorbed_ids)} IDs"
                 )
             return None
 
@@ -216,8 +217,10 @@ async def consolidate_reflections(
         return None
 
 
-def _count_words(text: str) -> int:
-    """Count words in a text string."""
+def _count_words(text: Optional[str]) -> int:
+    """Count words in a text string. Returns 0 if text is None or empty."""
+    if not text:
+        return 0
     return len(text.split())
 
 
@@ -530,10 +533,8 @@ def get_consolidation_status(
             "threshold": threshold,
             "needs_consolidation": buffer_size >= threshold,
             "word_limit": CONSOLIDATED_WORD_LIMITS.get(scope, 400),
-            "current_word_count": (
-                len(consolidated.consolidated_content.split())
-                if consolidated and consolidated.consolidated_content
-                else 0
+            "current_word_count": _count_words(
+                consolidated.consolidated_content if consolidated else None
             ),
         }
 
