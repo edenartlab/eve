@@ -62,7 +62,7 @@ if LOCAL_DEV:
     }
 else:
     CONSOLIDATION_THRESHOLDS = {
-        "agent": 8,
+        "agent": 10,
         "user": 4,
         "session": 4,
     }
