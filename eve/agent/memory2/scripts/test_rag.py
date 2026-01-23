@@ -28,6 +28,7 @@ import argparse
 import asyncio
 import os
 import sys
+import time
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -152,40 +153,19 @@ async def test_semantic_search(
     """Test semantic (vector) search only."""
     from eve.agent.memory2.rag import _build_scope_filter, _semantic_search
 
-    print("\n" + "-" * 40)
-    print("SEMANTIC SEARCH (Vector)")
-    print("-" * 40)
+    start_time = time.perf_counter()
 
     scope_filter = ["user", "agent"] if user_id else ["agent"]
     pre_filter = _build_scope_filter(agent_id, user_id, scope_filter)
 
-    print(f"Pre-filter: {pre_filter}")
-
     try:
         results = await _semantic_search(query, pre_filter, limit)
-
-        if not results:
-            print("No results found.")
-            print("This could mean:")
-            print("  - fact_vector_index doesn't exist yet")
-            print("  - No facts match the filter criteria")
-            print("  - No facts have embeddings")
-        else:
-            print(f"\nFound {len(results)} results:")
-            for i, r in enumerate(results, 1):
-                score = r.get("score", 0)
-                scope = r.get("scope", "?")
-                content = r.get("content", "")[:80]
-                print(f"  {i}. [{scope}] (score: {score:.4f}) {content}...")
-
-        return results
+        elapsed = time.perf_counter() - start_time
+        return {"type": "semantic", "results": results, "elapsed": elapsed, "error": None, "pre_filter": pre_filter}
 
     except Exception as e:
-        print(f"Error: {e}")
-        if "vectorSearch" in str(e) or "no such index" in str(e).lower():
-            print("\n⚠️  Vector search index 'fact_vector_index' not found!")
-            print("Create it in MongoDB Atlas → Atlas Search → Create Index")
-        return []
+        elapsed = time.perf_counter() - start_time
+        return {"type": "semantic", "results": [], "elapsed": elapsed, "error": str(e), "pre_filter": pre_filter}
 
 
 async def test_text_search(
@@ -197,40 +177,20 @@ async def test_text_search(
     """Test text search only."""
     from eve.agent.memory2.rag import _build_atlas_search_filter, _text_search
 
-    print("\n" + "-" * 40)
-    print("TEXT SEARCH (Keyword)")
-    print("-" * 40)
+    start_time = time.perf_counter()
 
     scope_filter = ["user", "agent"] if user_id else ["agent"]
     atlas_filter = _build_atlas_search_filter(agent_id, user_id, scope_filter)
 
-    print(f"Atlas Search filter: {atlas_filter}")
-
     try:
         results = await _text_search(query, agent_id, user_id, scope_filter, limit)
-
-        if not results:
-            print("No results found.")
-            print("This could mean:")
-            print("  - fact_text_index doesn't exist (will fallback to regex)")
-            print("  - No facts contain the query terms")
-        else:
-            search_type = results[0].get("search_type", "unknown")
-            print(f"Search method: {search_type}")
-            print(f"\nFound {len(results)} results:")
-            for i, r in enumerate(results, 1):
-                score = r.get("score", 0)
-                scope = r.get("scope", "?")
-                content = r.get("content", "")[:80]
-                print(f"  {i}. [{scope}] (score: {score:.4f}) {content}...")
-
-        return results
+        elapsed = time.perf_counter() - start_time
+        search_method = results[0].get("search_type", "unknown") if results else "none"
+        return {"type": "text", "results": results, "elapsed": elapsed, "error": None, "atlas_filter": atlas_filter, "search_method": search_method}
 
     except Exception as e:
-        print(f"Error: {e}")
-        import traceback
-        traceback.print_exc()
-        return []
+        elapsed = time.perf_counter() - start_time
+        return {"type": "text", "results": [], "elapsed": elapsed, "error": str(e), "atlas_filter": atlas_filter, "search_method": "error"}
 
 
 async def test_hybrid_search(
@@ -242,9 +202,7 @@ async def test_hybrid_search(
     """Test hybrid search with RRF fusion."""
     from eve.agent.memory2.rag import search_facts
 
-    print("\n" + "-" * 40)
-    print("HYBRID SEARCH (Semantic + Text + RRF)")
-    print("-" * 40)
+    start_time = time.perf_counter()
 
     scope_filter = ["user", "agent"] if user_id else ["agent"]
 
@@ -257,22 +215,12 @@ async def test_hybrid_search(
             match_count=limit,
             search_type="hybrid",
         )
-
-        if not results:
-            print("No results found.")
-        else:
-            print(f"\nFound {len(results)} results (RRF fused):")
-            for i, r in enumerate(results, 1):
-                rrf_score = r.get("rrf_score", r.get("score", 0))
-                scope = r.get("scope", "?")
-                content = r.get("content", "")[:80]
-                print(f"  {i}. [{scope}] (rrf: {rrf_score:.4f}) {content}...")
-
-        return results
+        elapsed = time.perf_counter() - start_time
+        return {"type": "hybrid", "results": results, "elapsed": elapsed, "error": None}
 
     except Exception as e:
-        print(f"Error: {e}")
-        return []
+        elapsed = time.perf_counter() - start_time
+        return {"type": "hybrid", "results": [], "elapsed": elapsed, "error": str(e)}
 
 
 async def test_tool_handler(
@@ -285,9 +233,7 @@ async def test_tool_handler(
     from eve.agent.memory2.rag import search_facts
     from eve.agent.memory2.rag_tool import format_facts_for_tool_response
 
-    print("\n" + "-" * 40)
-    print("TOOL HANDLER OUTPUT (Agent perspective)")
-    print("-" * 40)
+    start_time = time.perf_counter()
 
     # Bypass RAG_ENABLED check by calling search_facts directly
     try:
@@ -299,13 +245,12 @@ async def test_tool_handler(
         )
 
         response = format_facts_for_tool_response(facts)
-        print(f"\nTool response:\n{response}")
-
-        return response
+        elapsed = time.perf_counter() - start_time
+        return {"type": "tool", "response": response, "facts": facts, "elapsed": elapsed, "error": None}
 
     except Exception as e:
-        print(f"Error: {e}")
-        return None
+        elapsed = time.perf_counter() - start_time
+        return {"type": "tool", "response": None, "facts": [], "elapsed": elapsed, "error": str(e)}
 
 
 async def get_sample_agent_id():
@@ -319,6 +264,82 @@ async def get_sample_agent_id():
         return sample["agent_id"]
 
     return None
+
+
+def print_semantic_results(result: dict):
+    """Print semantic search results."""
+    print("\n" + "-" * 40)
+    print(f"SEMANTIC SEARCH (Vector) - {result['elapsed']*1000:.1f}ms")
+    print("-" * 40)
+    print(f"Pre-filter: {result.get('pre_filter', {})}")
+
+    if result["error"]:
+        print(f"Error: {result['error']}")
+        if "vectorSearch" in result["error"] or "no such index" in result["error"].lower():
+            print("\n⚠️  Vector search index 'fact_vector_index' not found!")
+    elif not result["results"]:
+        print("No results found.")
+    else:
+        print(f"\nFound {len(result['results'])} results:")
+        for i, r in enumerate(result["results"], 1):
+            score = r.get("score", 0)
+            scope = r.get("scope", "?")
+            content = r.get("content", "")[:80]
+            print(f"  {i}. [{scope}] (score: {score:.4f}) {content}...")
+
+
+def print_text_results(result: dict):
+    """Print text search results."""
+    print("\n" + "-" * 40)
+    print(f"TEXT SEARCH (Keyword) - {result['elapsed']*1000:.1f}ms")
+    print("-" * 40)
+    print(f"Atlas Search filter: {result.get('atlas_filter', {})}")
+
+    if result["error"]:
+        print(f"Error: {result['error']}")
+    elif not result["results"]:
+        print("No results found.")
+    else:
+        print(f"Search method: {result.get('search_method', 'unknown')}")
+        print(f"\nFound {len(result['results'])} results:")
+        for i, r in enumerate(result["results"], 1):
+            score = r.get("score", 0)
+            scope = r.get("scope", "?")
+            content = r.get("content", "")[:80]
+            print(f"  {i}. [{scope}] (score: {score:.4f}) {content}...")
+
+
+def print_hybrid_results(result: dict):
+    """Print hybrid search results."""
+    print("\n" + "-" * 40)
+    print(f"HYBRID SEARCH (Semantic + Text + RRF) - {result['elapsed']*1000:.1f}ms")
+    print("-" * 40)
+
+    if result["error"]:
+        print(f"Error: {result['error']}")
+    elif not result["results"]:
+        print("No results found.")
+    else:
+        print(f"\nFound {len(result['results'])} results (RRF fused):")
+        for i, r in enumerate(result["results"], 1):
+            rrf_score = r.get("rrf_score", r.get("score", 0))
+            scope = r.get("scope", "?")
+            content = r.get("content", "")[:80]
+            print(f"  {i}. [{scope}] (rrf: {rrf_score:.4f}) {content}...")
+
+
+def print_tool_results(result: dict):
+    """Print tool handler results."""
+    print("\n" + "-" * 40)
+    print(f"TOOL HANDLER OUTPUT (Agent perspective) - {result['elapsed']*1000:.1f}ms")
+    print("-" * 40)
+
+    if result["error"]:
+        print(f"Error: {result['error']}")
+    elif result["response"]:
+        print(f"\nTool response:\n{result['response']}")
+    else:
+        print("No response generated.")
 
 
 async def main():
@@ -362,8 +383,10 @@ async def main():
 
     args = parser.parse_args()
 
+    total_start = time.perf_counter()
+
     print("\n" + "=" * 60)
-    print("MEMORY2 RAG TEST SCRIPT")
+    print("MEMORY2 RAG TEST SCRIPT (Parallel Execution)")
     print("=" * 60)
     print(f"Timestamp: {datetime.now(timezone.utc).isoformat()}")
 
@@ -391,22 +414,61 @@ async def main():
     print(f"  Search type: {args.search_type}")
     print(f"  Limit: {args.limit}")
 
-    # Always show index status first
-    await check_indexes_and_stats()
+    # Build list of search tasks to run in parallel
+    tasks = []
+    task_names = []
 
-    # Run searches
     if args.search_type in ["semantic", "all"]:
-        await test_semantic_search(args.query, agent_id, user_id, args.limit)
+        tasks.append(test_semantic_search(args.query, agent_id, user_id, args.limit))
+        task_names.append("semantic")
 
     if args.search_type in ["text", "all"]:
-        await test_text_search(args.query, agent_id, user_id, args.limit)
+        tasks.append(test_text_search(args.query, agent_id, user_id, args.limit))
+        task_names.append("text")
 
     if args.search_type in ["hybrid", "all"]:
-        await test_hybrid_search(args.query, agent_id, user_id, args.limit)
+        tasks.append(test_hybrid_search(args.query, agent_id, user_id, args.limit))
+        task_names.append("hybrid")
 
-    # Always show tool handler output
     if args.search_type == "all":
-        await test_tool_handler(args.query, agent_id, user_id, args.limit)
+        tasks.append(test_tool_handler(args.query, agent_id, user_id, args.limit))
+        task_names.append("tool")
+
+    # Run all searches in parallel
+    print(f"\nRunning {len(tasks)} search(es) in parallel: {', '.join(task_names)}")
+    parallel_start = time.perf_counter()
+    results = await asyncio.gather(*tasks)
+    parallel_elapsed = time.perf_counter() - parallel_start
+    print(f"Parallel execution completed in {parallel_elapsed*1000:.1f}ms")
+
+    # Print results in sequence
+    for result in results:
+        if result["type"] == "semantic":
+            print_semantic_results(result)
+        elif result["type"] == "text":
+            print_text_results(result)
+        elif result["type"] == "hybrid":
+            print_hybrid_results(result)
+        elif result["type"] == "tool":
+            print_tool_results(result)
+
+    # Print timing summary
+    total_elapsed = time.perf_counter() - total_start
+
+    print("\n" + "=" * 60)
+    print("TIMING SUMMARY")
+    print("=" * 60)
+    for result in results:
+        print(f"  {result['type']:12s}: {result['elapsed']*1000:7.1f}ms")
+    print(f"  {'parallel':12s}: {parallel_elapsed*1000:7.1f}ms (wall clock)")
+    print(f"  {'total':12s}: {total_elapsed*1000:7.1f}ms (including setup)")
+
+    # Calculate sequential vs parallel savings
+    sequential_time = sum(r["elapsed"] for r in results)
+    if len(results) > 1:
+        savings = ((sequential_time - parallel_elapsed) / sequential_time) * 100
+        print(f"\n  Sequential would take: {sequential_time*1000:.1f}ms")
+        print(f"  Parallel savings: {savings:.1f}%")
 
     print("\n" + "=" * 60)
     print("TEST COMPLETE")
