@@ -1191,11 +1191,21 @@ class DiscordAllowlistItem(AllowlistItem):
 class DiscordChannelConfig(BaseModel):
     """Config for a single Discord channel in webhook-based deployments."""
 
+    guild_id: Optional[str] = None
     channel_id: str
     channel_name: Optional[str] = None  # cached for display
     access: Literal["read_write", "read_only"] = "read_write"
     webhook_id: Optional[str] = None
     webhook_token: Optional[str] = None
+
+
+class DiscordGuildConfig(BaseModel):
+    """Config for a single Discord guild in webhook-based deployments."""
+
+    guild_id: str
+    guild_name: Optional[str] = None  # cached for display
+    role_id: Optional[str] = None  # Discord role ID for @mentions
+    role_name: Optional[str] = None  # role name (e.g., "chatsubo")
 
 
 class DeploymentSettingsDiscord(BaseModel):
@@ -1206,7 +1216,10 @@ class DeploymentSettingsDiscord(BaseModel):
     read_access_channels: Optional[List[DiscordAllowlistItem]] = None
     dm_user_allowlist: Optional[List[DiscordAllowlistItem]] = None
 
-    # New webhook-based fields
+    # New webhook-based fields (multi-guild)
+    guilds: Optional[List[DiscordGuildConfig]] = None
+
+    # Legacy single-guild fields (backward compatibility)
     guild_id: Optional[str] = None
     guild_name: Optional[str] = None  # cached for display
     role_id: Optional[str] = None  # Discord role ID for @mentions
