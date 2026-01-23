@@ -16,6 +16,7 @@ Key features:
 """
 
 import asyncio
+import os
 import traceback
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
@@ -26,6 +27,25 @@ from loguru import logger
 from eve.agent.memory2.constants import LOCAL_DEV, RAG_TOP_K
 from eve.agent.memory2.fact_storage import get_embedding
 from eve.agent.memory2.models import Fact
+
+
+# =============================================================================
+# Atlas Search Index Names (environment-specific)
+# =============================================================================
+def _get_index_suffix() -> str:
+    """Get index suffix based on DB environment."""
+    db_env = os.getenv("DB", "STAGE").upper()
+    return "prod" if db_env == "PROD" else "stage"
+
+
+def get_vector_index_name() -> str:
+    """Get the vector search index name for current environment."""
+    return f"fact_vector_index_{_get_index_suffix()}"
+
+
+def get_text_index_name() -> str:
+    """Get the text search index name for current environment."""
+    return f"fact_text_index_{_get_index_suffix()}"
 
 
 async def search_facts(
@@ -57,13 +77,14 @@ async def search_facts(
         scope_filter = ["user", "agent"]
 
     try:
-        # Build pre-filter for MongoDB Atlas
+        # Build pre-filter for MongoDB Atlas Vector Search (MQL format)
         pre_filter = _build_scope_filter(agent_id, user_id, scope_filter)
 
         if search_type == "hybrid":
             # Run both searches in parallel
             semantic_task = _semantic_search(query, pre_filter, match_count * 2)
-            text_task = _text_search(query, pre_filter, match_count * 2)
+            # Text search needs raw params to build Atlas Search filter format
+            text_task = _text_search(query, agent_id, user_id, scope_filter, match_count * 2)
 
             semantic_results, text_results = await asyncio.gather(
                 semantic_task, text_task
@@ -80,7 +101,7 @@ async def search_facts(
             results = await _semantic_search(query, pre_filter, match_count)
 
         else:  # text
-            results = await _text_search(query, pre_filter, match_count)
+            results = await _text_search(query, agent_id, user_id, scope_filter, match_count)
 
         # Update access tracking
         if results:
@@ -102,24 +123,88 @@ def _build_scope_filter(
     user_id: Optional[ObjectId],
     scope_filter: List[str],
 ) -> Dict:
-    """Build MongoDB filter for pre-filtering in vector/text search."""
+    """
+    Build MongoDB MQL filter for pre-filtering in vector search.
+
+    Returns a standard MQL filter dict that can be used with $vectorSearch.
+    For Atlas Vector Search, filters must only reference indexed filter paths.
+    """
     conditions = []
 
     if "agent" in scope_filter:
         conditions.append({
-            "scope": "agent",
-            "agent_id": agent_id,
+            "$and": [
+                {"scope": {"$eq": "agent"}},
+                {"agent_id": {"$eq": agent_id}},
+            ]
         })
 
     if "user" in scope_filter and user_id:
         conditions.append({
-            "scope": "user",
-            "user_id": user_id,
+            "$and": [
+                {"scope": {"$eq": "user"}},
+                {"user_id": {"$eq": user_id}},
+            ]
         })
 
-    if conditions:
+    if len(conditions) == 1:
+        # Single condition - unwrap from list
+        return conditions[0]
+    elif len(conditions) > 1:
+        # Multiple conditions - use $or
         return {"$or": conditions}
-    return {"agent_id": agent_id}
+
+    # Fallback - just filter by agent
+    return {"agent_id": {"$eq": agent_id}}
+
+
+def _build_atlas_search_filter(
+    agent_id: ObjectId,
+    user_id: Optional[ObjectId],
+    scope_filter: List[str],
+) -> List[Dict]:
+    """
+    Build Atlas Search filter clauses for $search compound queries.
+
+    Atlas Search uses a different filter syntax than MQL:
+    - equals: {"path": "field", "value": value}
+    - compound.should: for OR logic
+
+    Returns a list of filter clauses for the compound.filter array.
+    """
+    # For Atlas Search, we build filter conditions differently
+    # We'll use compound.should inside filter for OR logic
+    conditions = []
+
+    if "agent" in scope_filter:
+        conditions.append({
+            "compound": {
+                "must": [
+                    {"equals": {"path": "scope", "value": "agent"}},
+                    {"equals": {"path": "agent_id", "value": agent_id}},
+                ]
+            }
+        })
+
+    if "user" in scope_filter and user_id:
+        conditions.append({
+            "compound": {
+                "must": [
+                    {"equals": {"path": "scope", "value": "user"}},
+                    {"equals": {"path": "user_id", "value": user_id}},
+                ]
+            }
+        })
+
+    if len(conditions) == 0:
+        # No conditions - just filter by agent_id
+        return [{"equals": {"path": "agent_id", "value": agent_id}}]
+    elif len(conditions) == 1:
+        # Single condition - return its must clauses directly
+        return conditions[0]["compound"]["must"]
+    else:
+        # Multiple conditions - wrap in compound.should (OR)
+        return [{"compound": {"should": conditions, "minimumShouldMatch": 1}}]
 
 
 async def _semantic_search(
@@ -145,7 +230,7 @@ async def _semantic_search(
         pipeline = [
             {
                 "$vectorSearch": {
-                    "index": "fact_vector_index",
+                    "index": get_vector_index_name(),
                     "path": "embedding",
                     "queryVector": embedding,
                     "numCandidates": limit * 10,  # Over-fetch for better recall
@@ -188,7 +273,9 @@ async def _semantic_search(
 
 async def _text_search(
     query: str,
-    pre_filter: Dict,
+    agent_id: ObjectId,
+    user_id: Optional[ObjectId],
+    scope_filter: List[str],
     limit: int,
 ) -> List[Dict]:
     """
@@ -199,11 +286,14 @@ async def _text_search(
     try:
         collection = Fact.get_collection()
 
+        # Build Atlas Search filter clauses
+        filter_clauses = _build_atlas_search_filter(agent_id, user_id, scope_filter)
+
         # MongoDB Atlas Search pipeline
         pipeline = [
             {
                 "$search": {
-                    "index": "fact_text_index",
+                    "index": get_text_index_name(),
                     "compound": {
                         "must": [
                             {
@@ -214,11 +304,7 @@ async def _text_search(
                                 }
                             }
                         ],
-                        "filter": [
-                            {"equals": {"path": "agent_id", "value": pre_filter.get("agent_id")}}
-                            if "agent_id" in pre_filter
-                            else {}
-                        ],
+                        "filter": filter_clauses,
                     },
                 }
             },
@@ -248,6 +334,8 @@ async def _text_search(
             # Fallback: simple regex search
             if "no such index" in str(e).lower() or "$search" in str(e):
                 logger.warning("Text search not available, using regex fallback")
+                # Build MQL filter for regex fallback
+                pre_filter = _build_scope_filter(agent_id, user_id, scope_filter)
                 return await _regex_fallback_search(query, pre_filter, limit)
             raise
 
