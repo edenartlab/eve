@@ -1,7 +1,6 @@
 
 Urgent:
 
-
 - disable agent memory when user loses pro tier (run check in ui when loading agent and update flag)
 
 - verify agent creation flow (form and conversation --> user memory on? agent memory depends on subscription tier?) and make sure memory2 stuff all works: prompts no longer needed, but two booleans should be set depending on subscription tier.

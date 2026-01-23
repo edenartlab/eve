@@ -18,6 +18,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from eve.agent import Agent
 from eve.agent.deployments.farcaster import FarcasterClient
 from eve.agent.deployments.utils import get_api_url
+from eve.agent.llm.constants import DEFAULT_MODEL_FREE, DEFAULT_MODEL_PREMIUM
 from eve.agent.llm.llm import async_prompt
 from eve.agent.memory2.utils import messages_to_text, select_messages
 from eve.agent.session.models import (
@@ -1457,12 +1458,11 @@ async def handle_embedsearch(request):
 @handle_errors
 async def handle_extract_agent_prompts(request):
     """
-    Extract agent persona, description, and memory instructions from a conversation session.
+    Extract agent persona and description from a conversation session.
 
     Takes a session_id, fetches all messages from that session, and uses LLM to extract:
-    - agent_instructions: Core personality traits and characteristics
+    - agent_instructions: Core personality traits and characteristics (includes memory guidance)
     - agent_description: Short summary of agent's purpose and capabilities
-    - memory_instructions: Instructions for how agent should store/recall memories
     """
     from pydantic import BaseModel, Field
 
@@ -1473,9 +1473,6 @@ async def handle_extract_agent_prompts(request):
             description="Core personality traits and characteristics"
         )
         agent_description: str = Field(description="Short summary of agent's purpose")
-        memory_instructions: str = Field(
-            description="Instructions for memory extraction"
-        )
 
     # Get user_id and verify user exists
     user_id = request.user_id
@@ -1505,11 +1502,14 @@ async def handle_extract_agent_prompts(request):
     prompt = prompt_template.replace("{conversation}", conversation_text)
     prompt = prompt.replace("{agent_name}", agent_name)
 
+    # Select model based on user subscription tier
+    model = DEFAULT_MODEL_PREMIUM if (user.subscriptionTier or 0) >= 1 else DEFAULT_MODEL_FREE
+
     # Make single LLM call with structured output using LLMContext with tracing
     context = LLMContext(
         messages=[ChatMessage(role="user", content=prompt)],
         config=LLMConfig(
-            model="gpt-5.1",
+            model=model,
             response_format=AgentPromptsResponse,
         ),
         metadata=LLMContextMetadata(
@@ -1537,7 +1537,6 @@ async def handle_extract_agent_prompts(request):
     # Extract fields from response model
     agent_instructions = result.agent_instructions
     agent_description = result.agent_description
-    memory_instructions = result.memory_instructions
 
     # Calculate cost (estimate based on prompt length and typical response)
     # Since we're using response_model, we get a structured object back, not text
@@ -1553,7 +1552,6 @@ async def handle_extract_agent_prompts(request):
     return {
         "agent_instructions": agent_instructions.strip(),
         "agent_description": agent_description.strip(),
-        "memory_instructions": memory_instructions.strip(),
         "cost": cost,
     }
 
