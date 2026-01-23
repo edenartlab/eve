@@ -1072,6 +1072,11 @@ async def on_message(message: discord.Message):
         logger.info(f"Skipping bot message from {message.author.name}")
         return
 
+    # Skip slash-command invocation messages (handled by interactions)
+    if getattr(message, "interaction", None) is not None:
+        logger.info("Skipping interaction message")
+        return
+
     channel_id = str(message.channel.id)
     guild_id = str(message.guild.id) if message.guild else None
 
@@ -1169,7 +1174,8 @@ async def on_message(message: discord.Message):
             should_prompt = False
 
         # For DMs, check if user is in the DM allowlist
-        if not guild_id:
+        is_dm = isinstance(message.channel, (discord.DMChannel, discord.GroupChannel))
+        if is_dm:
             dm_allowlist = (
                 deployment.config.discord.dm_user_allowlist
                 if deployment.config and deployment.config.discord
