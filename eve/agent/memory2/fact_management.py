@@ -88,11 +88,13 @@ async def process_extracted_facts(
         for i, fact_data in enumerate(extracted_facts):
             embedding = embeddings[i] if i < len(embeddings) else []
 
+            # scope_filter expects a list of scopes to search
+            fact_scope = fact_data.get("scope", "user")
             similar = await search_similar_facts(
                 query_embedding=embedding,
                 agent_id=agent_id,
                 user_id=user_id,
-                scope_filter=fact_data.get("scope", ["user", "agent"]),
+                scope_filter=[fact_scope],
                 threshold=SIMILARITY_THRESHOLD,
                 limit=5,
             )
@@ -401,9 +403,9 @@ async def execute_decision(
 
             fact = Fact(
                 content=decision["final_text"],
-                scope=fact_data.get("scope", ["user"]),
+                scope=fact_data.get("scope", "user"),
                 agent_id=agent_id,
-                user_id=user_id if "user" in fact_data.get("scope", []) else None,
+                user_id=user_id if fact_data.get("scope", "user") == "user" else None,
                 session_id=fact_data.get("session_id"),
                 source_message_ids=fact_data.get("source_message_ids", []),
                 embedding=embedding,
@@ -440,9 +442,9 @@ async def execute_decision(
 
                 fact = Fact(
                     content=decision["final_text"],
-                    scope=fact_data.get("scope", ["user"]),
+                    scope=fact_data.get("scope", "user"),
                     agent_id=agent_id,
-                    user_id=user_id if "user" in fact_data.get("scope", []) else None,
+                    user_id=user_id if fact_data.get("scope", "user") == "user" else None,
                     session_id=fact_data.get("session_id"),
                     source_message_ids=fact_data.get("source_message_ids", []),
                     embedding=embedding,

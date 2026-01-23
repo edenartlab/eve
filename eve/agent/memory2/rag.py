@@ -394,8 +394,8 @@ async def get_relevant_facts_for_context(
         # Format facts
         fact_lines = []
         for fact in facts:
-            scope_str = ", ".join(fact.get("scope", []))
-            fact_lines.append(f"- [{scope_str}] {fact['content']}")
+            scope = fact.get("scope", "")
+            fact_lines.append(f"- [{scope}] {fact['content']}")
 
         return "\n".join(fact_lines)
 
@@ -419,8 +419,8 @@ def format_facts_for_tool_response(facts: List[Dict]) -> str:
 
     lines = ["Retrieved facts:"]
     for i, fact in enumerate(facts, 1):
-        scope_str = ", ".join(fact.get("scope", []))
+        scope = fact.get("scope", "")
         score = fact.get("rrf_score") or fact.get("score", 0)
-        lines.append(f"{i}. [{scope_str}] (relevance: {score:.2f}) {fact['content']}")
+        lines.append(f"{i}. [{scope}] (relevance: {score:.2f}) {fact['content']}")
 
     return "\n".join(lines)

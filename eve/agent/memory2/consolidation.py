@@ -146,7 +146,7 @@ async def consolidate_reflections(
 
         # Build consolidation prompt
         prompt = CONSOLIDATION_PROMPT.format(
-            scope_type=scope,
+            scope=scope,
             agent_persona=agent_persona or "No agent persona available.",
             existing_blob=consolidated.consolidated_content
             or "EMPTY (This is the first consolidation - be concise, more reflections will come!)",
@@ -232,7 +232,7 @@ def _get_consolidated_memory(
 ) -> Optional[ConsolidatedMemory]:
     """Get the consolidated memory document for a scope."""
     query = {
-        "scope_type": scope,
+        "scope": scope,
         "agent_id": agent_id,
     }
 

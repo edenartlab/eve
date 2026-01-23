@@ -625,7 +625,7 @@ async def handler(context: ToolContext):
                     continue
 
                 user_memory = ConsolidatedMemory.get_or_create(
-                    scope_type="user",
+                    scope="user",
                     agent_id=agent.id,
                     user_id=canonical_user_id,
                 )

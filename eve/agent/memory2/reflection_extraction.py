@@ -218,7 +218,7 @@ async def _gather_memory_context(
         # Agent-level memory (only if enabled)
         if "agent" in enabled_scopes:
             agent_consolidated = ConsolidatedMemory.find_one({
-                "scope_type": "agent",
+                "scope": "agent",
                 "agent_id": agent_id,
             })
             if agent_consolidated:
@@ -237,7 +237,7 @@ async def _gather_memory_context(
         # User-level memory (only if enabled and user_id provided)
         if "user" in enabled_scopes and user_id:
             user_consolidated = ConsolidatedMemory.find_one({
-                "scope_type": "user",
+                "scope": "user",
                 "agent_id": agent_id,
                 "user_id": user_id,
             })
@@ -258,7 +258,7 @@ async def _gather_memory_context(
         # Session-level memory (only if enabled and session_id provided)
         if "session" in enabled_scopes and session_id:
             session_consolidated = ConsolidatedMemory.find_one({
-                "scope_type": "session",
+                "scope": "session",
                 "agent_id": agent_id,
                 "session_id": session_id,
             })
@@ -443,7 +443,7 @@ async def _add_to_unabsorbed(
 
         # Get or create consolidated memory
         consolidated = ConsolidatedMemory.get_or_create(
-            scope_type=scope,
+            scope=scope,
             agent_id=agent_id,
             user_id=user_id,
             session_id=session_id,

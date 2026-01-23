@@ -46,7 +46,7 @@ class FactDecisionEvent(str, Enum):
 class ExtractedFact(BaseModel):
     """Schema for facts extracted by LLM."""
     content: str
-    scope: List[Literal["user", "agent"]]
+    scope: Literal["user", "agent"]
 
 
 class ExtractedReflection(BaseModel):
@@ -109,9 +109,9 @@ class Fact(Document):
     embedding_model: str = "text-embedding-3-small"
 
     # Scope (NO session scope - only user/agent)
-    scope: List[Literal["user", "agent"]]
+    scope: Literal["user", "agent"]
     agent_id: ObjectId
-    user_id: Optional[ObjectId] = None  # Required if "user" in scope
+    user_id: Optional[ObjectId] = None  # Required if scope == "user"
 
     # Temporal
     formed_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
@@ -285,7 +285,7 @@ class ConsolidatedMemory(Document):
     """
 
     # Scope key (unique per combination)
-    scope_type: Literal["agent", "user", "session"]
+    scope: Literal["agent", "user", "session"]
     agent_id: ObjectId
     user_id: Optional[ObjectId] = None  # For user-level consolidation
     session_id: Optional[ObjectId] = None  # For session-level consolidation
@@ -317,7 +317,7 @@ class ConsolidatedMemory(Document):
     @classmethod
     def get_or_create(
         cls,
-        scope_type: Literal["agent", "user", "session"],
+        scope: Literal["agent", "user", "session"],
         agent_id: ObjectId,
         user_id: Optional[ObjectId] = None,
         session_id: Optional[ObjectId] = None,
@@ -327,7 +327,7 @@ class ConsolidatedMemory(Document):
         Find an existing consolidated memory or create a new one.
 
         Args:
-            scope_type: Type of scope (agent, user, session)
+            scope: Type of scope (agent, user, session)
             agent_id: Agent ID
             user_id: User ID (required for user scope)
             session_id: Session ID (required for session scope)
@@ -337,16 +337,16 @@ class ConsolidatedMemory(Document):
             ConsolidatedMemory instance
         """
         query = {
-            "scope_type": scope_type,
+            "scope": scope,
             "agent_id": agent_id,
         }
 
-        if scope_type == "user":
+        if scope == "user":
             if user_id is None:
                 raise ValueError("user_id required for user scope")
             query["user_id"] = user_id
 
-        if scope_type == "session":
+        if scope == "session":
             if session_id is None:
                 raise ValueError("session_id required for session scope")
             query["session_id"] = session_id
@@ -357,7 +357,7 @@ class ConsolidatedMemory(Document):
 
         # Create new
         doc = cls(
-            scope_type=scope_type,
+            scope=scope,
             agent_id=agent_id,
             user_id=user_id,
             session_id=session_id,
@@ -373,7 +373,7 @@ class ConsolidatedMemory(Document):
 
         # Unique index on scope combination
         collection.create_index(
-            [("agent_id", 1), ("user_id", 1), ("session_id", 1), ("scope_type", 1)],
+            [("agent_id", 1), ("user_id", 1), ("session_id", 1), ("scope", 1)],
             name="consolidated_scope_idx",
             unique=True,
             background=True,

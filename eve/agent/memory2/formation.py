@@ -333,10 +333,9 @@ async def form_memories(
                 if fact_count > 0:
                     print(f"\n✓ Formed {fact_count} new facts ({mode} mode, scopes: {config.fact_scopes}):")
                     for fact in saved_facts:
-                        scope = fact.scope if hasattr(fact, 'scope') else fact.get('scope', [])
+                        scope = fact.scope if hasattr(fact, 'scope') else fact.get('scope', '')
                         content = fact.content if hasattr(fact, 'content') else fact.get('content', '')
-                        scope_str = ", ".join(scope) if isinstance(scope, list) else str(scope)
-                        print(f"    - [{scope_str}] {content[:80]}...")
+                        print(f"    - [{scope}] {content[:80]}...")
                 else:
                     print(f"No new facts generated. ({mode} mode, scopes: {config.fact_scopes})")
 
@@ -649,12 +648,11 @@ def _log_memory_formation_summary(
         # Build facts summary
         facts_summary = []
         for fact in (saved_facts or []):
-            scope = fact.scope if hasattr(fact, 'scope') else fact.get('scope', [])
+            scope = fact.scope if hasattr(fact, 'scope') else fact.get('scope', '')
             content = fact.content if hasattr(fact, 'content') else fact.get('content', '')
-            scope_str = ",".join(scope) if isinstance(scope, list) else str(scope)
             # Truncate long content
             content_short = content[:60] + "..." if len(content) > 60 else content
-            facts_summary.append(f"[{scope_str}] {content_short}")
+            facts_summary.append(f"[{scope}] {content_short}")
 
         # Build reflections summary
         reflections_summary = []
