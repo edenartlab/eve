@@ -20,6 +20,7 @@ from eve.agent.session.models import (
     DeploymentConfig,
     DeploymentSecrets,
     DiscordChannelConfig,
+    DiscordGuildConfig,
     UpdateType,
 )
 from eve.api.errors import APIError
@@ -416,33 +417,79 @@ class DiscordV3Client(PlatformClient):
         if not config or not config.discord:
             raise APIError("Discord config is required", status_code=400)
 
-        if not config.discord.guild_id:
-            raise APIError("guild_id is required", status_code=400)
-
         if not config.discord.channel_configs:
             raise APIError("At least one channel is required", status_code=400)
 
         try:
-            guild_id = config.discord.guild_id
             user_id = ObjectId(self.deployment.user) if self.deployment else None
 
-            # Fetch guild name for display
-            guild_name = await fetch_guild_name(guild_id)
-            config.discord.guild_name = guild_name
+            missing_guilds = [
+                ch for ch in config.discord.channel_configs if not ch.guild_id
+            ]
+            if missing_guilds and config.discord.guild_id:
+                if len(missing_guilds) == len(config.discord.channel_configs):
+                    for channel_cfg in missing_guilds:
+                        channel_cfg.guild_id = config.discord.guild_id
+                else:
+                    raise APIError(
+                        "guild_id is required for each channel config",
+                        status_code=400,
+                    )
+            elif missing_guilds:
+                raise APIError(
+                    "guild_id is required for each channel config",
+                    status_code=400,
+                )
 
-            # Create role for agent mentions
-            role_id = await create_agent_role(guild_id, self.agent.username)
-            config.discord.role_id = role_id
-            config.discord.role_name = self.agent.username
+            guild_ids = sorted(
+                {ch.guild_id for ch in config.discord.channel_configs if ch.guild_id}
+            )
+            if not guild_ids:
+                raise APIError("At least one guild is required", status_code=400)
+
+            # Build guild config map (prefer explicit guilds list, fallback to legacy fields)
+            guilds_by_id = {g.guild_id: g for g in (config.discord.guilds or [])}
+            if not guilds_by_id and config.discord.guild_id:
+                guilds_by_id[config.discord.guild_id] = DiscordGuildConfig(
+                    guild_id=config.discord.guild_id,
+                    guild_name=config.discord.guild_name,
+                    role_id=config.discord.role_id,
+                    role_name=config.discord.role_name,
+                )
+
+            # Ensure roles for each guild
+            updated_guilds = []
+            for guild_id in guild_ids:
+                existing = guilds_by_id.get(guild_id)
+                guild_name = existing.guild_name if existing else None
+                if not guild_name:
+                    guild_name = await fetch_guild_name(guild_id)
+
+                role_id = existing.role_id if existing else None
+                role_name = existing.role_name if existing else None
+                if not role_name:
+                    role_name = self.agent.username
+                if not role_id:
+                    role_id = await create_agent_role(guild_id, self.agent.username)
+
+                updated_guilds.append(
+                    DiscordGuildConfig(
+                        guild_id=guild_id,
+                        guild_name=guild_name,
+                        role_id=role_id,
+                        role_name=role_name,
+                    )
+                )
 
             # Create webhooks for each channel
             updated_channels = []
             for channel_cfg in config.discord.channel_configs:
                 channel_id = channel_cfg.channel_id
+                channel_guild_id = channel_cfg.guild_id
 
                 # Get or create webhook for this channel
                 webhook_info = await get_or_create_webhook(
-                    guild_id, channel_id, user_id
+                    channel_guild_id, channel_id, user_id
                 )
 
                 # Fetch channel name if not provided
@@ -452,6 +499,7 @@ class DiscordV3Client(PlatformClient):
 
                 # Update channel config with webhook info
                 updated_channel = DiscordChannelConfig(
+                    guild_id=channel_guild_id,
                     channel_id=channel_id,
                     channel_name=channel_name,
                     access=channel_cfg.access,
@@ -461,12 +509,13 @@ class DiscordV3Client(PlatformClient):
                 updated_channels.append(updated_channel)
 
             config.discord.channel_configs = updated_channels
+            config.discord.guilds = updated_guilds
 
             # Add Discord tools to agent
             self.add_tools()
 
             logger.info(
-                f"Discord V3 predeploy complete for guild {guild_id}, role {role_id}, {len(updated_channels)} channels"
+                f"Discord V3 predeploy complete for {len(updated_guilds)} guild(s), {len(updated_channels)} channels"
             )
 
             return secrets, config
@@ -511,27 +560,45 @@ class DiscordV3Client(PlatformClient):
         if not discord_config.channel_configs:
             return
 
-        guild_id = discord_config.guild_id
-        if not guild_id:
-            return
-
         old_by_id = {}
         if old_config and old_config.discord and old_config.discord.channel_configs:
             old_by_id = {
                 ch.channel_id: ch for ch in old_config.discord.channel_configs or []
             }
+        old_guilds_by_id = {}
+        if old_config and old_config.discord and old_config.discord.guilds:
+            old_guilds_by_id = {g.guild_id: g for g in old_config.discord.guilds or []}
+        if not old_guilds_by_id and old_config and old_config.discord:
+            legacy_guild_id = old_config.discord.guild_id
+            if legacy_guild_id:
+                old_guilds_by_id[legacy_guild_id] = DiscordGuildConfig(
+                    guild_id=legacy_guild_id,
+                    guild_name=old_config.discord.guild_name,
+                    role_id=old_config.discord.role_id,
+                    role_name=old_config.discord.role_name,
+                )
 
         updated_channels = []
         changed = False
         user_id = ObjectId(self.deployment.user) if self.deployment else None
         bot_token = os.getenv("DISCORD_BOT_TOKEN")
+        guild_ids: set[str] = set()
+        default_guild_id = None
+        if all(not ch.guild_id for ch in discord_config.channel_configs):
+            default_guild_id = discord_config.guild_id
 
         for ch in discord_config.channel_configs:
+            old = old_by_id.get(ch.channel_id)
+            channel_guild_id = ch.guild_id
+            if not channel_guild_id and old and old.guild_id:
+                channel_guild_id = old.guild_id
+                changed = True
+            if not channel_guild_id and default_guild_id:
+                channel_guild_id = default_guild_id
+                changed = True
             webhook_id = ch.webhook_id
             webhook_token = ch.webhook_token
             channel_name = ch.channel_name
-
-            old = old_by_id.get(ch.channel_id)
             if old:
                 if not webhook_id and old.webhook_id:
                     webhook_id = old.webhook_id
@@ -544,7 +611,11 @@ class DiscordV3Client(PlatformClient):
                     changed = True
 
             if not webhook_id or not webhook_token:
-                cached = GuildWebhook.get_for_channel(guild_id, ch.channel_id)
+                cached = (
+                    GuildWebhook.get_for_channel(channel_guild_id, ch.channel_id)
+                    if channel_guild_id
+                    else None
+                )
                 if cached:
                     if not webhook_id:
                         webhook_id = cached.webhook_id
@@ -555,12 +626,13 @@ class DiscordV3Client(PlatformClient):
 
             if (
                 bot_token
+                and channel_guild_id
                 and ch.access == "read_write"
                 and (not webhook_id or not webhook_token)
             ):
                 try:
                     webhook_info = await get_or_create_webhook(
-                        guild_id, ch.channel_id, user_id
+                        channel_guild_id, ch.channel_id, user_id
                     )
                     webhook_id = webhook_info["id"]
                     webhook_token = webhook_info["token"]
@@ -575,8 +647,12 @@ class DiscordV3Client(PlatformClient):
                 if channel_name and channel_name != ch.channel_name:
                     changed = True
 
+            if channel_guild_id:
+                guild_ids.add(channel_guild_id)
+
             updated_channels.append(
                 DiscordChannelConfig(
+                    guild_id=channel_guild_id,
                     channel_id=ch.channel_id,
                     channel_name=channel_name,
                     access=ch.access,
@@ -585,8 +661,48 @@ class DiscordV3Client(PlatformClient):
                 )
             )
 
+        # Ensure guild configs exist and roles are created
+        guilds_by_id = {g.guild_id: g for g in (discord_config.guilds or [])}
+        if not guilds_by_id and discord_config.guild_id:
+            guilds_by_id[discord_config.guild_id] = DiscordGuildConfig(
+                guild_id=discord_config.guild_id,
+                guild_name=discord_config.guild_name,
+                role_id=discord_config.role_id,
+                role_name=discord_config.role_name,
+            )
+
+        updated_guilds = []
+        for guild_id in sorted(guild_ids):
+            existing = guilds_by_id.get(guild_id) or old_guilds_by_id.get(guild_id)
+            guild_name = existing.guild_name if existing else None
+            if not guild_name:
+                guild_name = await fetch_guild_name(guild_id)
+                changed = True
+
+            role_id = existing.role_id if existing else None
+            role_name = existing.role_name if existing else None
+            if not role_name:
+                role_name = self.agent.username
+                changed = True
+            if not role_id:
+                role_id = await create_agent_role(guild_id, self.agent.username)
+                changed = True
+
+            updated_guilds.append(
+                DiscordGuildConfig(
+                    guild_id=guild_id,
+                    guild_name=guild_name,
+                    role_id=role_id,
+                    role_name=role_name,
+                )
+            )
+
+        if updated_guilds and updated_guilds != (discord_config.guilds or []):
+            changed = True
+
         if changed:
             self.deployment.config.discord.channel_configs = updated_channels
+            self.deployment.config.discord.guilds = updated_guilds
             self.deployment.save()
 
     async def stop(self) -> None:
@@ -605,16 +721,22 @@ class DiscordV3Client(PlatformClient):
             )
 
             # Clean up role if we have the info
-            if (
-                self.deployment.config
-                and self.deployment.config.discord
-                and self.deployment.config.discord.guild_id
-                and self.deployment.config.discord.role_id
-            ):
-                await delete_agent_role(
-                    self.deployment.config.discord.guild_id,
-                    self.deployment.config.discord.role_id,
-                )
+            if self.deployment.config and self.deployment.config.discord:
+                discord_config = self.deployment.config.discord
+                guilds = discord_config.guilds or []
+                if not guilds and discord_config.guild_id and discord_config.role_id:
+                    guilds = [
+                        DiscordGuildConfig(
+                            guild_id=discord_config.guild_id,
+                            role_id=discord_config.role_id,
+                            role_name=discord_config.role_name,
+                            guild_name=discord_config.guild_name,
+                        )
+                    ]
+
+                for guild in guilds:
+                    if guild.guild_id and guild.role_id:
+                        await delete_agent_role(guild.guild_id, guild.role_id)
 
             logger.info(f"Stopped Discord V3 deployment {self.deployment.id}")
         except Exception as e:
@@ -696,11 +818,14 @@ class DiscordV3Client(PlatformClient):
                 try:
                     message_data = dict(response_data)
                     if self.deployment and self.deployment.config:
-                        guild_id = (
-                            self.deployment.config.discord.guild_id
-                            if self.deployment.config.discord
-                            else None
-                        )
+                        guild_id = None
+                        if self.deployment.config.discord:
+                            for ch in (
+                                self.deployment.config.discord.channel_configs or []
+                            ):
+                                if ch.channel_id == channel_id:
+                                    guild_id = ch.guild_id
+                                    break
                         if guild_id and not message_data.get("guild_id"):
                             message_data["guild_id"] = guild_id
                     if not message_data.get("channel_id"):

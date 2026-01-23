@@ -450,10 +450,10 @@ class DiscordClient(PlatformClient):
                 return
 
             # Determine if this is v3 webhook-based or legacy token-based
-            is_webhook_based = (
+            is_webhook_based = bool(
                 self.deployment.config
                 and self.deployment.config.discord
-                and self.deployment.config.discord.guild_id is not None
+                and self.deployment.config.discord.channel_configs
             )
 
             if is_webhook_based and not is_dm:

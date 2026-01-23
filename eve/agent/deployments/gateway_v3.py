@@ -65,6 +65,14 @@ def construct_agent_chat_url(agent_username: str) -> str:
     return f"https://{root_url}/chat/{agent_username}"
 
 
+def get_eden_frontend_url() -> str:
+    return os.getenv("EDEN_FRONTEND_URL") or "https://app.eden.art"
+
+
+def construct_agent_profile_url(agent: Agent) -> str:
+    return f"{get_eden_frontend_url().rstrip('/')}/agents/{agent.id}"
+
+
 async def fetch_discord_channel_name(channel_id: str, bot_token: str) -> Optional[str]:
     """
     Fetch the channel name from Discord API.
@@ -166,6 +174,36 @@ async def find_all_following_deployments(channel_id: str) -> List[Deployment]:
             following.append(deployment)
 
     return following
+
+
+def find_all_deployments_for_guild(guild_id: str) -> List[Deployment]:
+    """
+    Find all Discord v3 deployments that have channels in the given guild.
+    """
+    all_deployments = list(
+        Deployment.find(
+            {
+                "platform": ClientType.DISCORD_V3.value,
+                "valid": {"$ne": False},
+            }
+        )
+    )
+
+    matching = []
+    for deployment in all_deployments:
+        if not deployment.config or not deployment.config.discord:
+            continue
+
+        discord_config = deployment.config.discord
+        if discord_config.channel_configs:
+            for ch in discord_config.channel_configs:
+                if ch.guild_id and str(ch.guild_id) == str(guild_id):
+                    matching.append(deployment)
+                    break
+        elif discord_config.guild_id and str(discord_config.guild_id) == str(guild_id):
+            matching.append(deployment)
+
+    return matching
 
 
 def deployment_can_write_to_channel(deployment: Deployment, channel_id: str) -> bool:
@@ -529,37 +567,52 @@ def parse_mentioned_deployments(
         else:
             mentioned_roles_by_name[role.name] = str(role.id)
 
+    message_guild_id = str(message.guild.id) if message.guild else None
+
     for deployment in following_deployments:
         # V3 webhook-based: check role mentions
-        if (
-            deployment.config
-            and deployment.config.discord
-            and deployment.config.discord.role_id
-        ):
-            role_id = deployment.config.discord.role_id
-            if role_id in mentioned_role_ids:
+        if deployment.config and deployment.config.discord:
+            discord_config = deployment.config.discord
+            role_id = None
+            role_name = None
+
+            if message_guild_id and discord_config.guilds:
+                for guild in discord_config.guilds:
+                    if str(guild.guild_id) == message_guild_id:
+                        role_id = guild.role_id
+                        role_name = guild.role_name
+                        break
+            else:
+                role_id = discord_config.role_id
+                role_name = discord_config.role_name
+
+            if role_id and role_id in mentioned_role_ids:
                 mentioned.append(deployment)
                 continue
-        # Fallback: role name match (self-heal stale role_id)
-        if (
-            deployment.config
-            and deployment.config.discord
-            and deployment.config.discord.role_name
-        ):
-            role_name = deployment.config.discord.role_name
-            if role_name in mentioned_roles_by_name:
+
+            # Fallback: role name match (self-heal stale role_id)
+            if role_name and role_name in mentioned_roles_by_name:
                 matched_role_id = mentioned_roles_by_name.get(role_name)
                 mentioned.append(deployment)
-                if matched_role_id and (
-                    not deployment.config.discord.role_id
-                    or deployment.config.discord.role_id != matched_role_id
-                ):
+                if matched_role_id and role_id != matched_role_id:
                     try:
-                        deployment.config.discord.role_id = matched_role_id
-                        deployment.get_collection().update_one(
-                            {"_id": deployment.id},
-                            {"$set": {"config.discord.role_id": matched_role_id}},
-                        )
+                        if message_guild_id and discord_config.guilds:
+                            deployment.get_collection().update_one(
+                                {
+                                    "_id": deployment.id,
+                                    "config.discord.guilds.guild_id": message_guild_id,
+                                },
+                                {
+                                    "$set": {
+                                        "config.discord.guilds.$.role_id": matched_role_id
+                                    }
+                                },
+                            )
+                        else:
+                            deployment.get_collection().update_one(
+                                {"_id": deployment.id},
+                                {"$set": {"config.discord.role_id": matched_role_id}},
+                            )
                     except Exception as e:
                         logger.warning(
                             f"Failed to update role_id for deployment {deployment.id}: {e}"
@@ -711,6 +764,7 @@ intents.dm_messages = True
 intents.members = True
 
 bot = discord.Bot(intents=intents)
+_commands_synced = False
 
 # Slash commands
 eden_group = discord.SlashCommandGroup("eden", "Eden bot commands")
@@ -850,6 +904,127 @@ async def access_list(ctx: discord.ApplicationContext):
         )
 
 
+@eden_group.command(
+    name="agents",
+    description="List Eden agents that can access this channel",
+)
+async def eden_agents(ctx: discord.ApplicationContext):
+    if not ctx.guild or not ctx.channel:
+        await ctx.respond(
+            "This command must be used in a server channel.", ephemeral=True
+        )
+        return
+
+    try:
+        channel_id = str(ctx.channel.id)
+        deployments = await find_all_following_deployments(channel_id)
+        if not deployments:
+            await ctx.respond("No Eden agents found for this channel.", ephemeral=True)
+            return
+
+        lines = []
+        for deployment in deployments:
+            agent = Agent.from_mongo(deployment.agent)
+            if not agent:
+                continue
+            display_name = agent.username or agent.name or str(agent.id)
+            profile_url = construct_agent_profile_url(agent)
+            can_write = deployment_can_write_to_channel(deployment, channel_id)
+            suffix = "" if can_write else " (read-only)"
+            lines.append(f"- [{display_name}]({profile_url}){suffix}")
+
+        if not lines:
+            await ctx.respond("No Eden agents found for this channel.", ephemeral=True)
+            return
+
+        channel_name = getattr(ctx.channel, "name", None)
+        header = (
+            f"Agents with access to #{channel_name}:"
+            if channel_name
+            else "Agents with access to this channel:"
+        )
+        await ctx.respond(f"{header}\n" + "\n".join(lines), ephemeral=True)
+    except Exception:
+        logger.exception("Failed to list channel agents")
+        await ctx.respond(
+            "Failed to list channel agents. Please try again later.",
+            ephemeral=True,
+        )
+
+
+@bot.slash_command(
+    name="agents",
+    description="List Eden agents that can access this channel",
+)
+async def agents_command(ctx: discord.ApplicationContext):
+    await eden_agents(ctx)
+
+
+@eden_group.command(
+    name="server-agents",
+    description="List Eden agents in this server and their channels",
+)
+async def eden_server_agents(ctx: discord.ApplicationContext):
+    if not ctx.guild:
+        await ctx.respond("This command must be used in a server.", ephemeral=True)
+        return
+
+    try:
+        guild_id = str(ctx.guild.id)
+        deployments = find_all_deployments_for_guild(guild_id)
+        if not deployments:
+            await ctx.respond("No Eden agents found for this server.", ephemeral=True)
+            return
+
+        lines = []
+        for deployment in deployments:
+            agent = Agent.from_mongo(deployment.agent)
+            if not agent:
+                continue
+            display_name = agent.username or agent.name or str(agent.id)
+            profile_url = construct_agent_profile_url(agent)
+
+            channel_labels = []
+            discord_config = deployment.config.discord if deployment.config else None
+            if discord_config and discord_config.channel_configs:
+                for ch in discord_config.channel_configs:
+                    if ch.guild_id and str(ch.guild_id) != guild_id:
+                        continue
+                    channel_label = f"#{ch.channel_name or ch.channel_id}"
+                    if ch.access == "read_only":
+                        channel_label += " (read-only)"
+                    channel_labels.append(channel_label)
+            elif discord_config and discord_config.guild_id == guild_id:
+                for ch in discord_config.channel_allowlist or []:
+                    channel_labels.append(f"#{ch.note or ch.id}")
+                for ch in discord_config.read_access_channels or []:
+                    channel_labels.append(f"#{ch.note or ch.id} (read-only)")
+
+            channels_display = (
+                ", ".join(channel_labels) if channel_labels else "No channels"
+            )
+            lines.append(f"- [{display_name}]({profile_url}): {channels_display}")
+
+        await ctx.respond(
+            f"Eden agents in **{ctx.guild.name}**:\n" + "\n".join(lines),
+            ephemeral=True,
+        )
+    except Exception:
+        logger.exception("Failed to list server agents")
+        await ctx.respond(
+            "Failed to list server agents. Please try again later.",
+            ephemeral=True,
+        )
+
+
+@bot.slash_command(
+    name="server-agents",
+    description="List Eden agents in this server and their channels",
+)
+async def server_agents_command(ctx: discord.ApplicationContext):
+    await eden_server_agents(ctx)
+
+
 bot.add_application_command(eden_group)
 
 # Typing managers
@@ -867,6 +1042,20 @@ async def on_ready():
     logger.info("=" * 80)
 
     # Note: Typing indicators disabled for V3 (webhook-based, no typing support)
+    global _commands_synced
+    if _commands_synced:
+        return
+    try:
+        guild_ids = [guild.id for guild in bot.guilds]
+        if guild_ids:
+            await bot.sync_commands(guild_ids=guild_ids)
+            logger.info("Synced slash commands to %s guild(s).", len(guild_ids))
+        else:
+            await bot.sync_commands()
+            logger.info("Synced global slash commands.")
+        _commands_synced = True
+    except Exception:
+        logger.exception("Failed to sync slash commands")
 
 
 @bot.event
@@ -881,6 +1070,11 @@ async def on_message(message: discord.Message):
     # Skip bot messages except webhooks (webhooks should be ingested)
     if message.author.bot and not is_webhook_message:
         logger.info(f"Skipping bot message from {message.author.name}")
+        return
+
+    # Skip slash-command invocation messages (handled by interactions)
+    if getattr(message, "interaction", None) is not None:
+        logger.info("Skipping interaction message")
         return
 
     channel_id = str(message.channel.id)
@@ -980,7 +1174,8 @@ async def on_message(message: discord.Message):
             should_prompt = False
 
         # For DMs, check if user is in the DM allowlist
-        if not guild_id:
+        is_dm = isinstance(message.channel, (discord.DMChannel, discord.GroupChannel))
+        if is_dm:
             dm_allowlist = (
                 deployment.config.discord.dm_user_allowlist
                 if deployment.config and deployment.config.discord
