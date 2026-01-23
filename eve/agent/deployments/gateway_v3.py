@@ -931,7 +931,7 @@ async def eden_agents(ctx: discord.ApplicationContext):
             profile_url = construct_agent_profile_url(agent)
             can_write = deployment_can_write_to_channel(deployment, channel_id)
             suffix = "" if can_write else " (read-only)"
-            lines.append(f"- [{display_name}]({profile_url}){suffix}")
+            lines.append(f"- {display_name}: <{profile_url}>{suffix}")
 
         if not lines:
             await ctx.respond("No Eden agents found for this channel.", ephemeral=True)
@@ -1003,7 +1003,7 @@ async def eden_server_agents(ctx: discord.ApplicationContext):
             channels_display = (
                 ", ".join(channel_labels) if channel_labels else "No channels"
             )
-            lines.append(f"- [{display_name}]({profile_url}): {channels_display}")
+            lines.append(f"- {display_name}: <{profile_url}> — {channels_display}")
 
         await ctx.respond(
             f"Eden agents in **{ctx.guild.name}**:\n" + "\n".join(lines),
