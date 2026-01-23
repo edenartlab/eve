@@ -764,6 +764,7 @@ intents.dm_messages = True
 intents.members = True
 
 bot = discord.Bot(intents=intents)
+_commands_synced = False
 
 # Slash commands
 eden_group = discord.SlashCommandGroup("eden", "Eden bot commands")
@@ -1041,6 +1042,20 @@ async def on_ready():
     logger.info("=" * 80)
 
     # Note: Typing indicators disabled for V3 (webhook-based, no typing support)
+    global _commands_synced
+    if _commands_synced:
+        return
+    try:
+        guild_ids = [guild.id for guild in bot.guilds]
+        if guild_ids:
+            await bot.sync_commands(guild_ids=guild_ids)
+            logger.info("Synced slash commands to %s guild(s).", len(guild_ids))
+        else:
+            await bot.sync_commands()
+            logger.info("Synced global slash commands.")
+        _commands_synced = True
+    except Exception:
+        logger.exception("Failed to sync slash commands")
 
 
 @bot.event
