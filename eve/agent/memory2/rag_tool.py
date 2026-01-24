@@ -222,8 +222,8 @@ async def proactive_memory_retrieval(
         # Format for context injection
         fact_lines = []
         for fact in relevant_facts:
-            scope_str = ", ".join(fact.get("scope", []))
-            fact_lines.append(f"- [{scope_str}] {fact['content']}")
+            scope = fact.get("scope", "")
+            fact_lines.append(f"- [{scope}] {fact['content']}")
 
         return "\n".join(fact_lines)
 

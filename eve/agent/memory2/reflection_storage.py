@@ -118,7 +118,7 @@ async def _add_reflections_to_buffer(
 
         # Get or create consolidated memory for this scope
         consolidated = ConsolidatedMemory.get_or_create(
-            scope_type=scope,
+            scope=scope,
             agent_id=agent_id,
             user_id=user_id,
             session_id=session_id,
@@ -165,7 +165,7 @@ def get_buffer_size(
     """
     try:
         query = {
-            "scope_type": scope,
+            "scope": scope,
             "agent_id": agent_id,
         }
         if scope == "user" and user_id:
@@ -247,7 +247,7 @@ async def get_all_reflections_for_context(
     try:
         # Agent-level
         agent_consolidated = ConsolidatedMemory.find_one({
-            "scope_type": "agent",
+            "scope": "agent",
             "agent_id": agent_id,
         })
         if agent_consolidated:
@@ -263,7 +263,7 @@ async def get_all_reflections_for_context(
         # User-level (if user_id provided)
         if user_id:
             user_consolidated = ConsolidatedMemory.find_one({
-                "scope_type": "user",
+                "scope": "user",
                 "agent_id": agent_id,
                 "user_id": user_id,
             })
@@ -281,7 +281,7 @@ async def get_all_reflections_for_context(
         # Session-level (if session_id provided)
         if session_id:
             session_consolidated = ConsolidatedMemory.find_one({
-                "scope_type": "session",
+                "scope": "session",
                 "agent_id": agent_id,
                 "session_id": session_id,
             })
@@ -330,7 +330,7 @@ async def cleanup_session_reflections(session_id: ObjectId) -> int:
         consolidated_collection = ConsolidatedMemory.get_collection()
         consolidated_collection.delete_one({
             "session_id": session_id,
-            "scope_type": "session",
+            "scope": "session",
         })
 
         if LOCAL_DEV:

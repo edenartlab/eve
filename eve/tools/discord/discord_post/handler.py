@@ -100,10 +100,10 @@ async def handler(context: ToolContext):
         content = convert_usernames_to_discord_mentions(content)
 
     # Check if this is a V3 webhook-based deployment
-    is_webhook_deployment = (
+    is_webhook_deployment = bool(
         deployment.config
         and deployment.config.discord
-        and deployment.config.discord.guild_id is not None
+        and deployment.config.discord.channel_configs
     )
 
     # Check if we can skip allowlist validation (fast path)
@@ -494,7 +494,7 @@ async def send_webhook_message(
                     messages.append(msg_data)
 
     # Build output URLs (webhook messages don't have guild_id in response, need to construct)
-    guild_id = deployment.config.discord.guild_id
+    guild_id = channel_config.guild_id or deployment.config.discord.guild_id
     output = []
     for msg in messages[:1]:  # Return just first URL if split
         url = f"https://discord.com/channels/{guild_id}/{channel_id}/{msg['id']}"

@@ -82,7 +82,7 @@ async def get_embeddings_batch(texts: List[str]) -> List[List[float]]:
 
 async def store_fact(
     content: str,
-    scope: List[Literal["user", "agent"]],
+    scope: Literal["user", "agent"],
     agent_id: ObjectId,
     user_id: Optional[ObjectId] = None,
     session_id: Optional[ObjectId] = None,
@@ -93,9 +93,9 @@ async def store_fact(
 
     Args:
         content: Fact content
-        scope: List of scopes
+        scope: Scope ("user" or "agent")
         agent_id: Agent ID
-        user_id: User ID (if user in scope)
+        user_id: User ID (if scope is "user")
         session_id: Source session ID
         message_ids: Source message IDs
 
@@ -111,7 +111,7 @@ async def store_fact(
             content=content,
             scope=scope,
             agent_id=agent_id,
-            user_id=user_id if "user" in scope else None,
+            user_id=user_id if scope == "user" else None,
             session_id=session_id,
             source_message_ids=message_ids or [],
             embedding=embedding,
@@ -142,7 +142,7 @@ async def store_facts_batch(
     Args:
         facts_data: List of fact dictionaries with keys:
             - content: str
-            - scope: List[str]
+            - scope: str ("user" or "agent")
             - agent_id: ObjectId
             - user_id: Optional[ObjectId]
             - session_id: Optional[ObjectId]

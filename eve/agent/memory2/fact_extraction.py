@@ -139,13 +139,13 @@ async def extract_facts(
         # Filter facts to only include enabled scopes
         filtered_facts = [
             f for f in extracted.facts
-            if any(s in enabled_scopes for s in f.scope)
+            if f.scope in enabled_scopes
         ]
 
         if LOCAL_DEV:
             logger.debug(f"Extracted {len(filtered_facts)} facts (enabled scopes: {enabled_scopes})")
             for fact in filtered_facts:
-                logger.debug(f"  - [{', '.join(fact.scope)}] {fact.content[:60]}...")
+                logger.debug(f"  - [{fact.scope}] {fact.content[:60]}...")
 
         return filtered_facts
 
@@ -211,8 +211,8 @@ async def extract_and_prepare_facts(
         fact_contents = []
 
         for ef in extracted_facts:
-            # Validate scope - must have at least one enabled scope
-            if not ef.scope or not any(s in enabled_scopes for s in ef.scope):
+            # Validate scope - must be an enabled scope
+            if not ef.scope or ef.scope not in enabled_scopes:
                 logger.warning(f"Invalid or disabled scope for fact: {ef.scope}")
                 continue
 
@@ -224,7 +224,7 @@ async def extract_and_prepare_facts(
                 "content": ef.content.strip(),
                 "scope": ef.scope,
                 "agent_id": agent_id,
-                "user_id": user_id if "user" in ef.scope else None,
+                "user_id": user_id if ef.scope == "user" else None,
                 "session_id": session_id,
                 "source_message_ids": message_ids or [],
             }
@@ -244,7 +244,7 @@ async def extract_and_prepare_facts(
 
 def create_fact_document(
     content: str,
-    scope: List[str],
+    scope: str,
     agent_id: ObjectId,
     user_id: Optional[ObjectId] = None,
     session_id: Optional[ObjectId] = None,
@@ -256,9 +256,9 @@ def create_fact_document(
 
     Args:
         content: Fact content
-        scope: List of scopes ["user", "agent"]
+        scope: Scope ("user" or "agent")
         agent_id: Agent ID
-        user_id: User ID (if user in scope)
+        user_id: User ID (if scope is "user")
         session_id: Source session ID
         message_ids: Source message IDs
         embedding: Pre-computed embedding (optional)
@@ -270,7 +270,7 @@ def create_fact_document(
         content=content,
         scope=scope,
         agent_id=agent_id,
-        user_id=user_id if "user" in scope else None,
+        user_id=user_id if scope == "user" else None,
         session_id=session_id,
         source_message_ids=message_ids or [],
         embedding=embedding or [],

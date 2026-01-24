@@ -6,7 +6,7 @@ It copies facts from SessionMemory (memory_type="fact") to the new Fact collecti
 without modifying or removing any old data.
 
 Migration mapping:
-- Old SessionMemory (memory_type="fact") → New Fact (scope=["agent"])
+- Old SessionMemory (memory_type="fact") → New Fact (scope="agent")
 - Old AgentMemory.is_active=True → New Agent.agent_memory_enabled=True
 
 Old facts were shard-level (agent-wide), so they map to agent scope in the new system.
@@ -421,14 +421,14 @@ def prepare_facts_batch(
         existing_hashes.add(content_hash)
 
         # Create Fact document
-        # Old facts were shard-level (agent-wide), so scope is ["agent"]
+        # Old facts were shard-level (agent-wide), so scope is "agent"
         fact_doc = {
             "_id": ObjectId(),
             "content": content,
             "hash": content_hash,
             "embedding": [],  # Will be populated with embedding before insert
             "embedding_model": "text-embedding-3-small",
-            "scope": ["agent"],  # Old shard facts map to agent scope
+            "scope": "agent",  # Old shard facts map to agent scope
             "agent_id": agent_id,
             "user_id": None,  # Agent-scoped facts don't have user_id
             "formed_at": fact_raw.get("createdAt") or now,

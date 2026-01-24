@@ -143,9 +143,6 @@ def count_facts_by_scope(
     """
     Count facts by scope for an agent.
 
-    Note: Facts can have multiple scopes (e.g., both "user" and "agent"),
-    so we count facts that have each scope in their scope list.
-
     Args:
         agent_id: Agent ID
         scopes: Set of scopes to count ("user", "agent")
@@ -162,10 +159,10 @@ def count_facts_by_scope(
             counts[scope] = 0
             continue
 
-        # Count facts where this scope is in the scope list
+        # Count facts with this scope
         count = collection.count_documents({
             "agent_id": agent_id,
-            "scope": scope,  # MongoDB matches if scope is in the array
+            "scope": scope,
         })
         counts[scope] = count
 
@@ -211,7 +208,7 @@ def count_consolidated_by_scope(
         scopes: Set of scope types to count ("session", "user", "agent")
 
     Returns:
-        Dict mapping scope_type -> count
+        Dict mapping scope -> count
     """
     collection = ConsolidatedMemory.get_collection()
     counts = {}
@@ -219,7 +216,7 @@ def count_consolidated_by_scope(
     for scope in scopes:
         count = collection.count_documents({
             "agent_id": agent_id,
-            "scope_type": scope,
+            "scope": scope,
         })
         counts[scope] = count
 
@@ -319,7 +316,7 @@ def delete_consolidated_by_scope(
         dry_run: If True, only count without deleting
 
     Returns:
-        Dict mapping scope_type -> deleted count
+        Dict mapping scope -> deleted count
     """
     collection = ConsolidatedMemory.get_collection()
     deleted = {}
@@ -327,7 +324,7 @@ def delete_consolidated_by_scope(
     for scope in scopes:
         query = {
             "agent_id": agent_id,
-            "scope_type": scope,
+            "scope": scope,
         }
 
         if dry_run:

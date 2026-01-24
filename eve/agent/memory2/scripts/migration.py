@@ -5,8 +5,8 @@ This script migrates memory data from the old memory system to the new memory2 s
 It copies consolidated memory blobs and unabsorbed reflections without modifying the old data.
 
 Migration mapping:
-- Old UserMemory → New ConsolidatedMemory (scope_type="user")
-- Old AgentMemory shards → New ConsolidatedMemory (scope_type="agent") [merged into one blob]
+- Old UserMemory → New ConsolidatedMemory (scope="user")
+- Old AgentMemory shards → New ConsolidatedMemory (scope="agent") [merged into one blob]
 - Old SessionMemory (directive) → New Reflection (scope="user")
 - Old SessionMemory (suggestion) → New Reflection (scope="agent")
 
@@ -216,9 +216,9 @@ def get_already_migrated_agents() -> Set[ObjectId]:
     """
     consolidated_collection = ConsolidatedMemory.get_collection()
 
-    # Find all agent_ids with scope_type="agent" (indicates fully migrated)
+    # Find all agent_ids with scope="agent" (indicates fully migrated)
     migrated = consolidated_collection.distinct(
-        "agent_id", {"scope_type": "agent"}
+        "agent_id", {"scope": "agent"}
     )
 
     return set(migrated)
@@ -231,9 +231,9 @@ def get_already_migrated_user_pairs() -> Set[Tuple[ObjectId, ObjectId]]:
     """
     consolidated_collection = ConsolidatedMemory.get_collection()
 
-    # Find all (agent_id, user_id) pairs with scope_type="user"
+    # Find all (agent_id, user_id) pairs with scope="user"
     cursor = consolidated_collection.find(
-        {"scope_type": "user"},
+        {"scope": "user"},
         {"agent_id": 1, "user_id": 1}
     )
 
@@ -306,7 +306,7 @@ def prepare_user_memory_batch(
         now = datetime.now(timezone.utc)
         consolidated_doc = {
             "_id": temp_consolidated_id,
-            "scope_type": "user",
+            "scope": "user",
             "agent_id": agent_id,
             "user_id": user_id,
             "consolidated_content": um.get("content") or "",
@@ -417,7 +417,7 @@ def prepare_agent_memory_batch(
 
     consolidated_doc = {
         "_id": temp_consolidated_id,
-        "scope_type": "agent",
+        "scope": "agent",
         "agent_id": agent_id,
         "consolidated_content": merged_content,
         "word_limit": CONSOLIDATED_WORD_LIMITS.get("agent", 1000),

@@ -279,9 +279,8 @@ async def assemble_always_in_context_memory(
                 # Format facts with scope indicator and temporal age
                 facts_lines = []
                 for fact in facts:
-                    scope_str = fact.scope[0] if isinstance(fact.scope, list) else fact.scope
                     fact_with_age = format_fact_with_age(fact)
-                    facts_lines.append(f"- [{scope_str}] {fact_with_age}")
+                    facts_lines.append(f"- [{fact.scope}] {fact_with_age}")
                 facts_content = "\n".join(facts_lines)
 
             facts_duration = time.time() - facts_start
@@ -348,7 +347,7 @@ def _get_scope_memory_sync(
     try:
         # Build query
         query = {
-            "scope_type": scope,
+            "scope": scope,
             "agent_id": agent_id,
         }
         if scope == "user" and user_id:
@@ -623,7 +622,7 @@ def get_memory_stats(
 
         # Build query
         query = {
-            "scope_type": scope,
+            "scope": scope,
             "agent_id": agent_id,
         }
         if scope == "user":

@@ -62,7 +62,7 @@ if LOCAL_DEV:
     }
 else:
     CONSOLIDATION_THRESHOLDS = {
-        "agent": 8,
+        "agent": 10,
         "user": 4,
         "session": 4,
     }
@@ -288,7 +288,7 @@ Return empty array(s) when there's nothing meaningful to extract.
 # =============================================================================
 # CONSOLIDATION PROMPT (unchanged - already follows good pattern)
 # =============================================================================
-CONSOLIDATION_PROMPT = """You are consolidating {scope_type} memory reflections for an AI agent. Your job is to merge new reflections into the agent's long-term memory blob.
+CONSOLIDATION_PROMPT = """You are consolidating {scope} memory reflections for an AI agent. Your job is to merge new reflections into the agent's long-term memory blob.
 Since memories consume context, your goal is to preserve highly salient, important and actionable information while discarding irrelevant or outdated memories.
 
 ## AGENT PERSONA
@@ -308,7 +308,7 @@ The following is the persona/description of the agent whose memory you are conso
 </new_reflections>
 
 ## GOAL
-Create a single, coherent text that captures the full {scope_type} memory state.
+Create a single, coherent text that captures the full {scope} memory state.
 This text will be injected into the agent's system prompt, so it must be **concise**, **structured**, and **actionable**.
 Merge the new reflections into the existing memory, creating an updated consolidated memory.
 {scope_specific_instructions}

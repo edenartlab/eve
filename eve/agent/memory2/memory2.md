@@ -172,9 +172,9 @@ Agent-level toggles:
 
 ```python
 content: str
-scope: List["user" | "agent"]
+scope: "user" | "agent"      # Single scope value
 agent_id: ObjectId
-user_id: Optional[ObjectId]  # if "user" in scope
+user_id: Optional[ObjectId]  # if scope == "user"
 embedding: List[float]       # 1536-dim vector
 hash: str                    # MD5 for dedup
 version: int                 # Incremented on UPDATE
@@ -195,7 +195,7 @@ absorbed: bool               # True after consolidation
 ### ConsolidatedMemory
 
 ```python
-scope_type: "agent" | "user" | "session"
+scope: "agent" | "user" | "session"
 agent_id: ObjectId
 user_id: Optional[ObjectId]
 session_id: Optional[ObjectId]
