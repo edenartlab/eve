@@ -6,9 +6,9 @@ Test script for validating RAG search functionality on the memory2_facts collect
 
 Usage:
     python -m eve.agent.memory2.scripts.test_rag
-    python -m eve.agent.memory2.scripts.test_rag --query "multi-agent games"
-    python -m eve.agent.memory2.scripts.test_rag --agent-id 507f1f77bcf86cd799439011
     python -m eve.agent.memory2.scripts.test_rag --check-indexes
+    python -m eve.agent.memory2.scripts.test_rag --agent-id 507f1f77bcf86cd799439011 --query "multi-agent games"
+
 """
 
 import argparse
