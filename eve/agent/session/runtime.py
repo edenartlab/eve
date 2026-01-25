@@ -14,6 +14,7 @@ from eve.agent.agent import Agent
 from eve.agent.llm.llm import async_prompt as provider_async_prompt
 from eve.agent.llm.llm import async_prompt_stream as provider_async_prompt_stream
 from eve.agent.llm.llm import get_provider
+from eve.agent.llm.token_tracker import token_tracker
 from eve.agent.memory2.backend import memory2_backend
 from eve.agent.memory2.utils import select_messages
 from eve.agent.session.debug_logger import SessionDebugger
@@ -226,6 +227,32 @@ class PromptSessionRuntime:
 
                 provider = self._select_provider()
                 llm_result: Dict[str, Any]
+
+                # Serialize the full LLM input for token tracking comparison
+                # Includes both messages and tool definitions (both count as input tokens)
+                full_prompt = None
+                try:
+                    if self.llm_context:
+                        parts = []
+                        # Serialize messages
+                        if self.llm_context.messages:
+                            for msg in self.llm_context.messages:
+                                role = getattr(msg, 'role', 'unknown')
+                                content = getattr(msg, 'content', '') or ''
+                                parts.append(f"[{role.upper()}]\n{content}")
+                        # Serialize tool schemas (they count as input tokens too)
+                        if self.llm_context.tools:
+                            for tool_name, tool in self.llm_context.tools.items():
+                                if hasattr(tool, 'anthropic_schema'):
+                                    schema = tool.anthropic_schema()
+                                    parts.append(f"[TOOL:{tool_name}]\n{json.dumps(schema)}")
+                        full_prompt = "\n\n".join(parts)
+                except Exception:
+                    pass
+
+                # Flush token tracking before LLM call
+                if self.session_run_id:
+                    token_tracker.finish(self.session_run_id, full_prompt=full_prompt)
 
                 if self.stream:
                     self._last_stream_result = None

@@ -13,6 +13,7 @@ from eve.agent.agent import Agent
 from eve.agent.llm.prompts.agent_session_template import agent_session_template
 from eve.agent.llm.prompts.social_media_template import social_media_template
 from eve.agent.llm.prompts.system_template import system_template
+from eve.agent.llm.token_tracker import token_tracker
 from eve.agent.llm.util import is_fake_llm_mode, is_test_mode_prompt
 from eve.agent.memory2.backend import memory2_backend
 from eve.agent.memory2.utils import (
@@ -824,6 +825,16 @@ async def build_llm_context(
         user = None
         tier = "free"
 
+    # Register token tracking for this LLM call
+    # session_run_id links to ChatMessage.observability.session_run_id in the database
+    token_tracker.register_call(
+        agent_id=actor.id,
+        session_id=session.id,
+        user_id=context.initiating_user_id,
+        session_run_id=context.session_run_id,
+        model=context.llm_config.model if context.llm_config else None,
+    )
+
     auth_user_id = context.acting_user_id or context.initiating_user_id
     if context.tools:
         tools = context.tools
@@ -924,6 +935,10 @@ async def build_llm_context(
                 "premium" if tier != "free" else "free"
             )
 
+    # Update model in token tracker now that config is finalized
+    if config and config.model and context.session_run_id:
+        token_tracker.set_model(context.session_run_id, config.model)
+
     llm_context = LLMContext(
         messages=messages,
         tools=tools,
@@ -944,6 +959,22 @@ async def build_llm_context(
         ),
     )
     llm_context.instrumentation = instrumentation
+
+    # Track all context components with a single call
+    # Note: memory, social_instructions, concepts, loras are computed inside
+    # build_system_message and included in system_message_content
+    if context.session_run_id:
+        token_tracker.track_context(
+            session_run_id=context.session_run_id,
+            agent=actor,
+            session=session,
+            user=user,
+            tools=tools,
+            messages=messages,
+            trigger_context=trigger_context,
+            system_message_content=system_message.content,
+        )
+
     return llm_context
 
 
@@ -1066,6 +1097,16 @@ async def build_agent_session_llm_context(
     else:
         user = None
         tier = "free"
+
+    # Register token tracking for this agent session LLM call
+    # session_run_id links to ChatMessage.observability.session_run_id in the database
+    token_tracker.register_call(
+        agent_id=actor.id,
+        session_id=agent_session.id,
+        user_id=context.initiating_user_id,
+        session_run_id=context.session_run_id,
+        model=context.llm_config.model if context.llm_config else None,
+    )
 
     # Check if tools are explicitly overridden in context (e.g., for voting)
     if context.tools:
@@ -1213,6 +1254,10 @@ async def build_agent_session_llm_context(
     else:
         config = get_default_session_llm_config(tier)
 
+    # Update model in token tracker now that config is finalized
+    if config and config.model and context.session_run_id:
+        token_tracker.set_model(context.session_run_id, config.model)
+
     # Determine tool_choice - respect context override if provided
     if context.tool_choice:
         tool_choice = context.tool_choice
@@ -1227,6 +1272,19 @@ async def build_agent_session_llm_context(
         )
     else:
         tool_choice = "auto"
+
+    # Track all context components with a single call (agent_session prefix)
+    if context.session_run_id:
+        token_tracker.track_context(
+            session_run_id=context.session_run_id,
+            agent=actor,
+            session=agent_session,
+            user=user,
+            tools=tools,
+            messages=messages,
+            system_message_content=system_message.content,
+            prefix="agent_session",
+        )
 
     return LLMContext(
         messages=messages,
