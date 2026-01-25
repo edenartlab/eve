@@ -1,5 +1,6 @@
 import asyncio
 import mimetypes
+import os
 import re
 import tempfile
 from urllib.parse import urlparse
@@ -162,15 +163,65 @@ async def handler(context: ToolContext):
         config_dict["max_output_tokens"] = args["max_output_tokens"]
 
     # Image config for aspect ratio and size
+    allowed_aspect_ratios = {
+        "1:1",
+        "2:3",
+        "3:2",
+        "3:4",
+        "4:3",
+        "9:16",
+        "16:9",
+        "21:9",
+    }
     image_config_dict = {}
-    if args.get("aspect_ratio"):
-        image_config_dict["aspect_ratio"] = args["aspect_ratio"]
+    aspect_ratio = args.get("aspect_ratio")
+    if aspect_ratio:
+        if aspect_ratio == "match_input_image":
+            # Gemini API does not accept this literal value; let the model decide.
+            pass
+        elif aspect_ratio in allowed_aspect_ratios:
+            image_config_dict["aspect_ratio"] = aspect_ratio
+        else:
+            raise ValueError(
+                f"Invalid aspect_ratio '{aspect_ratio}'. Supported values: "
+                + ", ".join(sorted(allowed_aspect_ratios))
+            )
     if args.get("image_size"):
         image_config_dict["image_size"] = args["image_size"]
     if image_config_dict:
         config_dict["image_config"] = genai.types.ImageConfig(**image_config_dict)
 
     generation_config = genai.types.GenerateContentConfig(**config_dict)
+
+    if os.getenv("EDEN_NANO_BANANA_DEBUG") == "true":
+        parts_summary = []
+        for part in parts:
+            inline = getattr(part, "inline_data", None)
+            if inline is not None:
+                parts_summary.append(
+                    {
+                        "type": "image",
+                        "mime_type": getattr(inline, "mime_type", None),
+                        "bytes": len(getattr(inline, "data", b"")),
+                    }
+                )
+            else:
+                text = getattr(part, "text", None)
+                parts_summary.append(
+                    {
+                        "type": "text",
+                        "length": len(text or ""),
+                        "preview": (text or "")[:200],
+                    }
+                )
+        logger.info(
+            "[NANO_BANANA_DEBUG] request",
+            {
+                "model": "gemini-3-pro-image-preview",
+                "config": config_dict,
+                "parts": parts_summary,
+            },
+        )
 
     # Make the API call with automatic retry and exponential backoff
     response = await generate_content_with_retry(

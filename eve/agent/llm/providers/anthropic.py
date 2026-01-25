@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import json
 import os
 import uuid
 from contextlib import nullcontext
 from datetime import datetime, timezone
+from types import SimpleNamespace
 from typing import Any, Dict, List, Optional
 
 import httpx
@@ -460,8 +462,153 @@ class AnthropicProvider(LLMProvider):
         return deferred_tools
 
     async def prompt_stream(self, context: LLMContext):
-        response = await self.prompt(context)
-        yield self._response_to_chunk(response)
+        include_thoughts = bool(context.config.reasoning_effort)
+        system_prompt, conversation = self._prepare_messages(
+            context.messages, include_thoughts=include_thoughts
+        )
+        tools = construct_anthropic_tools(context)
+
+        response_format = context.config.response_format
+        response_format_class = None
+        output_format_payload = None
+
+        if response_format is not None:
+            if isinstance(response_format, type) and issubclass(
+                response_format, BaseModel
+            ):
+                response_format_class = response_format
+            else:
+                output_format_payload = self._build_output_format_payload(
+                    response_format
+                )
+
+        if response_format_class or output_format_payload:
+            response = await self.prompt(context)
+            yield self._response_to_chunk(response)
+            return
+
+        last_error: Optional[Exception] = None
+        for model_name in self.models:
+            tools_payload = self._build_tools_payload(tools, model_name)
+            request_kwargs = {
+                "model": model_name,
+                "system": system_prompt,
+                "messages": conversation,
+                "max_tokens": context.config.max_tokens or 32000,
+            }
+            if tools_payload:
+                request_kwargs["tools"] = tools_payload
+
+            betas = []
+            if self._deferred_tools_enabled() and tools_payload:
+                betas.append("advanced-tool-use-2025-11-20")
+            beta_kwargs = {"betas": betas} if betas else {}
+
+            stop_reason = None
+            tool_calls: Dict[int, Dict[str, Any]] = {}
+            try:
+                if betas:
+                    stream_manager = self.client.beta.messages.stream(
+                        **request_kwargs,
+                        **beta_kwargs,
+                    )
+                else:
+                    stream_manager = self.client.messages.stream(**request_kwargs)
+
+                async with stream_manager as stream:
+                    async for event in stream:
+                        if event.type == "content_block_start":
+                            content_block = getattr(event, "content_block", None)
+                            if (
+                                content_block
+                                and getattr(content_block, "type", None) == "tool_use"
+                            ):
+                                existing = tool_calls.get(event.index)
+                                tool_calls[event.index] = {
+                                    "id": content_block.id,
+                                    "name": content_block.name,
+                                    "arguments": (
+                                        existing.get("arguments", "")
+                                        if existing
+                                        else json.dumps(content_block.input or {})
+                                    ),
+                                }
+                        elif event.type == "content_block_delta":
+                            delta = getattr(event, "delta", None)
+                            if delta is None:
+                                continue
+                            if getattr(delta, "type", None) == "text_delta":
+                                text = getattr(delta, "text", None)
+                                if text:
+                                    yield SimpleNamespace(
+                                        choices=[
+                                            SimpleNamespace(
+                                                delta=SimpleNamespace(
+                                                    content=text, tool_calls=None
+                                                ),
+                                                finish_reason=None,
+                                            )
+                                        ],
+                                        usage=None,
+                                    )
+                            elif getattr(delta, "type", None) == "input_json_delta":
+                                partial_json = getattr(delta, "partial_json", "")
+                                tool_call = tool_calls.get(event.index)
+                                if not tool_call:
+                                    tool_call = {
+                                        "id": f"toolu_{uuid.uuid4()}",
+                                        "name": "",
+                                        "arguments": "",
+                                    }
+                                    tool_calls[event.index] = tool_call
+                                tool_call["arguments"] += partial_json
+                                if not tool_call.get("name"):
+                                    continue
+                                yield SimpleNamespace(
+                                    choices=[
+                                        SimpleNamespace(
+                                            delta=SimpleNamespace(
+                                                content=None,
+                                                tool_calls=[
+                                                    SimpleNamespace(
+                                                        index=event.index,
+                                                        id=tool_call["id"],
+                                                        function=SimpleNamespace(
+                                                            name=tool_call["name"],
+                                                            arguments=partial_json,
+                                                        ),
+                                                    )
+                                                ],
+                                            ),
+                                            finish_reason=None,
+                                        )
+                                    ],
+                                    usage=None,
+                                )
+                        elif event.type == "message_delta":
+                            delta = getattr(event, "delta", None)
+                            if delta and getattr(delta, "stop_reason", None):
+                                stop_reason = delta.stop_reason
+
+                yield SimpleNamespace(
+                    choices=[
+                        SimpleNamespace(
+                            delta=SimpleNamespace(content=None, tool_calls=None),
+                            finish_reason=stop_reason or "stop",
+                        )
+                    ],
+                    usage=None,
+                )
+                return
+            except Exception as exc:
+                last_error = exc
+                logger.warning(
+                    f"[ANTHROPIC_STREAM] Failed streaming with {model_name}: {exc}"
+                )
+                continue
+
+        if last_error:
+            raise last_error
 
     def _prepare_messages(
         self, messages: List[ChatMessage], include_thoughts: bool = False

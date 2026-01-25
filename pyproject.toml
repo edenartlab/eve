@@ -46,7 +46,7 @@ dependencies = [
     "web3<7.6.1",
     "eth-account>=0.13.0",
     "psutil==6.0.0",
-    "motor==3.3.1",
+    "motor>=3.7.1",
     "beanie==1.22.6",
     "apscheduler>=3.11.0",
     "modal>=1.0.1",

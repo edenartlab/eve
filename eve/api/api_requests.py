@@ -169,6 +169,7 @@ class SessionCreationArgs(BaseModel):
 
 class PromptSessionRequest(BaseModel):
     session_id: Optional[str] = None
+    session_run_id: Optional[str] = None
     message: Optional[ChatMessageRequestInput] = None
     user_id: Optional[str] = None  # The user who owns/initiates the session
     acting_user_id: Optional[str] = (
