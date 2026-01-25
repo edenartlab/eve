@@ -4,6 +4,7 @@ from eve.tool_constants import (
     ABRAHAM_TOOLS,
     CHIBA_TOOLS,
     GIGABRAIN_TOOLS,
+    HOME_ASSISTANT_TOOLS,
     VERDELIS_TOOLS,
     WZRD_TOOLS,
 )
@@ -86,6 +87,7 @@ HANDLER_PATHS = {
     **{tool: f"gigabrain.{tool}.handler" for tool in GIGABRAIN_TOOLS},
     **{tool: f"chiba.{tool}.handler" for tool in CHIBA_TOOLS},
     **{tool: f"wzrd.{tool}.handler" for tool in WZRD_TOOLS},
+    **{tool: f"home_assistant.{tool}.handler" for tool in HOME_ASSISTANT_TOOLS},
 }
 
 

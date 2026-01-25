@@ -258,7 +258,7 @@ async def run_session_prompt(
         return {
             "output": [],
             "status": "cancelled",
-            "message": "Task cancelled by user",
+            "error": "The tool call was cancelled by the user",
             "session_id": session_id,
         }
 
@@ -273,7 +273,7 @@ async def run_session_prompt(
         return {
             "output": [],
             "status": "cancelled",
-            "message": "Task cancelled by user",
+            "error": "The tool call was cancelled by the user",
             "session_id": session_id,
         }
 

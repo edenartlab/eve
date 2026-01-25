@@ -1163,6 +1163,14 @@ async def on_message(message: discord.Message):
     # Process for each following deployment
     tasks = []
     for deployment in following_deployments:
+        # Skip if this deployment's agent sent the message (avoid duplicate messages)
+        # The agent already has the tool call message in its session
+        if source_agent and str(source_agent.id) == str(deployment.agent):
+            logger.info(
+                f"Skipping message processing for deployment {deployment.id} - agent's own webhook message"
+            )
+            continue
+
         # Determine if this deployment should respond
         has_write_access = deployment_can_write_to_channel(
             deployment, effective_channel_id

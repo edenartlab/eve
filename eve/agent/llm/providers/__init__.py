@@ -56,6 +56,7 @@ class LLMProvider(ABC):
         chunk = SimpleNamespace(
             choices=[SimpleNamespace(delta=delta, finish_reason=response.stop)],
             usage=SimpleNamespace(total_tokens=response.tokens_spent or 0),
+            llm_call_id=getattr(response, "llm_call_id", None),
         )
         return chunk
 

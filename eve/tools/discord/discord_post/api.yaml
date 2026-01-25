@@ -5,7 +5,7 @@ tip: |-
 cost_estimate: 1
 output_type: string
 active: true
-handler: modal
+handler: local
 visible: false
 parameters:
   channel_id:
@@ -19,8 +19,8 @@ parameters:
     required: false
   content:
     type: string
-    description: Message content
-    required: true
+    description: Message content (optional if media_urls provided)
+    required: false
   media_urls:
     type: array
     label: Media URLs

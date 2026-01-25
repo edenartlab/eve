@@ -133,12 +133,28 @@ class ToolCall(BaseModel):
     def anthropic_result_schema(self, truncate_images=False, include_thoughts=False):
         content = {"status": self.status}
 
-        # Include result for completed or cancelled status
-        if self.status == "cancelled":
+        # Include appropriate result based on status
+        if self.status == "pending":
+            content["result"] = [
+                {
+                    "status": "pending",
+                    "message": "The tool call has not started running yet",
+                }
+            ]
+        elif self.status == "running":
+            content["result"] = [
+                {"status": "running", "message": "The tool call is still running"}
+            ]
+        elif self.status == "cancelled":
             content["result"] = (
                 prepare_result(self.result)
                 if self.result
-                else [{"status": "cancelled", "message": "Task cancelled by user"}]
+                else [
+                    {
+                        "status": "cancelled",
+                        "error": "The tool call was cancelled by the user",
+                    }
+                ]
             )
         elif self.status == "completed":
             content["result"] = prepare_result(self.result)
@@ -451,15 +467,6 @@ class ChatMessage(Document):
             return self
 
         return self.model_copy(update={"role": "system"})
-
-    def filter_cancelled_tool_calls(self):
-        """Return a copy of the message with cancelled tool calls filtered out"""
-        if not self.tool_calls:
-            return self
-
-        filtered_tool_calls = [tc for tc in self.tool_calls if tc.status != "cancelled"]
-
-        return self.model_copy(update={"tool_calls": filtered_tool_calls})
 
     def update_tool_call(self, tool_call_index: int, **fields: dict):
         set_fields = {f"tool_calls.{tool_call_index}.{k}": v for k, v in fields.items()}

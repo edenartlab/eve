@@ -1,0 +1,16 @@
+name: HA Search Entities
+description: Search for Home Assistant entities by name or pattern.
+tip: |-
+  Use this to find entities when you don't know the exact entity ID.
+  Search terms: battery, shelly, pixelblaze, energy, power, etc.
+cost_estimate: 0
+output_type: string
+active: true
+visible: true
+handler: local
+parameters:
+  query:
+    type: string
+    label: Search Query
+    description: Search term to find entities by name (e.g., battery, shelly, energy)
+    required: true

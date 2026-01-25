@@ -141,6 +141,8 @@ class PromptSessionRuntime:
 
     async def run(self):
         """Async generator that yields SessionUpdates."""
+        # Track when this prompt run started for cancellation detection
+        self._prompt_start_time = datetime.now(timezone.utc)
         try:
             self._start_transaction()
             await self._setup_cancellation_listener()
@@ -325,6 +327,7 @@ class PromptSessionRuntime:
         tool_calls_dict: Dict[int, Dict[str, Any]] = {}
         stop_reason = None
         tokens_spent = 0
+        llm_call_id = None
 
         async with trace_async_operation(
             "llm.stream", model=self.llm_context.config.model
@@ -366,6 +369,10 @@ class PromptSessionRuntime:
                 if hasattr(chunk, "usage") and chunk.usage:
                     tokens_spent = chunk.usage.total_tokens
 
+                # Capture llm_call_id from chunk (will be in last chunk for true streaming)
+                if hasattr(chunk, "llm_call_id") and chunk.llm_call_id:
+                    llm_call_id = chunk.llm_call_id
+
         tool_calls = self._materialize_tool_calls(tool_calls_dict)
         usage_payload = LLMUsage(
             total_tokens=tokens_spent,
@@ -378,6 +385,7 @@ class PromptSessionRuntime:
             "stop_reason": stop_reason,
             "tokens_spent": tokens_spent,
             "usage": usage_payload.model_dump(),
+            "llm_call_id": llm_call_id,
         }
         return
 
@@ -760,25 +768,21 @@ class PromptSessionRuntime:
 
     async def _handle_session_cancelled(self):
         try:
-            # Cancel any running tasks in this session
-            await self._cancel_session_tasks()
-
-            # Cancel ALL child sessions (from parent_session field)
-            await self._cancel_all_child_sessions()
+            # Cancel tasks and child sessions in the background (non-blocking)
+            # This allows the main session to complete quickly
+            asyncio.create_task(self._cancel_all_tasks_and_children_background())
 
             last_message = self._fetch_last_message()
             if last_message and last_message.tool_calls:
                 updated = False
                 for idx, tool_call in enumerate(last_message.tool_calls):
-                    # Cancel child session for any tool call that has one
-                    # regardless of tool call status
-                    if tool_call.child_session:
-                        await self._cancel_child_session(tool_call.child_session)
-
                     if tool_call.status in ["pending", "running"]:
                         tool_call.status = "cancelled"
                         tool_call.result = [
-                            {"status": "cancelled", "message": "Task cancelled by user"}
+                            {
+                                "status": "cancelled",
+                                "error": "The tool call was cancelled by the user",
+                            }
                         ]
                         updated = True
 
@@ -788,7 +792,7 @@ class PromptSessionRuntime:
                             tool_index=idx,
                             result={
                                 "status": "cancelled",
-                                "message": "Task cancelled by user",
+                                "error": "The tool call was cancelled by the user",
                             },
                             session_run_id=self.session_run_id,
                         )
@@ -832,22 +836,48 @@ class PromptSessionRuntime:
                 type=UpdateType.END_PROMPT, session_run_id=self.session_run_id
             )
 
+    async def _cancel_all_tasks_and_children_background(self):
+        """Background task to cancel all tasks and child sessions in parallel."""
+        try:
+            # Run both cancellation operations in parallel
+            await asyncio.gather(
+                self._cancel_session_tasks(),
+                self._cancel_all_child_sessions(),
+                return_exceptions=True,
+            )
+        except Exception as e:
+            logger.error(f"Error in background cancellation: {e}")
+
     async def _cancel_all_child_sessions(self):
         """Cancel all child sessions by querying for sessions with parent_session field."""
+        child_session_ids = set()
+
+        # Method 1: Find child sessions by parent_session field
         child_sessions = Session.find(
             {
                 "parent_session": self.session.id,
                 "status": {"$nin": ["archived", "finished"]},
             }
         )
+        for cs in child_sessions:
+            child_session_ids.add(str(cs.id))
 
-        for child_session in child_sessions:
-            try:
-                await self._cancel_child_session(child_session.id)
-            except Exception as e:
-                logger.warning(
-                    f"Failed to cancel child session {child_session.id}: {e}"
-                )
+        # Method 2: Find child sessions from tool calls in all messages
+        messages = ChatMessage.find({"session": self.session.id})
+        for msg in messages:
+            if msg.tool_calls:
+                for tc in msg.tool_calls:
+                    if tc.child_session:
+                        child_session_ids.add(str(tc.child_session))
+
+        if not child_session_ids:
+            return
+
+        # Cancel all child sessions in parallel
+        await asyncio.gather(
+            *[self._cancel_child_session(ObjectId(sid)) for sid in child_session_ids],
+            return_exceptions=True,
+        )
 
     async def _cancel_session_tasks(self):
         """Cancel all pending/running tasks in this session."""
@@ -855,12 +885,20 @@ class PromptSessionRuntime:
             {"session": self.session.id, "status": {"$in": ["pending", "running"]}}
         )
 
-        for task in tasks:
+        if not tasks:
+            return
+
+        async def cancel_task(task):
             try:
                 tool = Tool.load(key=task.tool)
                 await tool.async_cancel(task)
             except Exception as e:
                 logger.warning(f"Failed to cancel task {task.id}: {e}")
+
+        # Cancel all tasks in parallel
+        await asyncio.gather(
+            *[cancel_task(task) for task in tasks], return_exceptions=True
+        )
 
     async def _cancel_child_session(self, child_session_id: ObjectId):
         """Cancel a child session by sending Ably signal and cancelling its tasks."""
@@ -871,30 +909,47 @@ class PromptSessionRuntime:
             if not child_session:
                 return
 
-            # Send Ably cancel signal to child session
-            ably_client = AblyRest(os.getenv("ABLY_PUBLISHER_KEY"))
-            channel_name = f"{os.getenv('DB')}-session-cancel-{child_session_id}"
-            channel = ably_client.channels.get(channel_name)
+            async def send_ably_signal():
+                # Send Ably cancel signal to child session
+                ably_client = AblyRest(os.getenv("ABLY_PUBLISHER_KEY"))
+                channel_name = f"{os.getenv('DB')}-session-cancel-{child_session_id}"
+                channel = ably_client.channels.get(channel_name)
 
-            await channel.publish(
-                "cancel",
-                {
-                    "session_id": str(child_session_id),
-                    "user_id": str(self.session.owner),
-                    "timestamp": datetime.now(timezone.utc).timestamp(),
-                },
-            )
+                await channel.publish(
+                    "cancel",
+                    {
+                        "session_id": str(child_session_id),
+                        "user_id": str(self.session.owner),
+                        "timestamp": datetime.now(timezone.utc).timestamp(),
+                    },
+                )
 
-            # Cancel tasks in child session
-            child_tasks = Task.find(
-                {"session": child_session_id, "status": {"$in": ["pending", "running"]}}
+            async def cancel_child_tasks():
+                # Cancel tasks in child session
+                child_tasks = Task.find(
+                    {
+                        "session": child_session_id,
+                        "status": {"$in": ["pending", "running"]},
+                    }
+                )
+                if not child_tasks:
+                    return
+
+                async def cancel_task(task):
+                    try:
+                        tool = Tool.load(key=task.tool)
+                        await tool.async_cancel(task)
+                    except Exception as e:
+                        logger.warning(f"Failed to cancel child task {task.id}: {e}")
+
+                await asyncio.gather(
+                    *[cancel_task(task) for task in child_tasks], return_exceptions=True
+                )
+
+            # Send Ably signal and cancel tasks in parallel
+            await asyncio.gather(
+                send_ably_signal(), cancel_child_tasks(), return_exceptions=True
             )
-            for task in child_tasks:
-                try:
-                    tool = Tool.load(key=task.tool)
-                    await tool.async_cancel(task)
-                except Exception as e:
-                    logger.warning(f"Failed to cancel child task {task.id}: {e}")
 
         except Exception as e:
             logger.warning(f"Failed to cancel child session {child_session_id}: {e}")
@@ -939,17 +994,22 @@ class PromptSessionRuntime:
         Note: We only check for the "Response cancelled by user" system message,
         NOT for cancelled tool calls. A cancelled tool call (subsession) should
         not cancel the parent session - only the child was cancelled.
+
+        Only checks for cancellation messages created after this prompt run started,
+        so that old cancellations don't affect new prompts.
         """
         try:
-            # Check for cancellation message in session
-            cancel_messages = ChatMessage.find(
-                {
-                    "session": self.session.id,
-                    "content": "Response cancelled by user",
-                    "role": "system",
-                },
-                limit=1,
-            )
+            # Check for cancellation message in session created after this prompt started
+            query = {
+                "session": self.session.id,
+                "content": "Response cancelled by user",
+                "role": "system",
+            }
+            # Only check for cancellations that happened during this prompt run
+            if hasattr(self, "_prompt_start_time") and self._prompt_start_time:
+                query["createdAt"] = {"$gte": self._prompt_start_time}
+
+            cancel_messages = ChatMessage.find(query, limit=1)
             if cancel_messages:
                 logger.info(
                     f"Session {self.session.id} cancellation detected via database check"

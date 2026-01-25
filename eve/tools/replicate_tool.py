@@ -35,6 +35,11 @@ class ReplicateTool(Tool):
             args = self._format_args_for_replicate(args)
             prediction = await self._create_prediction(args, webhook=False)
             await prediction.async_wait()
+
+            # Check for cancellation after Replicate call completes
+            if context.is_cancelled():
+                return {"status": "cancelled", "output": []}
+
             if self.output_handler == "eden":
                 result = {"output": prediction.output[-1]["files"][0]}
             elif self.output_handler == "trainer":
@@ -48,6 +53,10 @@ class ReplicateTool(Tool):
             replicate_model = self._get_replicate_model(args)
             args = self._format_args_for_replicate(args)
             output = await replicate.async_run(replicate_model, input=args)
+
+            # Check for cancellation after Replicate call completes
+            if context.is_cancelled():
+                return {"status": "cancelled", "output": []}
 
             if output and isinstance(output, replicate.helpers.FileOutput):
                 suffix = ".mp4" if self.output_type == "video" else ".webp"

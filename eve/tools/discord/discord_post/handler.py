@@ -83,7 +83,7 @@ async def handler(context: ToolContext):
     # Get parameters
     channel_id = context.args.get("channel_id")
     discord_user_id = context.args.get("discord_user_id")
-    content = context.args["content"]
+    content = context.args.get("content", "")
     media_urls = context.args.get("media_urls", [])
     reply_to = context.args.get("reply_to")
 
@@ -465,6 +465,30 @@ async def send_webhook_message(
         else agent.userImage
     )
 
+    # Download media files if provided
+    downloaded_files = []
+    if media_urls:
+        async with aiohttp.ClientSession() as session:
+            for url in media_urls:
+                try:
+                    async with session.get(url) as response:
+                        if response.status == 200:
+                            filename = os.path.basename(url.split("?")[0])
+                            if not filename or "." not in filename:
+                                content_type = response.headers.get("content-type", "")
+                                if "image" in content_type:
+                                    ext = content_type.split("/")[-1].split(";")[0]
+                                    filename = f"image.{ext}"
+                                elif "video" in content_type:
+                                    ext = content_type.split("/")[-1].split(";")[0]
+                                    filename = f"video.{ext}"
+                                else:
+                                    filename = "attachment"
+                            file_data = await response.read()
+                            downloaded_files.append((filename, file_data))
+                except Exception as e:
+                    logger.error(f"Failed to download media from {url}: {str(e)}")
+
     messages = []
     async with aiohttp.ClientSession() as session:
         for i, chunk in enumerate(chunks):
@@ -475,23 +499,38 @@ async def send_webhook_message(
                 "allowed_mentions": {"parse": ["users", "roles"]},
             }
 
-            # Add media URLs to the last chunk (webhooks don't support file uploads well)
-            # So we just append URLs as text
-            if i == len(chunks) - 1 and media_urls:
-                media_content = "\n".join(media_urls)
-                payload["content"] = (
-                    f"{chunk}\n\n{media_content}" if chunk else media_content
+            # Attach files to the last chunk
+            is_last = i == len(chunks) - 1
+            if is_last and downloaded_files:
+                # Use multipart/form-data for file uploads
+                data = aiohttp.FormData()
+                data.add_field(
+                    "payload_json",
+                    __import__("json").dumps(payload),
+                    content_type="application/json",
                 )
-
-            async with session.post(webhook_url, json=payload) as response:
-                if response.status not in [200, 204]:
-                    error_text = await response.text()
-                    raise Exception(f"Webhook request failed: {error_text}")
-
-                # Discord returns the message object on success
-                if response.status == 200:
-                    msg_data = await response.json()
-                    messages.append(msg_data)
+                for idx, (filename, file_data) in enumerate(downloaded_files):
+                    data.add_field(
+                        f"files[{idx}]",
+                        file_data,
+                        filename=filename,
+                        content_type="application/octet-stream",
+                    )
+                async with session.post(webhook_url, data=data) as response:
+                    if response.status not in [200, 204]:
+                        error_text = await response.text()
+                        raise Exception(f"Webhook request failed: {error_text}")
+                    if response.status == 200:
+                        msg_data = await response.json()
+                        messages.append(msg_data)
+            else:
+                async with session.post(webhook_url, json=payload) as response:
+                    if response.status not in [200, 204]:
+                        error_text = await response.text()
+                        raise Exception(f"Webhook request failed: {error_text}")
+                    if response.status == 200:
+                        msg_data = await response.json()
+                        messages.append(msg_data)
 
     # Build output URLs (webhook messages don't have guild_id in response, need to construct)
     guild_id = channel_config.guild_id or deployment.config.discord.guild_id

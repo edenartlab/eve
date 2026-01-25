@@ -1,0 +1,10 @@
+name: HA List Automations
+description: List all Home Assistant automations with their current state.
+tip: |-
+  Use this to see existing automations and their enabled/disabled status.
+cost_estimate: 0
+output_type: string
+active: true
+visible: true
+handler: local
+parameters: {}

@@ -107,6 +107,7 @@ ABRAHAM_TOOLS = _discover_tools("abraham")
 VERDELIS_TOOLS = _discover_tools("verdelis")
 CHIBA_TOOLS = _discover_tools("chiba")
 WZRD_TOOLS = _discover_tools("wzrd")
+HOME_ASSISTANT_TOOLS = _discover_tools("home_assistant")
 
 DISCORD_TOOLS = ["discord_post", "discord_search", "discord_broadcast_dm"]
 TELEGRAM_TOOLS = ["telegram_post"]

@@ -487,6 +487,16 @@ class AnthropicProvider(LLMProvider):
             yield self._response_to_chunk(response)
             return
 
+        # Extract context metadata for LLMCall
+        llm_call_metadata = {}
+        if context.metadata and context.metadata.trace_metadata:
+            tm = context.metadata.trace_metadata
+            llm_call_metadata = {
+                "session": tm.session_id,
+                "agent": tm.agent_id,
+                "user": tm.user_id,
+            }
+
         last_error: Optional[Exception] = None
         for model_name in self.models:
             tools_payload = self._build_tools_payload(tools, model_name)
@@ -504,8 +514,58 @@ class AnthropicProvider(LLMProvider):
                 betas.append("advanced-tool-use-2025-11-20")
             beta_kwargs = {"betas": betas} if betas else {}
 
+            # Determine if we should log LLMCall
+            should_log_llm_call = db == "STAGE"
+            if not should_log_llm_call and llm_call_metadata.get("user"):
+                try:
+                    user = User.from_mongo(llm_call_metadata.get("user"))
+                    should_log_llm_call = user.is_admin()
+                except ValueError:
+                    pass  # User not found in current DB environment
+
+            # Create LLMCall before streaming starts
+            llm_call = None
+            start_time = datetime.now(timezone.utc)
+            if should_log_llm_call:
+                try:
+                    truncated_payload = truncate_base64_in_payload(request_kwargs)
+
+                    # Parse session_id - it may be prefixed with DB name like "STAGE-{id}"
+                    session_id_raw = llm_call_metadata.get("session")
+                    session_oid = None
+                    if session_id_raw:
+                        if "-" in session_id_raw:
+                            session_oid = ObjectId(session_id_raw.split("-", 1)[1])
+                        else:
+                            session_oid = ObjectId(session_id_raw)
+
+                    llm_call = LLMCall(
+                        provider=self.provider_name,
+                        model=model_name,
+                        request_payload=truncated_payload,
+                        start_time=start_time,
+                        status="pending",
+                        session=session_oid,
+                        agent=ObjectId(llm_call_metadata.get("agent"))
+                        if llm_call_metadata.get("agent")
+                        else None,
+                        user=ObjectId(llm_call_metadata.get("user"))
+                        if llm_call_metadata.get("user")
+                        else None,
+                    )
+                    llm_call.save()
+                    logger.info(
+                        f"[ANTHROPIC_STREAM_LLMCALL] Created LLMCall id={llm_call.id}"
+                    )
+                except Exception as e:
+                    logger.error(
+                        f"[ANTHROPIC_STREAM_LLMCALL] Failed to create LLMCall: {e}"
+                    )
+
             stop_reason = None
             tool_calls: Dict[int, Dict[str, Any]] = {}
+            accumulated_content = ""
+            final_message = None
             try:
                 if betas:
                     stream_manager = self.client.beta.messages.stream(
@@ -540,6 +600,7 @@ class AnthropicProvider(LLMProvider):
                             if getattr(delta, "type", None) == "text_delta":
                                 text = getattr(delta, "text", None)
                                 if text:
+                                    accumulated_content += text
                                     yield SimpleNamespace(
                                         choices=[
                                             SimpleNamespace(
@@ -590,6 +651,76 @@ class AnthropicProvider(LLMProvider):
                             if delta and getattr(delta, "stop_reason", None):
                                 stop_reason = delta.stop_reason
 
+                    # Get final message to extract usage info
+                    final_message = await stream.get_final_message()
+
+                # Update LLMCall with response data
+                end_time = datetime.now(timezone.utc)
+                llm_call_id = None
+                if should_log_llm_call and llm_call:
+                    try:
+                        duration_ms = int(
+                            (end_time - start_time).total_seconds() * 1000
+                        )
+
+                        # Extract usage from final message
+                        usage = final_message.usage if final_message else None
+                        prompt_tokens = usage.input_tokens if usage else None
+                        completion_tokens = usage.output_tokens if usage else None
+                        total_tokens = (
+                            (prompt_tokens or 0) + (completion_tokens or 0)
+                            if usage
+                            else None
+                        )
+
+                        # Calculate cost
+                        cost_usd = None
+                        if prompt_tokens and completion_tokens:
+                            _, _, cost_usd = calculate_cost_usd(
+                                model_name,
+                                prompt_tokens=prompt_tokens,
+                                completion_tokens=completion_tokens,
+                            )
+
+                        # Build response payload
+                        response_payload = {
+                            "content": accumulated_content,
+                            "stop": stop_reason,
+                            "tokens_spent": total_tokens,
+                            "prompt_tokens": prompt_tokens,
+                            "completion_tokens": completion_tokens,
+                        }
+                        if tool_calls:
+                            response_payload["tool_calls"] = [
+                                {
+                                    "id": tc["id"],
+                                    "tool": tc["name"],
+                                    "args": tc["arguments"],
+                                }
+                                for tc in tool_calls.values()
+                            ]
+
+                        llm_call.update(
+                            status="completed",
+                            end_time=end_time,
+                            duration_ms=duration_ms,
+                            response_payload=response_payload,
+                            prompt_tokens=prompt_tokens,
+                            completion_tokens=completion_tokens,
+                            total_tokens=total_tokens,
+                            cost_usd=cost_usd,
+                        )
+                        llm_call_id = llm_call.id
+                        logger.info(
+                            f"[ANTHROPIC_STREAM_LLMCALL] Updated LLMCall id={llm_call.id} "
+                            f"status=completed tokens={total_tokens}"
+                        )
+                    except Exception as e:
+                        logger.error(
+                            f"[ANTHROPIC_STREAM_LLMCALL] Failed to update LLMCall: {e}"
+                        )
+
+                # Include llm_call_id in final chunk
                 yield SimpleNamespace(
                     choices=[
                         SimpleNamespace(
@@ -597,11 +728,31 @@ class AnthropicProvider(LLMProvider):
                             finish_reason=stop_reason or "stop",
                         )
                     ],
-                    usage=None,
+                    usage=SimpleNamespace(
+                        total_tokens=(
+                            (final_message.usage.input_tokens or 0)
+                            + (final_message.usage.output_tokens or 0)
+                        )
+                        if final_message and final_message.usage
+                        else 0
+                    ),
+                    llm_call_id=llm_call_id,
                 )
                 return
             except Exception as exc:
                 last_error = exc
+                # Update LLMCall with error if it was created
+                if llm_call is not None:
+                    try:
+                        llm_call.update(
+                            status="failed",
+                            error=str(exc),
+                            end_time=datetime.now(timezone.utc),
+                        )
+                    except Exception as update_err:
+                        logger.error(
+                            f"[ANTHROPIC_STREAM_LLMCALL] Failed to update LLMCall with error: {update_err}"
+                        )
                 logger.warning(
                     f"[ANTHROPIC_STREAM] Failed streaming with {model_name}: {exc}"
                 )

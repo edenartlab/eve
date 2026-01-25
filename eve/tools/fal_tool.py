@@ -55,6 +55,10 @@ class FalTool(Tool):
             on_queue_update=on_queue_update if self.with_logs else None,
         )
 
+        # Check for cancellation after FAL call completes
+        if context.is_cancelled():
+            return {"status": "cancelled", "output": []}
+
         # Extract URLs from common FAL response structures (e.g., {"images": [{"url": "..."}]})
         output_urls = self._extract_urls_from_fal_result(result)
 
@@ -152,6 +156,11 @@ class FalTool(Tool):
         last_print_time = 0  # Initialize timer
 
         while True:
+            # Check if task was cancelled before each poll
+            task.reload()
+            if task.status == "cancelled":
+                return {"status": "cancelled"}
+
             status = await asyncio.to_thread(
                 fal_client.status,
                 self.fal_endpoint,
@@ -191,9 +200,15 @@ class FalTool(Tool):
 
     @Tool.handle_cancel
     async def async_cancel(self, task: Task):
-        # FAL doesn't have a direct cancel API in their client yet
-        # This is a placeholder for when they add that functionality
-        pass
+        if not task.handler_id:
+            return
+        try:
+            await asyncio.to_thread(
+                fal_client.cancel, self.fal_endpoint, task.handler_id
+            )
+            logger.info(f"FAL cancel sent for {task.handler_id}")
+        except Exception as e:
+            logger.warning(f"FAL cancel failed for {task.handler_id}: {e}")
 
     def _format_args_for_fal(self, args: dict):
         """Format the arguments for FAL API call"""
