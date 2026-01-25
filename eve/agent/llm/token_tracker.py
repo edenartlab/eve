@@ -237,7 +237,8 @@ class TrackerHandle:
         Tracks mutually exclusive components that sum to total input tokens:
         - system_message: The full system message content
         - tool_schemas/*: Each tool's schema (sent as separate API param)
-        - messages/*: Conversation history by role
+        - messages: Combined conversation history (excluding tool results)
+        - messages/tool_results: Tool call results from conversation history
 
         Args:
             agent: Agent object (not tracked separately - included in system_message)
@@ -269,12 +270,44 @@ class TrackerHandle:
                         pass
 
             # Conversation history (skip system message at index 0)
+            # Aggregate all messages into a single blob, with tool results separated
             if messages:
+                messages_content = []
+                tool_results_content = []
+
                 for msg in messages[1:] if len(messages) > 1 else []:
                     role = getattr(msg, 'role', 'unknown')
                     content = getattr(msg, 'content', '') or ''
-                    if content:
-                        self.add_chunk(f"{prefix}/messages/{role}", content)
+
+                    # Check if this is a tool result message
+                    if role == 'tool':
+                        if content:
+                            tool_results_content.append(content)
+                    else:
+                        # Regular message content
+                        if content:
+                            messages_content.append(content)
+
+                        # Also extract tool call results from assistant messages
+                        tool_calls = getattr(msg, 'tool_calls', None) or []
+                        for tc in tool_calls:
+                            result = getattr(tc, 'result', None)
+                            if result:
+                                try:
+                                    result_str = json.dumps(result, default=str)
+                                    tool_results_content.append(result_str)
+                                except Exception:
+                                    pass
+
+                # Track combined messages content
+                if messages_content:
+                    combined_messages = "\n---\n".join(messages_content)
+                    self.add_chunk(f"{prefix}/messages", combined_messages)
+
+                # Track combined tool results
+                if tool_results_content:
+                    combined_tool_results = "\n---\n".join(tool_results_content)
+                    self.add_chunk(f"{prefix}/messages/tool_results", combined_tool_results)
 
             # Any extra string values
             for key, value in extras.items():
