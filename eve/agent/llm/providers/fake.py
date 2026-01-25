@@ -1,3 +1,4 @@
+import asyncio
 import json
 import os
 import uuid
@@ -220,6 +221,32 @@ async def async_prompt_stream_fake(
 ) -> AsyncGenerator[Any, None]:
     """Yield a fake streaming response compatible with the existing consumer."""
     response = await async_prompt_fake(context)
+
+    if response.content:
+        # Emit small chunks so the frontend can render streaming tokens.
+        tokens = response.content.split(" ")
+        for index, token in enumerate(tokens):
+            text = token + (" " if index < len(tokens) - 1 else "")
+            delta = SimpleNamespace(content=text, tool_calls=None)
+            chunk = SimpleNamespace(
+                choices=[SimpleNamespace(delta=delta, finish_reason=None)],
+                usage=None,
+            )
+            yield chunk
+            await asyncio.sleep(0)
+
+        final_delta = SimpleNamespace(content=None, tool_calls=None)
+        final_chunk = SimpleNamespace(
+            choices=[
+                SimpleNamespace(
+                    delta=final_delta,
+                    finish_reason=response.stop or "stop",
+                )
+            ],
+            usage=SimpleNamespace(total_tokens=response.tokens_spent or 0),
+        )
+        yield final_chunk
+        return
 
     delta = SimpleNamespace(
         content=response.content if response.content else None,

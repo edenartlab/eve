@@ -247,7 +247,7 @@ class PromptSessionRuntime:
                 async for update in self._process_tool_calls(assistant_message):
                     yield update
 
-                if llm_result.get("stop_reason") in ["stop", "completed"]:
+                if llm_result.get("stop_reason") in ["stop", "completed", "end_turn"]:
                     prompt_session_finished = True
 
                 self.llm_context.tool_choice = "auto"
@@ -340,6 +340,12 @@ class PromptSessionRuntime:
                         yield SessionUpdate(
                             type=UpdateType.ASSISTANT_TOKEN,
                             text=choice.delta.content,
+                            agent={
+                                "_id": str(self.actor.id),
+                                "username": self.actor.username,
+                                "name": self.actor.name,
+                                "userImage": self.actor.userImage,
+                            },
                             session_run_id=self.session_run_id,
                         )
                     if choice.delta and choice.delta.tool_calls:
@@ -1021,6 +1027,8 @@ def format_session_update(update: SessionUpdate, context: PromptSessionContext) 
         data["session_id"] = str(context.session.id)
     elif update.type == UpdateType.ASSISTANT_TOKEN:
         data["text"] = update.text
+        if update.agent:
+            data["agent"] = update.agent
     elif update.type == UpdateType.ASSISTANT_MESSAGE:
         data["content"] = update.message.content
         message_dict = update.message.model_dump(by_alias=True)
@@ -1155,6 +1163,8 @@ async def _run_multiple_actors(
     """Run prompt sessions for multiple actors in parallel."""
     update_queue: asyncio.Queue = asyncio.Queue()
     tasks = []
+    parent_session_run_id = context.session_run_id or str(uuid.uuid4())
+    context.session_run_id = parent_session_run_id
 
     async def run_actor_session(actor: Agent):
         stage_cm = (
@@ -1178,7 +1188,7 @@ async def _run_multiple_actors(
                     actor,
                     stream=stream,
                     is_client_platform=is_client_platform,
-                    session_run_id=actor_session_run_id,
+                    session_run_id=parent_session_run_id,
                     api_key_id=context.api_key_id,
                     instrumentation=instrumentation,
                     context=context,

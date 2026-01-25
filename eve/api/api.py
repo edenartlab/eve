@@ -87,6 +87,7 @@ from eve.api.handlers import (
     handle_v2_deployment_update,
 )
 from eve.api.runner_tasks import download_clip_models
+from eve.api.v3.router import router as v3_router
 from eve.concepts import (
     create_concept_thumbnail,
     handle_concept_create,
@@ -189,6 +190,7 @@ web_app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+web_app.include_router(v3_router)
 
 api_key_header = APIKeyHeader(name="X-Api-Key", auto_error=False)
 bearer_scheme = HTTPBearer(auto_error=False)
