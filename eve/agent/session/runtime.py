@@ -123,6 +123,10 @@ class PromptSessionRuntime:
         self.active_request_registered = False
         self._last_stream_result: Optional[Dict[str, Any]] = None
 
+        # Discord post tracking for forced reprompt
+        self.discord_post_used = False
+        self.discord_reprompt_attempted = False
+
         # Resolve billing users
         self.triggering_user_id = (
             _resolve_triggering_user_id(context) if context else None
@@ -250,9 +254,34 @@ class PromptSessionRuntime:
                     yield update
 
                 if llm_result.get("stop_reason") in ["stop", "completed", "end_turn"]:
-                    prompt_session_finished = True
+                    # Check if we need to force discord_post
+                    # Only force for @mentioned guild channel messages, NOT DMs
+                    should_force_discord = (
+                        self._should_add_discord_reminder()  # Is Discord-triggered
+                        and not self._is_discord_dm()  # NOT a DM (must be @mention in channel)
+                        and not self.discord_post_used  # Hasn't used discord_post
+                        and not self.discord_reprompt_attempted  # Haven't tried forcing yet
+                        and self.llm_context.tools  # Tools are available
+                        and any(
+                            getattr(t, "name", None) == "discord_post"
+                            or (isinstance(t, dict) and t.get("name") == "discord_post")
+                            for t in (
+                                self.llm_context.tools
+                                if isinstance(self.llm_context.tools, list)
+                                else []
+                            )
+                        )
+                    )
 
-                self.llm_context.tool_choice = "auto"
+                    if should_force_discord:
+                        self.discord_reprompt_attempted = True
+                        self.llm_context.tool_choice = "discord_post"
+                        # Don't set prompt_session_finished - continue loop
+                    else:
+                        prompt_session_finished = True
+                        self.llm_context.tool_choice = "auto"
+                else:
+                    self.llm_context.tool_choice = "auto"
 
             yield SessionUpdate(
                 type=UpdateType.END_PROMPT, session_run_id=self.session_run_id
@@ -306,6 +335,53 @@ class PromptSessionRuntime:
         refreshed_messages = convert_message_roles(refreshed_messages, self.actor.id)
         self.llm_context.messages = refreshed_messages
         self.llm_context.metadata.generation_id = str(uuid.uuid4())
+
+        # Inject discord_post reminder into last Discord user message
+        if self._should_add_discord_reminder():
+            self._inject_discord_reminder()
+
+    def _should_add_discord_reminder(self) -> bool:
+        """Check if we should add a discord_post reminder.
+
+        Only returns True when the current message is from Discord,
+        not just when the session is a Discord session. Users can
+        send messages via web to a Discord session, and those shouldn't
+        trigger the reminder.
+        """
+        return (
+            self.context is not None
+            and self.context.update_config is not None
+            and self.context.update_config.discord_channel_id is not None
+        )
+
+    def _is_discord_dm(self) -> bool:
+        """Check if this is a Discord DM session (vs guild channel)."""
+        session_key = self.session.session_key or ""
+        return "-dm-" in session_key
+
+    def _inject_discord_reminder(self):
+        """Inject SystemReminder into the last Discord user message."""
+        # Find last user message with discord channel type
+        for msg in reversed(self.llm_context.messages):
+            if (
+                msg.role == "user"
+                and hasattr(msg, "channel")
+                and msg.channel
+                and msg.channel.type == "discord"
+            ):
+                # Extract username from message.name or content
+                username = getattr(msg, "name", None) or "The user"
+
+                if self._is_discord_dm():
+                    # For DMs, use discord_user_id from update_config
+                    discord_user_id = self.context.update_config.discord_user_id
+                    reminder = f"\n(<SystemReminder>{username} does not see the messages in this workspace. If you want them to hear from you, remember to use discord_post to user {discord_user_id}</SystemReminder>)"
+                else:
+                    channel_id = self.context.update_config.discord_channel_id
+                    reminder = f"\n(<SystemReminder>{username} does not see the messages in this workspace. If you want them or anyone else in Discord to hear from you, remember to use discord_post to channel {channel_id}</SystemReminder>)"
+
+                msg.content = (msg.content or "") + reminder
+                break
 
     def _maybe_disable_tools(self):
         if self.tool_was_cancelled:
@@ -619,6 +695,12 @@ class PromptSessionRuntime:
     async def _process_tool_calls(self, assistant_message: ChatMessage):
         if not assistant_message.tool_calls:
             return
+
+        # Track if discord_post was used
+        for tc in assistant_message.tool_calls:
+            if tc.tool == "discord_post":
+                self.discord_post_used = True
+                break
 
         async with trace_async_operation(
             "tools.process_all", tool_count=len(assistant_message.tool_calls)

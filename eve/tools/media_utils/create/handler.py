@@ -729,8 +729,8 @@ async def handle_image_creation(
 
     #########################################################
     # Final result
-    # Check for cancellation first - both from result and from cancellation event
-    if result.get("status") == "cancelled" or check_cancelled():
+    # Check for cancellation from result status
+    if result.get("status") == "cancelled":
         return {"status": "cancelled", "output": []}
 
     if result.get("status") == "failed" or "output" not in result:
@@ -1196,8 +1196,8 @@ async def handle_video_creation(
 
     #########################################################
     # Final video is now generated
-    # Check for cancellation first - both from result and from cancellation event
-    if result.get("status") == "cancelled" or check_cancelled():
+    # Check for cancellation from result status
+    if result.get("status") == "cancelled":
         return {"status": "cancelled", "output": None}
 
     if "output" in result and result["output"]:

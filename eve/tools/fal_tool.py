@@ -55,10 +55,6 @@ class FalTool(Tool):
             on_queue_update=on_queue_update if self.with_logs else None,
         )
 
-        # Check for cancellation after FAL call completes
-        if context.is_cancelled():
-            return {"status": "cancelled", "output": []}
-
         # Extract URLs from common FAL response structures (e.g., {"images": [{"url": "..."}]})
         output_urls = self._extract_urls_from_fal_result(result)
 

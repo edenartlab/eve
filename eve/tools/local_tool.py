@@ -65,14 +65,16 @@ class LocalTool(Tool):
             handler = load_handler(self.parent_tool or self.key)
             result = await handler(context)
 
-            # Handle cancelled status from handler (check both status and empty output)
+            # Handle cancelled status from handler
             if result.get("status") == "cancelled":
                 task.update(status="cancelled")
                 task.refund_manna()
-                return {
+                cancelled_result = {
+                    "output": [],
                     "status": "cancelled",
-                    "result": [{"status": "cancelled", "error": "Task was cancelled"}],
+                    "error": result.get("error", "Task was cancelled"),
                 }
+                return {"status": "cancelled", "result": [cancelled_result]}
 
             # Process successful result
             from .. import utils
@@ -91,18 +93,27 @@ class LocalTool(Tool):
             end_time = datetime.now(timezone.utc)
             run_time = (end_time - start_time).total_seconds()
 
+            # Wrap result in a list to match task_handler_func structure
+            results_list = [result]
+
             # Use the result's status for the task update (not hardcoded "completed")
             task.update(
                 status=final_status,
-                result=result,
+                result=results_list,
                 performance={"waitTime": queue_time, "runTime": run_time},
             )
-            return result
+            # Return wrapper structure matching _task_handler
+            return {"status": final_status, "result": results_list}
 
         except asyncio.CancelledError:
             task.update(status="cancelled")
             task.refund_manna()
-            return {"status": "cancelled"}
+            cancelled_result = {
+                "output": [],
+                "status": "cancelled",
+                "error": "Task was cancelled by user",
+            }
+            return {"status": "cancelled", "result": [cancelled_result]}
 
         except Exception as e:
             logger.error(f"Task {task.id} failed: {e}")
