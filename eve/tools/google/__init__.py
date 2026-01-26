@@ -241,7 +241,13 @@ async def _nano_banana_gcp(args: dict, model: str) -> dict:
     if args.get("image_input"):
         for image_url in args["image_input"]:
             async with httpx.AsyncClient() as http_client:
-                response = await http_client.get(image_url, timeout=30.0)
+                # Use User-Agent header to avoid 403 errors from CloudFront/WAF
+                headers = {
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+                }
+                response = await http_client.get(
+                    image_url, timeout=30.0, headers=headers
+                )
                 response.raise_for_status()
                 mime_type = response.headers.get("content-type")
                 if not mime_type:

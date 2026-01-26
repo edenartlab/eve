@@ -461,6 +461,10 @@ async def handle_image_creation(
         if aspect_ratio != "auto":
             if aspect_ratio == "9:21":
                 aspect_ratio = "9:16"  # Nano Banana Pro doesn't support 9:21
+            elif aspect_ratio == "4:5":
+                aspect_ratio = "3:4"  # Nano Banana Pro doesn't support 4:5
+            elif aspect_ratio == "5:4":
+                aspect_ratio = "4:3"  # Nano Banana Pro doesn't support 5:4
             args["aspect_ratio"] = aspect_ratio
 
         if reference_images:
