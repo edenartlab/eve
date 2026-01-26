@@ -107,7 +107,9 @@ Create a **video** representing the entire creation. Use the `reel` tool to crea
 
 * The reel can roughly follow the structure of the blog post, but you are permitted to diverge from it to fit the medium of video better.
 * The reel should aim for a duration of 1 to 2 minutes.
-* The reel should match the dominant aspect ratio of the original images. 16:9 by default unless most of the images in the session are vertical, then 9:16.
+* **Strongly prefer landscape (16:9) orientation** for the reel.
+* When selecting keyframes, **favor landscape-oriented images** and avoid using repetitive or near-duplicate images.
+* **Avoid text-heavy or infographic-style images** as keyframes. Instead, prioritize images that show **action, movement, or dynamic scenes** — visuals that convey energy and narrative rather than static information.
 
 ---
 
