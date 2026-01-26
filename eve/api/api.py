@@ -27,10 +27,14 @@ from eve.api.api_functions import (
     generate_lora_thumbnails_fn,
     memory2_process_cold_sessions_fn,
     rotate_agent_metadata_fn,
-    run,
-    run_task,
     run_task_replicate,
     topup_mars_college_manna_fn,
+)
+from eve.api.api_functions import (
+    run as _run,
+)
+from eve.api.api_functions import (
+    run_task as _run_task,
 )
 from eve.api.api_requests import (
     AgentPromptsExtractionRequest,
@@ -654,7 +658,17 @@ run = app.function(
         "/data/media-cache": media_cache_vol,
         "/data/token-tracker": token_tracker_vol,
     },
-)(modal.concurrent(max_inputs=4)(run))
+)(modal.concurrent(max_inputs=4)(_run))
+
+run_3h = app.function(
+    image=image,
+    max_containers=4,
+    timeout=3600 * 3,  # 3 hours for long-running tools (reel, etc.)
+    volumes={
+        "/data/media-cache": media_cache_vol,
+        "/data/token-tracker": token_tracker_vol,
+    },
+)(modal.concurrent(max_inputs=2)(_run))
 
 
 run_task = app.function(
@@ -666,7 +680,7 @@ run_task = app.function(
         "/data/media-cache": media_cache_vol,
         "/data/token-tracker": token_tracker_vol,
     },
-)(modal.concurrent(max_inputs=4)(run_task))
+)(modal.concurrent(max_inputs=4)(_run_task))
 
 
 run_task_replicate = app.function(

@@ -1,6 +1,7 @@
 import asyncio
 import mimetypes
 import os
+import re
 import tempfile
 from urllib.parse import urlparse
 
@@ -150,3 +151,294 @@ async def veo_handler(args: dict, model: str):
             videos.append(tmpfile.name)
 
     return {"output": videos}
+
+
+# ---- Nano Banana (Image Generation) ----
+
+
+def _should_fallback_to_fal(error: Exception) -> bool:
+    """Determine if error should trigger FAL fallback."""
+    error_str = str(error).lower()
+    # Fallback on: rate limits (429), server errors (5xx), quota exceeded
+    return any(
+        term in error_str
+        for term in [
+            "rate limit",
+            "429",
+            "quota",
+            "server error",
+            "500",
+            "502",
+            "503",
+            "504",
+            "unavailable",
+            "overloaded",
+        ]
+    )
+
+
+def _map_args_to_fal(args: dict, is_pro: bool = False) -> dict:
+    """Map GCP arguments to FAL format."""
+    fal_args = {
+        "prompt": args["prompt"],
+        "num_images": 1,
+        "aspect_ratio": args.get("aspect_ratio", "1:1"),
+        "output_format": args.get("output_format", "png"),
+    }
+
+    # Map image_input to image_urls
+    if args.get("image_input"):
+        fal_args["image_urls"] = args["image_input"]
+
+    # Map Pro-specific parameters
+    if is_pro:
+        # Map image_size to resolution for FAL
+        if args.get("image_size"):
+            fal_args["resolution"] = args["image_size"]
+
+    return fal_args
+
+
+async def _nano_banana_fal_fallback(args: dict, fal_tool: str) -> dict:
+    """Execute generation via FAL as fallback."""
+    from eve.tools.tool_handlers import load_handler
+
+    # Determine if this is a Pro model
+    is_pro = "pro" in fal_tool.lower()
+
+    # Map args to FAL format
+    fal_args = _map_args_to_fal(args, is_pro=is_pro)
+
+    # Create a mock context for the FAL handler
+    class MockContext:
+        def __init__(self, args):
+            self.args = args
+
+    handler = load_handler(fal_tool)
+    return await handler(MockContext(fal_args))
+
+
+async def _nano_banana_gcp(args: dict, model: str) -> dict:
+    """Execute generation via GCP."""
+    # Check for simulated 429 error (for testing fallback)
+    if os.getenv("EDEN_SIMULATE_GCP_429") == "true":
+        logger.warning("[NANO_BANANA] Simulating 429 rate limit error for testing")
+        raise ValueError(
+            "Rate limit 429 reached for this image model. Please try again later or use a different image model (e.g., model_preference='flux' or 'openai')."
+        )
+
+    # Validate input
+    if not args.get("prompt"):
+        raise ValueError("'prompt' is required")
+
+    # Create GCP client. Gemini image models require global location
+    client = create_gcp_client(gcp_location="global")
+
+    # Build content parts
+    parts = []
+
+    # Add any input images first
+    if args.get("image_input"):
+        for image_url in args["image_input"]:
+            async with httpx.AsyncClient() as http_client:
+                response = await http_client.get(image_url, timeout=30.0)
+                response.raise_for_status()
+                mime_type = response.headers.get("content-type")
+                if not mime_type:
+                    mime_type = mimetypes.guess_type(urlparse(image_url).path)[0]
+                parts.append(
+                    genai.types.Part(
+                        inline_data=genai.types.Blob(
+                            mime_type=mime_type, data=response.content
+                        )
+                    )
+                )
+
+    # Add the text prompt
+    parts.append(genai.types.Part(text=args["prompt"]))
+
+    # Create single user content
+    contents = [genai.types.Content(role="user", parts=parts)]
+
+    # Build generation config
+    config_dict = {
+        "response_modalities": ["TEXT", "IMAGE"],
+    }
+
+    # Add optional parameters
+    if args.get("temperature") is not None:
+        config_dict["temperature"] = args["temperature"]
+
+    if args.get("top_p") is not None:
+        config_dict["top_p"] = args["top_p"]
+
+    if args.get("top_k") is not None:
+        config_dict["top_k"] = args["top_k"]
+
+    if args.get("max_output_tokens") is not None:
+        config_dict["max_output_tokens"] = args["max_output_tokens"]
+
+    # Image config for aspect ratio and size
+    allowed_aspect_ratios = {
+        "1:1",
+        "2:3",
+        "3:2",
+        "3:4",
+        "4:3",
+        "9:16",
+        "16:9",
+        "21:9",
+    }
+    image_config_dict = {}
+    aspect_ratio = args.get("aspect_ratio")
+    if aspect_ratio:
+        if aspect_ratio == "match_input_image":
+            # Gemini API does not accept this literal value; let the model decide.
+            pass
+        elif aspect_ratio in allowed_aspect_ratios:
+            image_config_dict["aspect_ratio"] = aspect_ratio
+        else:
+            raise ValueError(
+                f"Invalid aspect_ratio '{aspect_ratio}'. Supported values: "
+                + ", ".join(sorted(allowed_aspect_ratios))
+            )
+    if args.get("image_size"):
+        image_config_dict["image_size"] = args["image_size"]
+    if image_config_dict:
+        config_dict["image_config"] = genai.types.ImageConfig(**image_config_dict)
+
+    generation_config = genai.types.GenerateContentConfig(**config_dict)
+
+    # Make the API call with retry logic
+    delay = 10.0
+    max_retries = 1
+
+    for attempt in range(max_retries + 1):
+        try:
+            response = await client.aio.models.generate_content(
+                model=model,
+                contents=contents,
+                config=generation_config,
+            )
+            break  # Success, exit retry loop
+
+        except genai_errors.ClientError as e:
+            logger.error(
+                f"Google API ClientError in nano_banana: code={e.code}, message={e.message}, details={e.details}, attempt={attempt+1}/{max_retries+1}"
+            )
+            # Handle rate limiting (429) with retry
+            if e.code == 429 and attempt < max_retries:
+                await asyncio.sleep(delay)
+                delay *= 2
+                continue
+            elif e.code == 429:
+                raise ValueError(
+                    "Rate limit 429 reached for this image model. Please try again later or use a different image model (e.g., model_preference='flux' or 'openai')."
+                )
+            elif e.code == 403:
+                raise ValueError(
+                    "Google API access denied. Please check your API credentials and quotas."
+                )
+            elif e.code == 400:
+                raise ValueError(f"Invalid request to Google API: {e.message}")
+            else:
+                raise ValueError(f"Google API error ({e.code}): {e.message}")
+
+        except genai_errors.ServerError as e:
+            logger.error(
+                f"Google API ServerError in nano_banana: code={e.code}, message={e.message}, details={e.details}, attempt={attempt+1}/{max_retries+1}"
+            )
+            # Retry server errors (5xx) with backoff
+            if attempt < max_retries:
+                await asyncio.sleep(delay)
+                delay *= 2
+                continue
+            else:
+                raise ValueError(
+                    f"Google API server error 5xx. Please try again later or use a different image model. ({e.code})"
+                )
+
+        except Exception as e:
+            # Don't retry unexpected errors
+            logger.error(
+                f"Unexpected error in nano_banana: {type(e).__name__}: {str(e)}"
+            )
+            raise ValueError(f"Unexpected error calling Google API: {str(e)}")
+
+    # Extract generated images and text
+    output_images = []
+    output_text = []
+
+    if response.candidates:
+        for candidate in response.candidates:
+            if candidate.content and candidate.content.parts:
+                for part in candidate.content.parts:
+                    if part.inline_data:
+                        # Save the image to a temporary file
+                        with tempfile.NamedTemporaryFile(
+                            suffix=".jpg", delete=False
+                        ) as tmpfile:
+                            tmpfile.write(part.inline_data.data)
+                            output_images.append(tmpfile.name)
+                    elif part.text:
+                        output_text.append(part.text)
+
+    if not output_images:
+        # Extract error details from candidates if available
+        error_details = []
+        if response.candidates:
+            for candidate in response.candidates:
+                if candidate.finish_message:
+                    error_details.append(candidate.finish_message)
+                elif candidate.finish_reason:
+                    error_details.append(str(candidate.finish_reason))
+
+        error_msg = (
+            "; ".join(error_details) if error_details else "No images were generated"
+        )
+        # Filter out Google support codes (not useful to end users)
+        error_msg = re.sub(r"\s*Support code: \d+\.?", "", error_msg).strip()
+        logger.error(f"No images were generated: {response}")
+        raise ValueError(error_msg)
+
+    result = {"output": output_images}
+    if output_text:
+        result["text"] = "\n".join(output_text)
+
+    return result
+
+
+async def nano_banana_handler(
+    args: dict, model: str, fal_fallback_tool: str = None
+) -> dict:
+    """
+    Shared handler for Nano Banana models with FAL fallback.
+
+    Args:
+        args: Tool arguments (prompt, image_input, aspect_ratio, etc.)
+        model: GCP model name (gemini-2.5-flash-image-preview or gemini-3-pro-image-preview)
+        fal_fallback_tool: Name of FAL tool to use as fallback (nano_banana_fal or nano_banana_pro_fal)
+
+    Returns:
+        dict with 'output' containing list of image file paths
+    """
+    # Try GCP first
+    try:
+        logger.info(f"[NANO_BANANA] Attempting GCP generation with model={model}")
+        result = await _nano_banana_gcp(args, model)
+        logger.info("[NANO_BANANA] GCP generation succeeded")
+        return result
+    except ValueError as e:
+        # Check if this is a fallback-eligible error
+        if fal_fallback_tool and _should_fallback_to_fal(e):
+            logger.warning(
+                f"[NANO_BANANA] GCP failed with fallback-eligible error: {e}"
+            )
+            logger.info(
+                f"[NANO_BANANA] >>> FALLING BACK TO FAL <<< using {fal_fallback_tool}"
+            )
+            result = await _nano_banana_fal_fallback(args, fal_fallback_tool)
+            logger.info("[NANO_BANANA] FAL fallback succeeded")
+            return result
+        logger.error(f"[NANO_BANANA] GCP failed with non-fallback error: {e}")
+        raise

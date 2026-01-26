@@ -1,0 +1,52 @@
+name: Nano Banana Pro (FAL)
+description: Google's advanced image generation and editing model via FAL.ai with resolution control and web search. Supports text-to-image and image editing.
+tip: Provide image_urls to enable editing mode. Supports up to 14 reference images. Use enable_web_search for current events or real-world references.
+output_type: image
+cost_estimate: 4 * num_images
+handler: modal
+thumbnail: app/nano_banana_pro.jpg
+visible: false
+active: true
+parameters:
+  prompt:
+    type: string
+    label: Prompt
+    required: true
+  image_urls:
+    type: array
+    items:
+      type: image
+    label: Input Images (for editing)
+    description: Optional input images for editing mode
+    max_length: 14
+  num_images:
+    type: integer
+    default: 1
+    minimum: 1
+    maximum: 4
+  resolution:
+    type: string
+    label: Resolution
+    description: Output resolution (4K costs 2x)
+    default: '1K'
+    choices: ['1K', '2K', '4K']
+  enable_web_search:
+    type: boolean
+    label: Enable Web Search
+    description: Enable web search for current events or real-world references
+    default: false
+  aspect_ratio:
+    type: string
+    default: '1:1'
+    choices: ['auto', '21:9', '16:9', '3:2', '4:3', '5:4', '1:1', '4:5', '3:4', '2:3', '9:16']
+  output_format:
+    type: string
+    default: png
+    choices: ['jpeg', 'png', 'webp']
+    hide_from_user: true
+    hide_from_agent: true
+  seed:
+    type: integer
+    minimum: 0
+    maximum: 2147483647
+    default: random

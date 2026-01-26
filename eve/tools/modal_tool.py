@@ -5,17 +5,22 @@ import modal
 from ..task import Task
 from ..tool import Tool, ToolContext, tool_context
 
+# Tools that need extended timeout (3 hours instead of 1 hour)
+LONG_TIMEOUT_TOOLS = {"reel"}
+
 
 @tool_context("modal")
 class ModalTool(Tool):
     @Tool.handle_run
     async def async_run(self, context: ToolContext):
         db = os.getenv("DB", "STAGE").upper()
+        tool_key = self.parent_tool or self.key
+        func_name = "run_3h" if tool_key in LONG_TIMEOUT_TOOLS else "run"
         func = modal.Function.from_name(
-            f"api-{db.lower()}", "run", environment_name="main"
+            f"api-{db.lower()}", func_name, environment_name="main"
         )
         result = await func.remote.aio(
-            tool_key=self.parent_tool or self.key,
+            tool_key=tool_key,
             args=context.args,
             user=context.user,
             agent=context.agent,

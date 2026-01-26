@@ -103,6 +103,14 @@ discord_notification_template = Template("""
 {{ content }}
 """)
 
+telegram_notification_template = Template("""
+│ 📨 TELEGRAM NOTIFICATION
+│ From: @{{ username }}
+│ Chat ID: {{ chat_id }}
+├─────────────────────────────────────
+{{ content }}
+""")
+
 eden_notification_template = Template("""
 │ 📨 CHAT MESSAGE NOTIFICATION
 │ From: {{ username }}
@@ -265,7 +273,7 @@ def convert_message_roles(messages: List[ChatMessage], actor_id: ObjectId):
     """
 
     # Social media channel types that use notification decorators instead of [name]: prefix
-    social_media_channels = {"discord", "twitter", "farcaster"}
+    social_media_channels = {"discord", "twitter", "farcaster", "telegram"}
 
     # Get sender name mapping for all messages
     sender_name_map = get_sender_id_to_sender_name_map(messages)
@@ -401,6 +409,24 @@ def label_message_channels(messages: List[ChatMessage], session: "Session" = Non
             message.content = discord_notification_template.render(
                 username=discord_username,
                 message_id=message.channel.key or "Unknown",
+                content=message.content,
+            )
+
+        elif channel_type == "telegram" and message.sender and message.channel:
+            sender = user_map.get(message.sender)
+
+            # Wrap message content in Telegram metadata using rich template
+            # channel.key contains the chat ID
+            telegram_username = "Unknown"
+            if sender:
+                telegram_username = (
+                    getattr(sender, "telegramUsername", None)
+                    or sender.username
+                    or "Unknown"
+                )
+            message.content = telegram_notification_template.render(
+                username=telegram_username,
+                chat_id=message.channel.key or "Unknown",
                 content=message.content,
             )
 
@@ -548,6 +574,29 @@ async def build_system_message(
         logger.info(
             f"[build_system_message] Discord social_instructions generated: {len(social_instructions) if social_instructions else 0} chars"
         )
+    elif session.platform == "telegram":
+        logger.info(
+            "[build_system_message] Telegram platform detected, looking for deployment"
+        )
+        deployment = Deployment.find_one({"agent": actor.id, "platform": "telegram"})
+        logger.info(
+            f"[build_system_message] Found deployment: {deployment.id if deployment else None}"
+        )
+        telegram_instructions = ""
+        if deployment and deployment.config and deployment.config.telegram:
+            telegram_instructions = (
+                getattr(deployment.config.telegram, "instructions", "") or ""
+            )
+        # Use telegram_chat_id directly from session
+        telegram_chat_id = session.telegram_chat_id or ""
+        social_instructions = social_media_template.render(
+            has_telegram=True,
+            telegram_instructions=telegram_instructions,
+            telegram_chat_id=telegram_chat_id,
+        )
+        logger.info(
+            f"[build_system_message] Telegram social_instructions generated: {len(social_instructions) if social_instructions else 0} chars"
+        )
 
     current_date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
@@ -659,6 +708,10 @@ async def add_chat_message(
         elif context.update_config.twitter_tweet_id:
             new_message.channel = Channel(
                 type="twitter", key=context.update_config.twitter_tweet_id
+            )
+        elif context.update_config.telegram_message_id:
+            new_message.channel = Channel(
+                type="telegram", key=context.update_config.telegram_message_id
             )
     if pin:
         new_message.pinned = True

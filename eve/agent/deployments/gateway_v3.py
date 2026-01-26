@@ -247,6 +247,7 @@ async def process_discord_message_for_agent(
     parent_channel_id: Optional[str] = None,
     source_agent: Optional[Agent] = None,
     source_deployment_id: Optional[str] = None,
+    match_reason: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
     Process a Discord message for a single agent.
@@ -512,6 +513,7 @@ async def process_discord_message_for_agent(
                         discord_channel_id=channel_id,
                         discord_message_id=message_id,
                         discord_guild_id=guild_id,
+                        social_match_reason=match_reason,
                     ),
                 ):
                     # Stream updates (logged by orchestrator)
@@ -1178,6 +1180,13 @@ async def on_message(message: discord.Message):
         was_mentioned = deployment.id in mentioned_ids
         was_reply_target = deployment.id in reply_ids
         should_prompt = (was_mentioned or was_reply_target) and has_write_access
+
+        # Determine match_reason for force reprompt logic
+        match_reason = None
+        if was_mentioned:
+            match_reason = "mention"
+        elif was_reply_target:
+            match_reason = "reply"
         if is_webhook_message:
             should_prompt = False
 
@@ -1218,6 +1227,7 @@ async def on_message(message: discord.Message):
             parent_channel_id=parent_channel_id,
             source_agent=source_agent,
             source_deployment_id=source_deployment_id,
+            match_reason=match_reason,
         )
         tasks.append(task)
 
