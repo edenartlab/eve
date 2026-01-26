@@ -254,6 +254,7 @@ async def process_farcaster_cast(
     cast_hash: str,
     cast_data: Dict[str, Any],
     deployment_id: str,
+    match_reason: Optional[str] = None,
 ):
     """Process a Farcaster cast event - main processing logic"""
     event_doc = None
@@ -410,6 +411,7 @@ async def process_farcaster_cast(
                 update_endpoint=f"{get_api_url()}/v2/deployments/emission",
                 farcaster_hash=cast_hash,
                 farcaster_author_fid=author_fid,
+                social_match_reason=match_reason,
             ),
             llm_config=LLMConfig(model="claude-sonnet-4-5"),
             extra_tools={farcaster_tool.name: farcaster_tool},
@@ -846,11 +848,13 @@ class FarcasterClient(PlatformClient):
                     "process_farcaster_cast_fn",
                     environment_name="main",
                 )
-                func.spawn(cast_hash, cast_data, str(deployment.id))
+                func.spawn(cast_hash, cast_data, str(deployment.id), match_reason)
                 logger.info(f"Spawned task for cast {cast_hash}")
             else:
                 logger.info(f"Processing cast {cast_hash} locally")
-                await process_farcaster_cast(cast_hash, cast_data, str(deployment.id))
+                await process_farcaster_cast(
+                    cast_hash, cast_data, str(deployment.id), match_reason
+                )
         except Exception as e:
             logger.error(f"Failed to spawn Modal function: {e}")
             # Update event doc with failure

@@ -261,6 +261,7 @@ class TelegramClient(PlatformClient):
             # 1. Replies to the bot's messages
             # 2. @mentions of the bot's username
             force_reply = False
+            match_reason = None  # "mention" or "reply"
 
             # Check if this is a reply to bot's message
             reply_to = message.get("reply_to_message")
@@ -274,6 +275,7 @@ class TelegramClient(PlatformClient):
 
                 if replied_to_is_bot and replied_to_bot_id == bot_id:
                     force_reply = True
+                    match_reason = "reply"
                     logger.info(
                         f"[TELEGRAM-INTERACT] ✓ Message is reply to THIS bot (ID {bot_id}) - WILL RESPOND"
                     )
@@ -294,6 +296,7 @@ class TelegramClient(PlatformClient):
 
                 if bot_username.lower() in text.lower():
                     force_reply = True
+                    match_reason = "mention"
                     logger.info(
                         f"[TELEGRAM-INTERACT] ✓ Bot username '{bot_username}' found in text - WILL RESPOND"
                     )
@@ -325,6 +328,7 @@ class TelegramClient(PlatformClient):
 
                         if mentioned == bot_username.lower():
                             force_reply = True
+                            match_reason = "mention"
                             logger.info(
                                 f"[TELEGRAM-INTERACT] ✓ Bot mentioned in entities ('{mentioned}') - WILL RESPOND"
                             )
@@ -343,6 +347,7 @@ class TelegramClient(PlatformClient):
 
                         if mentioned_user_id == bot_id:
                             force_reply = True
+                            match_reason = "mention"
                             logger.info(
                                 f"[TELEGRAM-INTERACT] ✓ Bot mentioned via text_mention (ID {bot_id}) - WILL RESPOND"
                             )
@@ -449,6 +454,7 @@ class TelegramClient(PlatformClient):
                     telegram_thread_id=str(message_thread_id)
                     if message_thread_id
                     else None,
+                    social_match_reason=match_reason,
                 ),
             )
 

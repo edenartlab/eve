@@ -621,16 +621,21 @@ async def _cancel_session_tasks(session: Session) -> List[str]:
         {"session": session.id, "status": {"$in": ["pending", "running"]}}
     )
 
-    cancelled = []
-    for task in tasks:
+    if not tasks:
+        return []
+
+    async def cancel_task(task):
         try:
             tool = Tool.load(key=task.tool)
             await tool.async_cancel(task)
-            cancelled.append(str(task.id))
+            return str(task.id)
         except Exception as e:
             logger.warning(f"Failed to cancel task {task.id}: {e}")
+            return None
 
-    return cancelled
+    # Cancel all tasks in parallel
+    results = await asyncio.gather(*[cancel_task(task) for task in tasks])
+    return [r for r in results if r is not None]
 
 
 async def _cancel_child_sessions(
@@ -641,6 +646,8 @@ async def _cancel_child_sessions(
     Uses two methods to find child sessions:
     1. Tool calls with child_session field (from session_post, media_editor, etc.)
     2. Direct query for sessions with parent_session field
+
+    Cancellation is parallelized for better performance.
     """
     if cancelled_ids is None:
         cancelled_ids = set()
@@ -652,6 +659,10 @@ async def _cancel_child_sessions(
     cancelled_ids.add(str(session.id))
     cancelled = []
 
+    # Collect all child sessions to cancel
+    child_sessions_to_cancel = []  # List of (child_session, tool_call, message) tuples
+    messages_to_update = {}  # message_id -> message
+
     # Method 1: Find child sessions from tool calls (regardless of tool call status)
     messages = ChatMessage.find({"session": session.id})
 
@@ -659,10 +670,7 @@ async def _cancel_child_sessions(
         if not msg.tool_calls:
             continue
 
-        updated = False
         for tc in msg.tool_calls:
-            # Cancel ANY child session, not just pending/running tool calls
-            # The child session might still be running even if the tool call failed
             if tc.child_session:
                 child_session_id = str(tc.child_session)
                 if child_session_id in cancelled_ids:
@@ -674,63 +682,74 @@ async def _cancel_child_sessions(
                         "archived",
                         "finished",
                     ]:
-                        # Recursively cancel child session
-                        child_request = CancelSessionRequest(
-                            session_id=child_session_id, user_id=user_id
-                        )
-                        await _send_ably_cancel_signal(child_request)
-                        await _cancel_session_tasks(child_session)
-
-                        # Recursively cancel grandchildren
-                        grandchildren = await _cancel_child_sessions(
-                            child_session, user_id, cancelled_ids
-                        )
-                        cancelled.extend(grandchildren)
-
-                        cancelled.append(child_session_id)
+                        child_sessions_to_cancel.append((child_session, tc, msg))
+                        cancelled_ids.add(child_session_id)
 
                     # Update tool call status if it was pending/running
                     if tc.status in ["pending", "running"]:
                         tc.status = "cancelled"
                         tc.result = [
-                            {"status": "cancelled", "message": "Task cancelled by user"}
+                            {
+                                "status": "cancelled",
+                                "error": "The tool call was cancelled by the user",
+                            }
                         ]
-                        updated = True
+                        messages_to_update[msg.id] = msg
                 except Exception as e:
                     logger.warning(
-                        f"Failed to cancel child session {tc.child_session}: {e}"
+                        f"Failed to load child session {tc.child_session}: {e}"
                     )
 
-        if updated:
-            msg.save()
-
     # Method 2: Direct query for child sessions by parent_session field
-    # This catches any orphaned sessions not linked via tool calls
-    child_sessions = Session.find(
+    orphaned_sessions = Session.find(
         {"parent_session": session.id, "status": {"$nin": ["archived", "finished"]}}
     )
 
-    for child_session in child_sessions:
+    for child_session in orphaned_sessions:
         child_session_id = str(child_session.id)
-        if child_session_id in cancelled_ids:
-            continue
+        if child_session_id not in cancelled_ids:
+            child_sessions_to_cancel.append((child_session, None, None))
+            cancelled_ids.add(child_session_id)
 
+    # Save all updated messages
+    for msg in messages_to_update.values():
+        try:
+            msg.save()
+        except Exception as e:
+            logger.warning(f"Failed to save message {msg.id}: {e}")
+
+    if not child_sessions_to_cancel:
+        return cancelled
+
+    # Cancel all child sessions in parallel
+    async def cancel_single_child(child_session):
+        child_session_id = str(child_session.id)
         try:
             child_request = CancelSessionRequest(
                 session_id=child_session_id, user_id=user_id
             )
-            await _send_ably_cancel_signal(child_request)
-            await _cancel_session_tasks(child_session)
+            # Send Ably signal and cancel tasks in parallel
+            await asyncio.gather(
+                _send_ably_cancel_signal(child_request),
+                _cancel_session_tasks(child_session),
+            )
 
             # Recursively cancel grandchildren
             grandchildren = await _cancel_child_sessions(
                 child_session, user_id, cancelled_ids
             )
-            cancelled.extend(grandchildren)
-
-            cancelled.append(child_session_id)
+            return [child_session_id] + grandchildren
         except Exception as e:
             logger.warning(f"Failed to cancel child session {child_session_id}: {e}")
+            return []
+
+    # Run all child session cancellations in parallel
+    results = await asyncio.gather(
+        *[cancel_single_child(cs) for cs, _, _ in child_sessions_to_cancel]
+    )
+
+    for result in results:
+        cancelled.extend(result)
 
     return cancelled
 
@@ -751,8 +770,7 @@ async def _cancel_tool_call_child_session(
             if tc.id == tool_call_id or (
                 tool_call_index is not None and idx == tool_call_index
             ):
-                # Cancel child session regardless of tool call status
-                # The child session might still be running even if tool call failed
+                # Cancel child session if it exists
                 if tc.child_session:
                     try:
                         child_session = Session.from_mongo(tc.child_session)
@@ -763,8 +781,11 @@ async def _cancel_tool_call_child_session(
                             child_request = CancelSessionRequest(
                                 session_id=str(tc.child_session), user_id=user_id
                             )
-                            await _send_ably_cancel_signal(child_request)
-                            await _cancel_session_tasks(child_session)
+                            # Send Ably signal and cancel tasks in parallel
+                            await asyncio.gather(
+                                _send_ably_cancel_signal(child_request),
+                                _cancel_session_tasks(child_session),
+                            )
 
                             # Recursively cancel grandchildren
                             grandchildren = await _cancel_child_sessions(
@@ -773,24 +794,55 @@ async def _cancel_tool_call_child_session(
                             cancelled.extend(grandchildren)
 
                             cancelled.append(str(tc.child_session))
-
-                        # Update tool call status if it was pending/running
-                        if tc.status in ["pending", "running"]:
-                            tc.status = "cancelled"
-                            tc.result = [
-                                {
-                                    "status": "cancelled",
-                                    "message": "Task cancelled by user",
-                                }
-                            ]
-                            msg.save()
                     except Exception as e:
                         logger.warning(
                             f"Failed to cancel child session {tc.child_session}: {e}"
                         )
+
+                # Cancel the underlying Task (Modal job) if it exists
+                if tc.task:
+                    try:
+                        task = Task.from_mongo(tc.task)
+                        if task and task.status in ["pending", "running"]:
+                            tool = Tool.load(key=task.tool)
+                            if tool:
+                                await tool.async_cancel(task)
+                                logger.info(
+                                    f"Cancelled task {tc.task} for tool call {tool_call_id}"
+                                )
+                    except Exception as e:
+                        logger.warning(f"Failed to cancel task {tc.task}: {e}")
+
+                # Always update tool call status if it was pending/running
+                # This must happen even if there's no child_session
+                if tc.status in ["pending", "running"]:
+                    tc.status = "cancelled"
+                    tc.result = [
+                        {
+                            "status": "cancelled",
+                            "error": "The tool call was cancelled by the user",
+                        }
+                    ]
+                    msg.save()
+                    logger.info(
+                        f"Cancelled tool call {tool_call_id} (index {idx}) in message {msg.id}"
+                    )
+
                 break
 
     return cancelled
+
+
+async def _cancel_child_sessions_background(session: Session, user_id: str):
+    """Background task to cancel all child sessions."""
+    try:
+        cancelled = await _cancel_child_sessions(session, user_id)
+        logger.info(
+            f"Background cancellation completed for session {session.id}: "
+            f"{len(cancelled)} child sessions cancelled"
+        )
+    except Exception as e:
+        logger.error(f"Error in background child session cancellation: {e}")
 
 
 @handle_errors
@@ -804,29 +856,38 @@ async def handle_session_cancel(request: CancelSessionRequest):
         raise APIError("Unauthorized: User does not own this session", status_code=403)
 
     cancelled_tasks = []
-    cancelled_children = []
 
     try:
         if request.tool_call_id:
-            # Specific tool call cancellation - only cancel the child session
-            # Do NOT send cancel signal to parent or cancel parent's tasks
-            cancelled_children = await _cancel_tool_call_child_session(
-                session, request.user_id, request.tool_call_id, request.tool_call_index
+            # Specific tool call cancellation
+            # 1. Send Ably signal so the runtime stops waiting for this tool call
+            await _send_ably_cancel_signal(request)
+
+            # 2. Cancel child session and update tool call status in background
+            asyncio.create_task(
+                _cancel_tool_call_child_session(
+                    session,
+                    request.user_id,
+                    request.tool_call_id,
+                    request.tool_call_index,
+                )
             )
         else:
             # Full session cancellation
-            # 1. Send Ably cancel signal to this session
+            # 1. Send Ably cancel signal to this session (must be synchronous)
             await _send_ably_cancel_signal(request)
 
-            # 2. Cancel all pending/running tasks in this session
+            # 2. Cancel all pending/running tasks in this session (parallel)
             cancelled_tasks = await _cancel_session_tasks(session)
 
-            # 3. Cancel all child sessions
-            cancelled_children = await _cancel_child_sessions(session, request.user_id)
+            # 3. Cancel all child sessions in the background (non-blocking)
+            asyncio.create_task(
+                _cancel_child_sessions_background(session, request.user_id)
+            )
 
         logger.info(
             f"Cancelled session {request.session_id}: "
-            f"{len(cancelled_tasks)} tasks, {len(cancelled_children)} child sessions"
+            f"{len(cancelled_tasks)} tasks (child session cancellation running in background)"
         )
 
         return {
@@ -834,7 +895,7 @@ async def handle_session_cancel(request: CancelSessionRequest):
             "message": "Task cancelled by user",
             "session_id": request.session_id,
             "cancelled_tasks": cancelled_tasks,
-            "cancelled_child_sessions": cancelled_children,
+            "cancelled_child_sessions_in_background": True,
         }
 
     except Exception as e:
@@ -1503,7 +1564,11 @@ async def handle_extract_agent_prompts(request):
     prompt = prompt.replace("{agent_name}", agent_name)
 
     # Select model based on user subscription tier
-    model = DEFAULT_MODEL_PREMIUM if (user.subscriptionTier or 0) >= 1 else DEFAULT_MODEL_FREE
+    model = (
+        DEFAULT_MODEL_PREMIUM
+        if (user.subscriptionTier or 0) >= 1
+        else DEFAULT_MODEL_FREE
+    )
 
     # Make single LLM call with structured output using LLMContext with tracing
     context = LLMContext(

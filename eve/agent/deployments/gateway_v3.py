@@ -247,6 +247,7 @@ async def process_discord_message_for_agent(
     parent_channel_id: Optional[str] = None,
     source_agent: Optional[Agent] = None,
     source_deployment_id: Optional[str] = None,
+    match_reason: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
     Process a Discord message for a single agent.
@@ -512,6 +513,7 @@ async def process_discord_message_for_agent(
                         discord_channel_id=channel_id,
                         discord_message_id=message_id,
                         discord_guild_id=guild_id,
+                        social_match_reason=match_reason,
                     ),
                 ):
                     # Stream updates (logged by orchestrator)
@@ -931,7 +933,7 @@ async def eden_agents(ctx: discord.ApplicationContext):
             profile_url = construct_agent_profile_url(agent)
             can_write = deployment_can_write_to_channel(deployment, channel_id)
             suffix = "" if can_write else " (read-only)"
-            lines.append(f"- [{display_name}]({profile_url}){suffix}")
+            lines.append(f"- {display_name}: <{profile_url}>{suffix}")
 
         if not lines:
             await ctx.respond("No Eden agents found for this channel.", ephemeral=True)
@@ -1003,7 +1005,7 @@ async def eden_server_agents(ctx: discord.ApplicationContext):
             channels_display = (
                 ", ".join(channel_labels) if channel_labels else "No channels"
             )
-            lines.append(f"- [{display_name}]({profile_url}): {channels_display}")
+            lines.append(f"- {display_name}: <{profile_url}> — {channels_display}")
 
         await ctx.respond(
             f"Eden agents in **{ctx.guild.name}**:\n" + "\n".join(lines),
@@ -1163,6 +1165,14 @@ async def on_message(message: discord.Message):
     # Process for each following deployment
     tasks = []
     for deployment in following_deployments:
+        # Skip if this deployment's agent sent the message (avoid duplicate messages)
+        # The agent already has the tool call message in its session
+        if source_agent and str(source_agent.id) == str(deployment.agent):
+            logger.info(
+                f"Skipping message processing for deployment {deployment.id} - agent's own webhook message"
+            )
+            continue
+
         # Determine if this deployment should respond
         has_write_access = deployment_can_write_to_channel(
             deployment, effective_channel_id
@@ -1170,6 +1180,13 @@ async def on_message(message: discord.Message):
         was_mentioned = deployment.id in mentioned_ids
         was_reply_target = deployment.id in reply_ids
         should_prompt = (was_mentioned or was_reply_target) and has_write_access
+
+        # Determine match_reason for force reprompt logic
+        match_reason = None
+        if was_mentioned:
+            match_reason = "mention"
+        elif was_reply_target:
+            match_reason = "reply"
         if is_webhook_message:
             should_prompt = False
 
@@ -1210,6 +1227,7 @@ async def on_message(message: discord.Message):
             parent_channel_id=parent_channel_id,
             source_agent=source_agent,
             source_deployment_id=source_deployment_id,
+            match_reason=match_reason,
         )
         tasks.append(task)
 

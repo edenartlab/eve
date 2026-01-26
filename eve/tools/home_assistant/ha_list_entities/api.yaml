@@ -1,0 +1,15 @@
+name: HA List Entities
+description: List all Home Assistant entities, optionally filtered by domain.
+tip: |-
+  Use this to discover available entities. Common domains: sensor, switch, light, automation, scene, binary_sensor, counter, input_number.
+cost_estimate: 0
+output_type: string
+active: true
+visible: true
+handler: local
+parameters:
+  domain:
+    type: string
+    label: Domain
+    description: Optional domain to filter entities (e.g., sensor, switch, light, automation)
+    required: false

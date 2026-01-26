@@ -1,0 +1,25 @@
+name: Create Collection
+description: Create a new Collection to organize creations
+tip: Use this tool to create a new collection for grouping and organizing creations.
+cost_estimate: 1
+output_type: object
+active: true
+visible: false
+handler: modal
+parameters:
+  name:
+    type: string
+    label: Collection Name
+    description: The name of the collection to create
+    required: true
+  description:
+    type: string
+    label: Description
+    description: A description of the collection
+    required: false
+  public:
+    type: boolean
+    label: Public
+    description: Whether the collection is publicly visible
+    required: false
+    default: true

@@ -14,6 +14,7 @@ from eve.agent.agent import Agent
 from eve.agent.llm.llm import async_prompt as provider_async_prompt
 from eve.agent.llm.llm import async_prompt_stream as provider_async_prompt_stream
 from eve.agent.llm.llm import get_provider
+from eve.agent.llm.token_tracker import token_tracker
 from eve.agent.memory2.backend import memory2_backend
 from eve.agent.memory2.utils import select_messages
 from eve.agent.session.debug_logger import SessionDebugger
@@ -53,6 +54,41 @@ from .notifications import (
 )
 from .tools import process_tool_calls
 from .util import validate_prompt_session
+
+# Platform configuration for social media post reminders/forcing
+# Each platform has its own trigger field, tool name, and restriction parameters
+PLATFORM_CONFIGS = {
+    "discord": {
+        "post_tool_name": "discord_post",
+        "channel_type": "discord",
+        "trigger_field": "discord_channel_id",
+        "restriction_param": "channel_id",
+        "dm_pattern": "-dm-",
+        "dm_restriction_param": "discord_user_id",
+        "dm_config_field": "discord_user_id",
+    },
+    "telegram": {
+        "post_tool_name": "telegram_post",
+        "channel_type": "telegram",
+        "trigger_field": "telegram_chat_id",
+        "restriction_param": "channel_id",
+        "dm_pattern": None,  # No DM support for Telegram
+    },
+    "twitter": {
+        "post_tool_name": "tweet",
+        "channel_type": "twitter",
+        "trigger_field": "twitter_tweet_id",
+        "reply_param": "reply_to",
+        "reply_config_field": "twitter_tweet_id",
+    },
+    "farcaster": {
+        "post_tool_name": "farcaster_cast",
+        "channel_type": "farcaster",
+        "trigger_field": "farcaster_hash",
+        "reply_param": "reply_to",
+        "reply_config_field": "farcaster_hash",
+    },
+}
 
 
 def _resolve_triggering_user_id(
@@ -123,6 +159,11 @@ class PromptSessionRuntime:
         self.active_request_registered = False
         self._last_stream_result: Optional[Dict[str, Any]] = None
 
+        # Social platform post tracking for forced reprompt
+        self.social_post_used = False
+        self.social_reprompt_attempted = False
+        self.active_platform = None  # Platform config dict or None
+
         # Resolve billing users
         self.triggering_user_id = (
             _resolve_triggering_user_id(context) if context else None
@@ -141,6 +182,8 @@ class PromptSessionRuntime:
 
     async def run(self):
         """Async generator that yields SessionUpdates."""
+        # Track when this prompt run started for cancellation detection
+        self._prompt_start_time = datetime.now(timezone.utc)
         try:
             self._start_transaction()
             await self._setup_cancellation_listener()
@@ -221,6 +264,34 @@ class PromptSessionRuntime:
                 provider = self._select_provider()
                 llm_result: Dict[str, Any]
 
+                # Serialize the full LLM input for token tracking comparison
+                # Includes both messages and tool definitions (both count as input tokens)
+                full_prompt = None
+                try:
+                    if self.llm_context:
+                        parts = []
+                        # Serialize messages
+                        if self.llm_context.messages:
+                            for msg in self.llm_context.messages:
+                                role = getattr(msg, "role", "unknown")
+                                content = getattr(msg, "content", "") or ""
+                                parts.append(f"[{role.upper()}]\n{content}")
+                        # Serialize tool schemas (they count as input tokens too)
+                        if self.llm_context.tools:
+                            for tool_name, tool in self.llm_context.tools.items():
+                                if hasattr(tool, "anthropic_schema"):
+                                    schema = tool.anthropic_schema()
+                                    parts.append(
+                                        f"[TOOL:{tool_name}]\n{json.dumps(schema)}"
+                                    )
+                        full_prompt = "\n\n".join(parts)
+                except Exception:
+                    pass
+
+                # Flush token tracking before LLM call
+                if self.session_run_id:
+                    token_tracker.finish(self.session_run_id, full_prompt=full_prompt)
+
                 if self.stream:
                     self._last_stream_result = None
                     async for update in self._stream_llm_response(provider):
@@ -247,10 +318,46 @@ class PromptSessionRuntime:
                 async for update in self._process_tool_calls(assistant_message):
                     yield update
 
-                if llm_result.get("stop_reason") in ["stop", "completed"]:
-                    prompt_session_finished = True
+                if llm_result.get("stop_reason") in ["stop", "completed", "end_turn"]:
+                    # Check if we need to force the platform's post tool
+                    # Only force for @mentions, NOT DMs or replies
+                    should_force_post = (
+                        self.active_platform is not None  # Platform triggered this
+                        and not self._is_dm_session(self.active_platform)  # NOT a DM
+                        and self.context
+                        and self.context.update_config
+                        and self.context.update_config.social_match_reason
+                        == "mention"  # Only for @mentions
+                        and not self.social_post_used  # Hasn't used post tool
+                        and not self.social_reprompt_attempted  # Haven't tried forcing yet
+                        and self.llm_context.tools  # Tools are available
+                        and any(
+                            getattr(t, "name", None)
+                            == self.active_platform["post_tool_name"]
+                            or (
+                                isinstance(t, dict)
+                                and t.get("name")
+                                == self.active_platform["post_tool_name"]
+                            )
+                            for t in (
+                                self.llm_context.tools
+                                if isinstance(self.llm_context.tools, list)
+                                else []
+                            )
+                        )
+                    )
 
-                self.llm_context.tool_choice = "auto"
+                    if should_force_post:
+                        self.social_reprompt_attempted = True
+                        self.llm_context.tool_choice = self.active_platform[
+                            "post_tool_name"
+                        ]
+                        # Don't set prompt_session_finished - continue loop
+                    else:
+                        prompt_session_finished = True
+                        self.llm_context.tool_choice = "auto"
+                else:
+                    self.llm_context.tool_choice = "auto"
 
             yield SessionUpdate(
                 type=UpdateType.END_PROMPT, session_run_id=self.session_run_id
@@ -305,6 +412,188 @@ class PromptSessionRuntime:
         self.llm_context.messages = refreshed_messages
         self.llm_context.metadata.generation_id = str(uuid.uuid4())
 
+        # Inject social platform post reminder into last platform user message
+        self.active_platform = self._get_active_platform()
+        if self.active_platform:
+            self._inject_social_reminder(self.active_platform)
+            self._restrict_social_tool(self.active_platform)
+
+    def _get_active_platform(self) -> Optional[Dict[str, Any]]:
+        """Get the active platform config if any platform's trigger field is set.
+
+        Returns platform config dict if a social platform triggered this message,
+        or None otherwise. Only returns True when the current message is from
+        a social platform, not just when the session is for that platform.
+        """
+        if not self.context or not self.context.update_config:
+            return None
+
+        update_config = self.context.update_config
+        for platform_name, config in PLATFORM_CONFIGS.items():
+            trigger_field = config["trigger_field"]
+            if getattr(update_config, trigger_field, None) is not None:
+                return config
+
+        return None
+
+    def _is_dm_session(self, config: Dict[str, Any]) -> bool:
+        """Check if this is a DM session for the given platform.
+
+        Returns False if platform has no DM support.
+        """
+        dm_pattern = config.get("dm_pattern")
+        if not dm_pattern:
+            return False
+        session_key = self.session.session_key or ""
+        return dm_pattern in session_key
+
+    def _inject_social_reminder(self, config: Dict[str, Any]):
+        """Inject SystemReminder into the last platform user message."""
+        channel_type = config["channel_type"]
+        tool_name = config["post_tool_name"]
+
+        # Find last user message with the platform's channel type
+        for msg in reversed(self.llm_context.messages):
+            if (
+                msg.role == "user"
+                and hasattr(msg, "channel")
+                and msg.channel
+                and msg.channel.type == channel_type
+            ):
+                # Extract username from message.name or content
+                username = getattr(msg, "name", None) or "The user"
+                platform_display = channel_type.capitalize()
+
+                # Build the reminder based on platform type
+                if self._is_dm_session(config):
+                    # DM mode (currently only Discord supports this)
+                    dm_config_field = config.get("dm_config_field")
+                    target_id = getattr(
+                        self.context.update_config, dm_config_field, None
+                    )
+                    reminder = (
+                        f"\n\n├─────────────────────────────────────\n"
+                        f"│ Note: {platform_display} users cannot see your messages in this workspace. "
+                        f"To reply to or communicate with {username}, send a message to user {target_id} with the {tool_name} tool.\n"
+                        f"├─────────────────────────────────────"
+                    )
+                elif "reply_param" in config:
+                    # Reply-based platforms (Twitter, Farcaster)
+                    reply_config_field = config["reply_config_field"]
+                    target_id = getattr(
+                        self.context.update_config, reply_config_field, None
+                    )
+                    reminder = (
+                        f"\n\n├─────────────────────────────────────\n"
+                        f"│ Note: {platform_display} users cannot see your messages in this workspace. "
+                        f"To reply to or communicate with {username} on {platform_display}, use the {tool_name} tool with reply_to={target_id}.\n"
+                        f"├─────────────────────────────────────"
+                    )
+                else:
+                    # Channel-based platforms (Discord channel, Telegram)
+                    trigger_field = config["trigger_field"]
+                    target_id = getattr(self.context.update_config, trigger_field, None)
+                    reminder = (
+                        f"\n\n├─────────────────────────────────────\n"
+                        f"│ Note: {platform_display} users cannot see your messages in this workspace. "
+                        f"To reply to or communicate with {username} or others on {platform_display}, send a message to channel {target_id} with the {tool_name} tool.\n"
+                        f"├─────────────────────────────────────"
+                    )
+
+                msg.content = (msg.content or "") + reminder
+                break
+
+    def _restrict_social_tool(self, config: Dict[str, Any]):
+        """Restrict social platform tool to only allow posting to the current target.
+
+        For Discord/Telegram: restricts channel_id (or discord_user_id for DMs)
+        For Twitter/Farcaster: auto-fills reply_to with the triggering message ID
+        """
+        import copy
+
+        if not self.llm_context.tools:
+            return
+
+        tool_name = config["post_tool_name"]
+
+        # Find the platform's post tool
+        platform_tool = None
+        tool_key = None
+        tools = self.llm_context.tools
+        if isinstance(tools, dict):
+            for key, tool in tools.items():
+                if getattr(tool, "name", None) == tool_name or key == tool_name:
+                    platform_tool = tool
+                    tool_key = key
+                    break
+        elif isinstance(tools, list):
+            for i, tool in enumerate(tools):
+                if getattr(tool, "name", None) == tool_name:
+                    platform_tool = tool
+                    tool_key = i
+                    break
+
+        if not platform_tool:
+            return
+
+        # Make a copy to avoid modifying shared tool instances
+        platform_tool = copy.deepcopy(platform_tool)
+
+        # Handle DM vs channel for Discord/Telegram
+        if self._is_dm_session(config):
+            # DM mode - restrict to user ID
+            dm_config_field = config.get("dm_config_field")
+            target_id = getattr(self.context.update_config, dm_config_field, None)
+            param_name = config.get("dm_restriction_param")
+
+            # Hide channel_id to prevent confusion
+            restriction_param = config.get("restriction_param")
+            if (
+                restriction_param
+                and hasattr(platform_tool, "parameters")
+                and restriction_param in platform_tool.parameters
+            ):
+                platform_tool.parameters[restriction_param]["hide_from_agent"] = True
+        elif "reply_param" in config:
+            # Reply-based platforms (Twitter, Farcaster)
+            reply_config_field = config["reply_config_field"]
+            target_id = getattr(self.context.update_config, reply_config_field, None)
+            param_name = config["reply_param"]
+        else:
+            # Channel-based platforms
+            trigger_field = config["trigger_field"]
+            target_id = getattr(self.context.update_config, trigger_field, None)
+            param_name = config.get("restriction_param")
+
+            # For Discord channels, hide discord_user_id to prevent confusion
+            dm_restriction_param = config.get("dm_restriction_param")
+            if (
+                dm_restriction_param
+                and hasattr(platform_tool, "parameters")
+                and dm_restriction_param in platform_tool.parameters
+            ):
+                platform_tool.parameters[dm_restriction_param]["hide_from_agent"] = True
+
+        if not target_id or not param_name:
+            return
+
+        # Update the parameter with enum (choices) and default
+        if (
+            hasattr(platform_tool, "parameters")
+            and param_name in platform_tool.parameters
+        ):
+            platform_tool.parameters[param_name]["enum"] = [target_id]
+            platform_tool.parameters[param_name]["default"] = target_id
+            # Rebuild the model to reflect parameter changes
+            if hasattr(platform_tool, "update_parameters"):
+                platform_tool.update_parameters(platform_tool.parameters)
+
+        # Replace the tool in the context
+        if isinstance(self.llm_context.tools, dict):
+            self.llm_context.tools[tool_key] = platform_tool
+        elif isinstance(self.llm_context.tools, list):
+            self.llm_context.tools[tool_key] = platform_tool
+
     def _maybe_disable_tools(self):
         if self.tool_was_cancelled:
             self.llm_context.tools = {}
@@ -325,6 +614,7 @@ class PromptSessionRuntime:
         tool_calls_dict: Dict[int, Dict[str, Any]] = {}
         stop_reason = None
         tokens_spent = 0
+        llm_call_id = None
 
         async with trace_async_operation(
             "llm.stream", model=self.llm_context.config.model
@@ -340,6 +630,12 @@ class PromptSessionRuntime:
                         yield SessionUpdate(
                             type=UpdateType.ASSISTANT_TOKEN,
                             text=choice.delta.content,
+                            agent={
+                                "_id": str(self.actor.id),
+                                "username": self.actor.username,
+                                "name": self.actor.name,
+                                "userImage": self.actor.userImage,
+                            },
                             session_run_id=self.session_run_id,
                         )
                     if choice.delta and choice.delta.tool_calls:
@@ -360,6 +656,10 @@ class PromptSessionRuntime:
                 if hasattr(chunk, "usage") and chunk.usage:
                     tokens_spent = chunk.usage.total_tokens
 
+                # Capture llm_call_id from chunk (will be in last chunk for true streaming)
+                if hasattr(chunk, "llm_call_id") and chunk.llm_call_id:
+                    llm_call_id = chunk.llm_call_id
+
         tool_calls = self._materialize_tool_calls(tool_calls_dict)
         usage_payload = LLMUsage(
             total_tokens=tokens_spent,
@@ -372,6 +672,7 @@ class PromptSessionRuntime:
             "stop_reason": stop_reason,
             "tokens_spent": tokens_spent,
             "usage": usage_payload.model_dump(),
+            "llm_call_id": llm_call_id,
         }
         return
 
@@ -606,6 +907,14 @@ class PromptSessionRuntime:
         if not assistant_message.tool_calls:
             return
 
+        # Track if the active platform's post tool was used
+        if self.active_platform:
+            target_tool = self.active_platform["post_tool_name"]
+            for tc in assistant_message.tool_calls:
+                if tc.tool == target_tool:
+                    self.social_post_used = True
+                    break
+
         async with trace_async_operation(
             "tools.process_all", tool_count=len(assistant_message.tool_calls)
         ):
@@ -754,25 +1063,21 @@ class PromptSessionRuntime:
 
     async def _handle_session_cancelled(self):
         try:
-            # Cancel any running tasks in this session
-            await self._cancel_session_tasks()
-
-            # Cancel ALL child sessions (from parent_session field)
-            await self._cancel_all_child_sessions()
+            # Cancel tasks and child sessions in the background (non-blocking)
+            # This allows the main session to complete quickly
+            asyncio.create_task(self._cancel_all_tasks_and_children_background())
 
             last_message = self._fetch_last_message()
             if last_message and last_message.tool_calls:
                 updated = False
                 for idx, tool_call in enumerate(last_message.tool_calls):
-                    # Cancel child session for any tool call that has one
-                    # regardless of tool call status
-                    if tool_call.child_session:
-                        await self._cancel_child_session(tool_call.child_session)
-
                     if tool_call.status in ["pending", "running"]:
                         tool_call.status = "cancelled"
                         tool_call.result = [
-                            {"status": "cancelled", "message": "Task cancelled by user"}
+                            {
+                                "status": "cancelled",
+                                "error": "The tool call was cancelled by the user",
+                            }
                         ]
                         updated = True
 
@@ -782,7 +1087,7 @@ class PromptSessionRuntime:
                             tool_index=idx,
                             result={
                                 "status": "cancelled",
-                                "message": "Task cancelled by user",
+                                "error": "The tool call was cancelled by the user",
                             },
                             session_run_id=self.session_run_id,
                         )
@@ -826,22 +1131,48 @@ class PromptSessionRuntime:
                 type=UpdateType.END_PROMPT, session_run_id=self.session_run_id
             )
 
+    async def _cancel_all_tasks_and_children_background(self):
+        """Background task to cancel all tasks and child sessions in parallel."""
+        try:
+            # Run both cancellation operations in parallel
+            await asyncio.gather(
+                self._cancel_session_tasks(),
+                self._cancel_all_child_sessions(),
+                return_exceptions=True,
+            )
+        except Exception as e:
+            logger.error(f"Error in background cancellation: {e}")
+
     async def _cancel_all_child_sessions(self):
         """Cancel all child sessions by querying for sessions with parent_session field."""
+        child_session_ids = set()
+
+        # Method 1: Find child sessions by parent_session field
         child_sessions = Session.find(
             {
                 "parent_session": self.session.id,
                 "status": {"$nin": ["archived", "finished"]},
             }
         )
+        for cs in child_sessions:
+            child_session_ids.add(str(cs.id))
 
-        for child_session in child_sessions:
-            try:
-                await self._cancel_child_session(child_session.id)
-            except Exception as e:
-                logger.warning(
-                    f"Failed to cancel child session {child_session.id}: {e}"
-                )
+        # Method 2: Find child sessions from tool calls in all messages
+        messages = ChatMessage.find({"session": self.session.id})
+        for msg in messages:
+            if msg.tool_calls:
+                for tc in msg.tool_calls:
+                    if tc.child_session:
+                        child_session_ids.add(str(tc.child_session))
+
+        if not child_session_ids:
+            return
+
+        # Cancel all child sessions in parallel
+        await asyncio.gather(
+            *[self._cancel_child_session(ObjectId(sid)) for sid in child_session_ids],
+            return_exceptions=True,
+        )
 
     async def _cancel_session_tasks(self):
         """Cancel all pending/running tasks in this session."""
@@ -849,12 +1180,20 @@ class PromptSessionRuntime:
             {"session": self.session.id, "status": {"$in": ["pending", "running"]}}
         )
 
-        for task in tasks:
+        if not tasks:
+            return
+
+        async def cancel_task(task):
             try:
                 tool = Tool.load(key=task.tool)
                 await tool.async_cancel(task)
             except Exception as e:
                 logger.warning(f"Failed to cancel task {task.id}: {e}")
+
+        # Cancel all tasks in parallel
+        await asyncio.gather(
+            *[cancel_task(task) for task in tasks], return_exceptions=True
+        )
 
     async def _cancel_child_session(self, child_session_id: ObjectId):
         """Cancel a child session by sending Ably signal and cancelling its tasks."""
@@ -865,30 +1204,47 @@ class PromptSessionRuntime:
             if not child_session:
                 return
 
-            # Send Ably cancel signal to child session
-            ably_client = AblyRest(os.getenv("ABLY_PUBLISHER_KEY"))
-            channel_name = f"{os.getenv('DB')}-session-cancel-{child_session_id}"
-            channel = ably_client.channels.get(channel_name)
+            async def send_ably_signal():
+                # Send Ably cancel signal to child session
+                ably_client = AblyRest(os.getenv("ABLY_PUBLISHER_KEY"))
+                channel_name = f"{os.getenv('DB')}-session-cancel-{child_session_id}"
+                channel = ably_client.channels.get(channel_name)
 
-            await channel.publish(
-                "cancel",
-                {
-                    "session_id": str(child_session_id),
-                    "user_id": str(self.session.owner),
-                    "timestamp": datetime.now(timezone.utc).timestamp(),
-                },
-            )
+                await channel.publish(
+                    "cancel",
+                    {
+                        "session_id": str(child_session_id),
+                        "user_id": str(self.session.owner),
+                        "timestamp": datetime.now(timezone.utc).timestamp(),
+                    },
+                )
 
-            # Cancel tasks in child session
-            child_tasks = Task.find(
-                {"session": child_session_id, "status": {"$in": ["pending", "running"]}}
+            async def cancel_child_tasks():
+                # Cancel tasks in child session
+                child_tasks = Task.find(
+                    {
+                        "session": child_session_id,
+                        "status": {"$in": ["pending", "running"]},
+                    }
+                )
+                if not child_tasks:
+                    return
+
+                async def cancel_task(task):
+                    try:
+                        tool = Tool.load(key=task.tool)
+                        await tool.async_cancel(task)
+                    except Exception as e:
+                        logger.warning(f"Failed to cancel child task {task.id}: {e}")
+
+                await asyncio.gather(
+                    *[cancel_task(task) for task in child_tasks], return_exceptions=True
+                )
+
+            # Send Ably signal and cancel tasks in parallel
+            await asyncio.gather(
+                send_ably_signal(), cancel_child_tasks(), return_exceptions=True
             )
-            for task in child_tasks:
-                try:
-                    tool = Tool.load(key=task.tool)
-                    await tool.async_cancel(task)
-                except Exception as e:
-                    logger.warning(f"Failed to cancel child task {task.id}: {e}")
 
         except Exception as e:
             logger.warning(f"Failed to cancel child session {child_session_id}: {e}")
@@ -933,17 +1289,22 @@ class PromptSessionRuntime:
         Note: We only check for the "Response cancelled by user" system message,
         NOT for cancelled tool calls. A cancelled tool call (subsession) should
         not cancel the parent session - only the child was cancelled.
+
+        Only checks for cancellation messages created after this prompt run started,
+        so that old cancellations don't affect new prompts.
         """
         try:
-            # Check for cancellation message in session
-            cancel_messages = ChatMessage.find(
-                {
-                    "session": self.session.id,
-                    "content": "Response cancelled by user",
-                    "role": "system",
-                },
-                limit=1,
-            )
+            # Check for cancellation message in session created after this prompt started
+            query = {
+                "session": self.session.id,
+                "content": "Response cancelled by user",
+                "role": "system",
+            }
+            # Only check for cancellations that happened during this prompt run
+            if hasattr(self, "_prompt_start_time") and self._prompt_start_time:
+                query["createdAt"] = {"$gte": self._prompt_start_time}
+
+            cancel_messages = ChatMessage.find(query, limit=1)
             if cancel_messages:
                 logger.info(
                     f"Session {self.session.id} cancellation detected via database check"
@@ -1021,6 +1382,8 @@ def format_session_update(update: SessionUpdate, context: PromptSessionContext) 
         data["session_id"] = str(context.session.id)
     elif update.type == UpdateType.ASSISTANT_TOKEN:
         data["text"] = update.text
+        if update.agent:
+            data["agent"] = update.agent
     elif update.type == UpdateType.ASSISTANT_MESSAGE:
         data["content"] = update.message.content
         message_dict = update.message.model_dump(by_alias=True)
@@ -1155,6 +1518,8 @@ async def _run_multiple_actors(
     """Run prompt sessions for multiple actors in parallel."""
     update_queue: asyncio.Queue = asyncio.Queue()
     tasks = []
+    parent_session_run_id = context.session_run_id or str(uuid.uuid4())
+    context.session_run_id = parent_session_run_id
 
     async def run_actor_session(actor: Agent):
         stage_cm = (
@@ -1178,7 +1543,7 @@ async def _run_multiple_actors(
                     actor,
                     stream=stream,
                     is_client_platform=is_client_platform,
-                    session_run_id=actor_session_run_id,
+                    session_run_id=parent_session_run_id,
                     api_key_id=context.api_key_id,
                     instrumentation=instrumentation,
                     context=context,

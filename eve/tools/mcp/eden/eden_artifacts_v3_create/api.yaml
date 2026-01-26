@@ -1,5 +1,5 @@
 name: Eden Artifacts V3 Create
-description: Create a new Eden artifact (V3).
+description: Create a new Eden artifact (V3). Store structured data directly in `items` using proper JSON types (objects, arrays, numbers, booleans, strings).
 cost_estimate: 0
 output_type: string
 active: true
@@ -20,7 +20,7 @@ parameters:
   type:
     type: string
     label: Type
-    description: Artifact type/category.
+    description: Artifact type/category (e.g., "character_database", "storyboard", "world_config").
     required: true
   public:
     type: boolean
@@ -32,13 +32,15 @@ parameters:
     label: Session ID
     description: Optional session id associated with the artifact.
     required: false
-  content:
-    type: string
-    label: Content
-    description: Optional initial content for items.content.
-    required: false
   items:
     type: object
     label: Items
-    description: Optional initial items object (string values or nested objects).
+    description: |
+      The primary data storage. Use proper JSON structure with any types:
+      - Objects: {"characters": {"hero": {...}, "villain": {...}}}
+      - Arrays: {"scenes": [{...}, {...}]}
+      - Numbers: {"version": 2, "rating": 4.5}
+      - Booleans: {"published": true}
+      - Strings: {"title": "My Story"}
+      Do NOT stringify JSON - pass native objects/arrays directly.
     required: false

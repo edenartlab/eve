@@ -1,0 +1,26 @@
+name: HA Get History
+description: Get historical state data for a Home Assistant entity over a time period.
+tip: |-
+  Use this to analyze trends in energy usage, battery levels, power consumption, etc.
+  Great for understanding patterns in solar production, battery charge/discharge cycles.
+cost_estimate: 0
+output_type: string
+active: true
+visible: true
+handler: local
+parameters:
+  entity_id:
+    type: string
+    label: Entity ID
+    description: The entity ID to get history for (e.g., sensor.daily_pv_energy, sensor.battery_power)
+    required: true
+  start_time:
+    type: string
+    label: Start Time
+    description: Start time in ISO format (e.g., 2024-01-01T00:00:00Z)
+    required: false
+  end_time:
+    type: string
+    label: End Time
+    description: End time in ISO format (e.g., 2024-01-02T00:00:00Z)
+    required: false

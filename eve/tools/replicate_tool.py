@@ -35,6 +35,7 @@ class ReplicateTool(Tool):
             args = self._format_args_for_replicate(args)
             prediction = await self._create_prediction(args, webhook=False)
             await prediction.async_wait()
+
             if self.output_handler == "eden":
                 result = {"output": prediction.output[-1]["files"][0]}
             elif self.output_handler == "trainer":

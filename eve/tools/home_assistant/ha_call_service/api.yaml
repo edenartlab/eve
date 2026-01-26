@@ -1,0 +1,26 @@
+name: HA Call Service
+description: Call any Home Assistant service with custom parameters.
+tip: |-
+  Use this for advanced operations not covered by other tools.
+  Examples: scene.turn_on, input_number.set_value, counter.increment
+cost_estimate: 0
+output_type: string
+active: true
+visible: true
+handler: local
+parameters:
+  domain:
+    type: string
+    label: Domain
+    description: The service domain (e.g., scene, input_number, counter, light)
+    required: true
+  service:
+    type: string
+    label: Service
+    description: The service to call (e.g., turn_on, set_value, increment)
+    required: true
+  service_data:
+    type: object
+    label: Service Data
+    description: Optional service data as JSON object (e.g., {"entity_id":"scene.away_mode"})
+    required: false

@@ -3,6 +3,7 @@ import glob
 import json
 import os
 import random
+import time
 import traceback
 
 import click
@@ -360,6 +361,7 @@ def test(
             click.echo(click.style(f"\n\nTesting {tool.key}:", fg=color, bold=True))
         click.echo(click.style(f"Args: {dumps_json(args_to_test)}", fg=color))
 
+        start_time = time.time()
         try:
             if api:
                 user = get_my_eden_user()
@@ -375,11 +377,13 @@ def test(
             else:
                 result = await tool.async_run(args_to_test, mock=mock)
 
+            elapsed_time = time.time() - start_time
+
             if isinstance(result, dict) and result.get("error"):
                 test_info = f" [{test_name}]" if test_name else ""
                 click.echo(
                     click.style(
-                        f"\nFailed to test {tool.key}{test_info}: {result['error']}",
+                        f"\nFailed to test {tool.key}{test_info}: {result['error']} ({elapsed_time:.2f}s)",
                         fg="red",
                         bold=True,
                     )
@@ -389,13 +393,14 @@ def test(
                     "success": False,
                     "error": result["error"],
                     "result": None,
+                    "elapsed_time": elapsed_time,
                 }
             else:
                 result = prepare_result(result)
                 test_info = f" [{test_name}]" if test_name else ""
                 click.echo(
                     click.style(
-                        f"\nResult for {tool.key}{test_info}:\n{dumps_json(result, indent=2)}",
+                        f"\nResult for {tool.key}{test_info} ({elapsed_time:.2f}s):\n{dumps_json(result, indent=2)}",
                         fg=color,
                     )
                 )
@@ -404,14 +409,16 @@ def test(
                     "success": True,
                     "error": None,
                     "result": result,
+                    "elapsed_time": elapsed_time,
                 }
 
         except Exception as e:
+            elapsed_time = time.time() - start_time
             error_msg = str(e)
             test_info = f" [{test_name}]" if test_name else ""
             click.echo(
                 click.style(
-                    f"\nFailed to test {tool.key}{test_info}: {error_msg}",
+                    f"\nFailed to test {tool.key}{test_info}: {error_msg} ({elapsed_time:.2f}s)",
                     fg="red",
                     bold=True,
                 )
@@ -421,6 +428,7 @@ def test(
                 "success": False,
                 "error": error_msg,
                 "result": None,
+                "elapsed_time": elapsed_time,
             }
 
     async def async_run_tests(tools, api, parallel, test_filter):
@@ -528,21 +536,27 @@ def test(
     click.echo(click.style("EXECUTION SUMMARY", fg="cyan", bold=True))
     click.echo(click.style("=" * 60, fg="cyan", bold=True))
 
+    total_time = 0.0
     for result in results:
         if isinstance(result, dict) and "test_id" in result:
             test_id = result["test_id"]
+            elapsed = result.get("elapsed_time", 0.0)
+            total_time += elapsed
+            time_str = f" ({elapsed:.2f}s)"
 
             if result["success"]:
                 # Extract URLs from successful results
                 urls = extract_result_urls(result["result"])
                 if urls:
-                    click.echo(click.style(f"✓ {test_id}:", fg="green", bold=True))
+                    click.echo(
+                        click.style(f"✓ {test_id}{time_str}:", fg="green", bold=True)
+                    )
                     for url in urls:
                         click.echo(click.style(f"  → {url}", fg="green"))
                 else:
                     click.echo(
                         click.style(
-                            f"✓ {test_id}: Success (no URLs found)",
+                            f"✓ {test_id}{time_str}: Success (no URLs found)",
                             fg="green",
                             bold=True,
                         )
@@ -550,7 +564,8 @@ def test(
             else:
                 # Show error for failed results
                 error_msg = result["error"] or "Unknown error"
-                click.echo(click.style(f"✗ {test_id}:", fg="red", bold=True))
+                click.echo(click.style(f"✗ {test_id}{time_str}:", fg="red", bold=True))
                 click.echo(click.style(f"  → Error: {error_msg}", fg="red"))
 
     click.echo(click.style("=" * 60, fg="cyan", bold=True))
+    click.echo(click.style(f"Total time: {total_time:.2f}s", fg="cyan", bold=True))

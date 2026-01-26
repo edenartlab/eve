@@ -1,13 +1,12 @@
 name: Nano Banana
-description: Google's latest image editing model in Gemini 2.5 for generating and transforming images
-cost_estimate: 4 * n_samples
+description: Fast image generation and editing using Google's Gemini 2.5 Flash Image model
+tip: Use this for quick image generation tasks. Supports optional input images for editing.
+cost_estimate: 4
 output_type: image
 visible: true
 active: true
-base_model: nano-banana
-replicate_model: google/nano-banana
 thumbnail: app/nano_banana.jpg
-handler: replicate
+handler: modal
 parameters:
   prompt:
     type: string
@@ -22,41 +21,19 @@ parameters:
       type: image
     label: Input images
     description: Input images to transform or use as reference
-    # required: true
-    # min_length: 1
     tip: |-
       Optional input images that will be used as context or reference for the generation. You can provide multiple images.
+  aspect_ratio:
+    type: string
+    label: Aspect Ratio
+    description: The aspect ratio of the generated image
+    default: '1:1'
+    choices: ['1:1', '3:2', '2:3', '3:4', '4:3', '9:16', '16:9', '21:9']
   output_format:
     type: string
     label: Output format
     description: Format of the output image
     default: png
     choices: ["jpg", "png"]
-    required: false
     hide_from_user: true
     hide_from_agent: true
-  aspect_ratio:
-    type: string
-    label: Aspect Ratio
-    description: The aspect ratio of the generated image
-    default: 'match_input_image'
-    choices: ['match_input_image','1:1', '3:2', '2:3', '3:4', '4:3', '4:5', '5:4', '9:16', '16:9', '21:9']
-  seed:
-    type: integer
-    label: Seed
-    description: Set random seed for reproducibility. If blank, will be set to a random value.
-    tip: |-
-      You should only set this if you want to start from/copy the seed of a previous image. Unless one is specified, you should leave this blank!
-    minimum: 0
-    maximum: 2147483647
-    default: random
-  n_samples:
-    type: integer
-    label: Number of samples
-    description: Number of samples to generate
-    tip: |-
-      Will produce n_samples variations using the same prompt.
-    default: 1
-    minimum: 1
-    maximum: 4
-    alias: num_outputs

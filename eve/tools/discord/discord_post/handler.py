@@ -83,13 +83,58 @@ async def handler(context: ToolContext):
     # Get parameters
     channel_id = context.args.get("channel_id")
     discord_user_id = context.args.get("discord_user_id")
-    content = context.args["content"]
+    content = context.args.get("content", "")
     media_urls = context.args.get("media_urls", [])
     reply_to = context.args.get("reply_to")
 
     # Validate parameters
     if not discord_user_id and not channel_id:
         raise Exception("Either channel_id or discord_user_id must be provided")
+
+    # Validate that the channel/user matches the session's Discord target
+    # This prevents agents from posting to wrong channels based on memories
+    if context.session:
+        try:
+            session = Session.from_mongo(context.session)
+            if session:
+                # Check if this is a DM session
+                is_dm_session = session.session_key and "-dm-" in session.session_key
+
+                if is_dm_session:
+                    # For DM sessions, extract expected user_id from session_key
+                    # Format: discord-dm-{agent_id}-{user_id}
+                    expected_user_id = session.session_key.split("-")[-1]
+                    if discord_user_id and discord_user_id != expected_user_id:
+                        raise Exception(
+                            f"This Discord DM session only allows messaging user {expected_user_id}. "
+                            f"You tried to message user {discord_user_id}. "
+                            f"Please use discord_user_id={expected_user_id}."
+                        )
+                    if channel_id:
+                        raise Exception(
+                            f"This is a Discord DM session. Use discord_user_id={expected_user_id} "
+                            f"instead of channel_id to send messages."
+                        )
+                else:
+                    # For channel sessions, validate channel_id
+                    if session.discord_channel_id:
+                        if channel_id and channel_id != session.discord_channel_id:
+                            raise Exception(
+                                f"This Discord session only allows posting to channel {session.discord_channel_id}. "
+                                f"You tried to post to channel {channel_id}. "
+                                f"Please use channel_id={session.discord_channel_id}."
+                            )
+                        if discord_user_id:
+                            raise Exception(
+                                f"This is a Discord channel session. Use channel_id={session.discord_channel_id} "
+                                f"instead of discord_user_id to send messages."
+                            )
+        except Exception as e:
+            # If it's our validation error, re-raise it
+            if "This Discord" in str(e):
+                raise
+            # Otherwise log and continue (session lookup failed)
+            logger.warning(f"discord_post: Failed to validate session target: {e}")
 
     # Content can be empty only if media URLs are provided
     if (not content or not content.strip()) and not media_urls:
@@ -465,6 +510,30 @@ async def send_webhook_message(
         else agent.userImage
     )
 
+    # Download media files if provided
+    downloaded_files = []
+    if media_urls:
+        async with aiohttp.ClientSession() as session:
+            for url in media_urls:
+                try:
+                    async with session.get(url) as response:
+                        if response.status == 200:
+                            filename = os.path.basename(url.split("?")[0])
+                            if not filename or "." not in filename:
+                                content_type = response.headers.get("content-type", "")
+                                if "image" in content_type:
+                                    ext = content_type.split("/")[-1].split(";")[0]
+                                    filename = f"image.{ext}"
+                                elif "video" in content_type:
+                                    ext = content_type.split("/")[-1].split(";")[0]
+                                    filename = f"video.{ext}"
+                                else:
+                                    filename = "attachment"
+                            file_data = await response.read()
+                            downloaded_files.append((filename, file_data))
+                except Exception as e:
+                    logger.error(f"Failed to download media from {url}: {str(e)}")
+
     messages = []
     async with aiohttp.ClientSession() as session:
         for i, chunk in enumerate(chunks):
@@ -475,23 +544,38 @@ async def send_webhook_message(
                 "allowed_mentions": {"parse": ["users", "roles"]},
             }
 
-            # Add media URLs to the last chunk (webhooks don't support file uploads well)
-            # So we just append URLs as text
-            if i == len(chunks) - 1 and media_urls:
-                media_content = "\n".join(media_urls)
-                payload["content"] = (
-                    f"{chunk}\n\n{media_content}" if chunk else media_content
+            # Attach files to the last chunk
+            is_last = i == len(chunks) - 1
+            if is_last and downloaded_files:
+                # Use multipart/form-data for file uploads
+                data = aiohttp.FormData()
+                data.add_field(
+                    "payload_json",
+                    __import__("json").dumps(payload),
+                    content_type="application/json",
                 )
-
-            async with session.post(webhook_url, json=payload) as response:
-                if response.status not in [200, 204]:
-                    error_text = await response.text()
-                    raise Exception(f"Webhook request failed: {error_text}")
-
-                # Discord returns the message object on success
-                if response.status == 200:
-                    msg_data = await response.json()
-                    messages.append(msg_data)
+                for idx, (filename, file_data) in enumerate(downloaded_files):
+                    data.add_field(
+                        f"files[{idx}]",
+                        file_data,
+                        filename=filename,
+                        content_type="application/octet-stream",
+                    )
+                async with session.post(webhook_url, data=data) as response:
+                    if response.status not in [200, 204]:
+                        error_text = await response.text()
+                        raise Exception(f"Webhook request failed: {error_text}")
+                    if response.status == 200:
+                        msg_data = await response.json()
+                        messages.append(msg_data)
+            else:
+                async with session.post(webhook_url, json=payload) as response:
+                    if response.status not in [200, 204]:
+                        error_text = await response.text()
+                        raise Exception(f"Webhook request failed: {error_text}")
+                    if response.status == 200:
+                        msg_data = await response.json()
+                        messages.append(msg_data)
 
     # Build output URLs (webhook messages don't have guild_id in response, need to construct)
     guild_id = channel_config.guild_id or deployment.config.discord.guild_id

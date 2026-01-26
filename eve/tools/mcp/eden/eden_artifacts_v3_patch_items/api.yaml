@@ -1,5 +1,5 @@
 name: Eden Artifacts V3 Patch Items
-description: Set or unset artifact item keys (V3).
+description: Apply JSON Patch operations (RFC 6902) to artifact items. Supports add, remove, and replace operations with JSON Pointer paths.
 cost_estimate: 0
 output_type: string
 active: true
@@ -17,18 +17,27 @@ parameters:
     label: Artifact ID
     description: Artifact id to update.
     required: true
-  set:
-    type: object
-    label: Set
-    description: Object of key -> value updates.
-    required: false
-  unset:
+  operations:
     type: array
-    label: Unset
-    description: List of keys to remove.
-    required: false
+    label: Operations
+    description: JSON Patch operations to apply.
+    required: true
     items:
-      type: string
+      type: object
+      properties:
+        op:
+          type: string
+          description: Operation type.
+          enum: ["add", "remove", "replace"]
+          required: true
+        path:
+          type: string
+          description: JSON Pointer path (e.g., /characters/0/name).
+          required: true
+        value:
+          type: any
+          description: Value to set (required for add and replace operations).
+          required: false
   reason:
     type: string
     label: Reason

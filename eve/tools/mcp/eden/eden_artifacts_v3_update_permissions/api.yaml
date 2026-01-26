@@ -1,5 +1,5 @@
 name: Eden Artifacts V3 Update Permissions
-description: Replace artifact permissions (V3).
+description: Replace artifact permissions (V3). Permissions are artifact-level only.
 cost_estimate: 0
 output_type: string
 active: true
@@ -20,7 +20,7 @@ parameters:
   permissions:
     type: array
     label: Permissions
-    description: Array of permission objects (subjectId, level, optional key).
+    description: Array of permission objects (subjectId, level).
     required: true
     items:
       type: object
@@ -34,7 +34,3 @@ parameters:
           description: Permission level.
           enum: ["viewer", "editor", "owner"]
           required: true
-        key:
-          type: string
-          description: Optional item key or dotpath.
-          required: false

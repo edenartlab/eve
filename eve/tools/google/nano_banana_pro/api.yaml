@@ -27,8 +27,8 @@ parameters:
     type: string
     label: Aspect Ratio
     description: The aspect ratio of the generated image
-    default: 'match_input_image'
-    choices: ['match_input_image','1:1', '3:2', '2:3', '3:4', '4:3', '4:5', '5:4', '9:16', '16:9', '21:9']
+    default: '1:1'
+    choices: ['1:1', '3:2', '2:3', '3:4', '4:3', '4:5', '5:4', '9:16', '16:9', '21:9']
   image_size:
     type: string
     label: Image Size

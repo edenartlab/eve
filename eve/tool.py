@@ -44,6 +44,19 @@ class ToolContext(BaseModel):
     session: Optional[str] = None
     message: Optional[str] = None
     tool_call_id: Optional[str] = None
+    cancellation_event: Optional[Any] = None  # asyncio.Event
+
+    class Config:
+        arbitrary_types_allowed = True
+
+    def is_cancelled(self) -> bool:
+        """Check if the tool has been cancelled."""
+        return self.cancellation_event is not None and self.cancellation_event.is_set()
+
+    def check_cancelled(self):
+        """Raise CancelledError if the tool has been cancelled."""
+        if self.is_cancelled():
+            raise asyncio.CancelledError("Tool cancelled by user")
 
 
 @Collection("tools3")
@@ -579,7 +592,11 @@ class Tool(Document, ABC):
         """Wrapper for calling a tool directly and waiting for the result"""
 
         async def async_wrapper(
-            self, args: Dict, mock: bool = False, save_thumbnails: bool = False
+            self,
+            args: Dict,
+            mock: bool = False,
+            save_thumbnails: bool = False,
+            cancellation_event: asyncio.Event = None,
         ):
             try:
                 user_id = args.pop("user_id", None)
@@ -599,6 +616,7 @@ class Tool(Document, ABC):
                     session=str(session_id) if session_id else None,
                     message=str(message_id) if message_id else None,
                     tool_call_id=str(tool_call_id) if tool_call_id else None,
+                    cancellation_event=cancellation_event,
                 )
 
                 if mock:
@@ -856,7 +874,7 @@ def get_tools_from_api_files(
     }
 
     if not include_inactive:
-        tools = {k: v for k, v in tools.items() if v.status != "inactive"}
+        tools = {k: v for k, v in tools.items() if v.active}
 
     return tools
 

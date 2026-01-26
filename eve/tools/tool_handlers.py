@@ -4,6 +4,7 @@ from eve.tool_constants import (
     ABRAHAM_TOOLS,
     CHIBA_TOOLS,
     GIGABRAIN_TOOLS,
+    HOME_ASSISTANT_TOOLS,
     VERDELIS_TOOLS,
     WZRD_TOOLS,
 )
@@ -63,7 +64,10 @@ HANDLER_PATHS = {
     "openai_image_edit": "openai_image_edit.handler",
     "veo2": "google.veo2.handler",
     "veo3": "google.veo3.handler",
+    "nano_banana": "google.nano_banana.handler",
     "nano_banana_pro": "google.nano_banana_pro.handler",
+    "nano_banana_fal": "fal.nano_banana_fal.handler",
+    "nano_banana_pro_fal": "fal.nano_banana_pro_fal.handler",
     "captions": "captions.handler",
     "printify": "printify.handler",
     "tiktok_post": "tiktok.tiktok_post.handler",
@@ -86,6 +90,7 @@ HANDLER_PATHS = {
     **{tool: f"gigabrain.{tool}.handler" for tool in GIGABRAIN_TOOLS},
     **{tool: f"chiba.{tool}.handler" for tool in CHIBA_TOOLS},
     **{tool: f"wzrd.{tool}.handler" for tool in WZRD_TOOLS},
+    **{tool: f"home_assistant.{tool}.handler" for tool in HOME_ASSISTANT_TOOLS},
 }
 
 

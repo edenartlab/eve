@@ -168,7 +168,7 @@ async def async_run_tool_call_with_cancellation(
 
                 return {
                     "status": "cancelled",
-                    "error": "Task cancelled by user",
+                    "error": "The tool call was cancelled by the user",
                     "cost": getattr(task, "cost", 0),
                     "task": getattr(task, "id", None),
                 }
@@ -237,7 +237,10 @@ async def process_tool_call(
         ):
             tool_call.status = "cancelled"
             cancelled_result = [
-                {"status": "cancelled", "message": "Task cancelled by user"}
+                {
+                    "status": "cancelled",
+                    "error": "The tool call was cancelled by the user",
+                }
             ]
             tool_call.result = cancelled_result
             if assistant_message.tool_calls and tool_call_index < len(
@@ -272,7 +275,10 @@ async def process_tool_call(
         if cancellation_event and cancellation_event.is_set():
             tool_call.status = "cancelled"
             cancelled_result = [
-                {"status": "cancelled", "message": "Task cancelled by user"}
+                {
+                    "status": "cancelled",
+                    "error": "The tool call was cancelled by the user",
+                }
             ]
             tool_call.result = cancelled_result
             if assistant_message.tool_calls and tool_call_index < len(
@@ -318,7 +324,10 @@ async def process_tool_call(
             tool_call.status = "cancelled"
             # Include the result from the handler if available, otherwise use default
             cancelled_result = result.get("result") or [
-                {"status": "cancelled", "message": "Task cancelled by user"}
+                {
+                    "status": "cancelled",
+                    "error": "The tool call was cancelled by the user",
+                }
             ]
             tool_call.result = cancelled_result
 

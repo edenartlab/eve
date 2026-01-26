@@ -8,6 +8,7 @@ tests/out
 dist
 logs/
 *.log
+eve/data/token-tracker/
 scripts/analytics/data
 scripts/analytics/results
 .claude

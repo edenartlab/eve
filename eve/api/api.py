@@ -27,10 +27,14 @@ from eve.api.api_functions import (
     generate_lora_thumbnails_fn,
     memory2_process_cold_sessions_fn,
     rotate_agent_metadata_fn,
-    run,
-    run_task,
     run_task_replicate,
     topup_mars_college_manna_fn,
+)
+from eve.api.api_functions import (
+    run as _run,
+)
+from eve.api.api_functions import (
+    run_task as _run_task,
 )
 from eve.api.api_requests import (
     AgentPromptsExtractionRequest,
@@ -87,6 +91,7 @@ from eve.api.handlers import (
     handle_v2_deployment_update,
 )
 from eve.api.runner_tasks import download_clip_models
+from eve.api.v3.router import router as v3_router
 from eve.concepts import (
     create_concept_thumbnail,
     handle_concept_create,
@@ -189,6 +194,7 @@ web_app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+web_app.include_router(v3_router)
 
 api_key_header = APIKeyHeader(name="X-Api-Key", auto_error=False)
 bearer_scheme = HTTPBearer(auto_error=False)
@@ -582,6 +588,7 @@ async def catch_all_exception_handler(request, exc):
 
 # Modal app setup
 media_cache_vol = modal.Volume.from_name("media-cache", create_if_missing=True)
+token_tracker_vol = modal.Volume.from_name("token-tracker", create_if_missing=True)
 
 app = modal.App(
     name=app_name,
@@ -614,7 +621,10 @@ image = (
     max_containers=10,
     scaledown_window=60,
     timeout=3600 * 3,  # 3 hours
-    volumes={"/data/media-cache": media_cache_vol},
+    volumes={
+        "/data/media-cache": media_cache_vol,
+        "/data/token-tracker": token_tracker_vol,
+    },
 )
 @modal.concurrent(max_inputs=25)
 @modal.asgi_app()
@@ -644,8 +654,21 @@ run = app.function(
     image=image,
     max_containers=10,
     timeout=3600,
-    volumes={"/data/media-cache": media_cache_vol},
-)(modal.concurrent(max_inputs=4)(run))
+    volumes={
+        "/data/media-cache": media_cache_vol,
+        "/data/token-tracker": token_tracker_vol,
+    },
+)(modal.concurrent(max_inputs=4)(_run))
+
+run_3h = app.function(
+    image=image,
+    max_containers=4,
+    timeout=3600 * 3,  # 3 hours for long-running tools (reel, etc.)
+    volumes={
+        "/data/media-cache": media_cache_vol,
+        "/data/token-tracker": token_tracker_vol,
+    },
+)(modal.concurrent(max_inputs=2)(_run))
 
 
 run_task = app.function(
@@ -653,8 +676,11 @@ run_task = app.function(
     min_containers=2,
     max_containers=10,
     timeout=3600,
-    volumes={"/data/media-cache": media_cache_vol},
-)(modal.concurrent(max_inputs=4)(run_task))
+    volumes={
+        "/data/media-cache": media_cache_vol,
+        "/data/token-tracker": token_tracker_vol,
+    },
+)(modal.concurrent(max_inputs=4)(_run_task))
 
 
 run_task_replicate = app.function(
@@ -662,7 +688,10 @@ run_task_replicate = app.function(
     min_containers=2,
     max_containers=10,
     timeout=3600,
-    volumes={"/data/media-cache": media_cache_vol},
+    volumes={
+        "/data/media-cache": media_cache_vol,
+        "/data/token-tracker": token_tracker_vol,
+    },
 )(modal.concurrent(max_inputs=4)(run_task_replicate))
 
 

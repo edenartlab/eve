@@ -99,10 +99,17 @@ async def handler(context: ToolContext):
 
     output_type = context.args.get("output", "image")
 
+    # Get cancellation event from context
+    cancellation_event = context.cancellation_event
+
     if output_type == "image":
-        return await handle_image_creation(context.args, context.user, context.agent)
+        return await handle_image_creation(
+            context.args, context.user, context.agent, cancellation_event
+        )
     elif output_type == "video":
-        return await handle_video_creation(context.args, context.user, context.agent)
+        return await handle_video_creation(
+            context.args, context.user, context.agent, cancellation_event
+        )
     else:
         raise Exception(f"Invalid output type: {output_type}")
 
@@ -131,8 +138,16 @@ async def handle_mock_creation(context: ToolContext):
         raise Exception(f"Invalid output type: {output_type}")
 
 
-async def handle_image_creation(args: dict, user: str = None, agent: str = None):
+async def handle_image_creation(
+    args: dict, user: str = None, agent: str = None, cancellation_event=None
+):
     """Handle image creation - copied from original create tool handler"""
+
+    # Helper function to check cancellation and return early if cancelled
+    def check_cancelled():
+        if cancellation_event and cancellation_event.is_set():
+            return True
+        return False
 
     # nano_banana_pro is enabled by default
     # if a specific user is provided (e.g. from the website or api), check if paying user has access to veo3 and disable it if not
@@ -277,7 +292,11 @@ async def handle_image_creation(args: dict, user: str = None, agent: str = None)
 
         args.update(aspect_ratio_to_dimensions(aspect_ratio))
 
-        result = await txt2img.async_run(args, save_thumbnails=True)
+        if check_cancelled():
+            return {"status": "cancelled", "output": []}
+        result = await txt2img.async_run(
+            args, save_thumbnails=True, cancellation_event=cancellation_event
+        )
 
     #########################################################
     # Flux Dev Lora
@@ -313,7 +332,11 @@ async def handle_image_creation(args: dict, user: str = None, agent: str = None)
         else:
             args.update({"lora_strength": 0.0})
 
-        result = await flux_dev_lora.async_run(args, save_thumbnails=True)
+        if check_cancelled():
+            return {"status": "cancelled", "output": []}
+        result = await flux_dev_lora.async_run(
+            args, save_thumbnails=True, cancellation_event=cancellation_event
+        )
 
     #########################################################
     # Flux Dev
@@ -374,7 +397,11 @@ async def handle_image_creation(args: dict, user: str = None, agent: str = None)
 
         args.update(aspect_ratio_to_dimensions(aspect_ratio))
 
-        result = await flux_dev.async_run(args, save_thumbnails=True)
+        if check_cancelled():
+            return {"status": "cancelled", "output": []}
+        result = await flux_dev.async_run(
+            args, save_thumbnails=True, cancellation_event=cancellation_event
+        )
         # Todo: incorporate style_image / style_strength ?
 
     #########################################################
@@ -396,7 +423,11 @@ async def handle_image_creation(args: dict, user: str = None, agent: str = None)
         if seed:
             args["seed"] = seed
 
-        result = await flux_kontext.async_run(args, save_thumbnails=True)
+        if check_cancelled():
+            return {"status": "cancelled", "output": []}
+        result = await flux_kontext.async_run(
+            args, save_thumbnails=True, cancellation_event=cancellation_event
+        )
 
     # Nano Banana (original)
     # elif image_tool == "nano_banana":
@@ -437,7 +468,11 @@ async def handle_image_creation(args: dict, user: str = None, agent: str = None)
 
         # args["image_size"] = "4K"
 
-        result = await nano_banana_pro.async_run(args, save_thumbnails=True)
+        if check_cancelled():
+            return {"status": "cancelled", "output": []}
+        result = await nano_banana_pro.async_run(
+            args, save_thumbnails=True, cancellation_event=cancellation_event
+        )
 
     #########################################################
     # OpenAI Image Generate
@@ -461,7 +496,11 @@ async def handle_image_creation(args: dict, user: str = None, agent: str = None)
         if user:
             args["user"] = str(user)
 
-        result = await openai_image_generate.async_run(args, save_thumbnails=True)
+        if check_cancelled():
+            return {"status": "cancelled", "output": []}
+        result = await openai_image_generate.async_run(
+            args, save_thumbnails=True, cancellation_event=cancellation_event
+        )
 
     #########################################################
     # OpenAI Image Edit
@@ -510,7 +549,11 @@ async def handle_image_creation(args: dict, user: str = None, agent: str = None)
                             )
 
                     txt2img = Tool.load("txt2img")
-                    result = await txt2img.async_run(args_pre)
+                    if check_cancelled():
+                        return {"status": "cancelled", "output": []}
+                    result = await txt2img.async_run(
+                        args_pre, cancellation_event=cancellation_event
+                    )
                     filename = result["output"][0]["filename"]
                     init_image = get_full_url(filename)
                     tool_calls.append(
@@ -519,7 +562,11 @@ async def handle_image_creation(args: dict, user: str = None, agent: str = None)
                     intermediate_outputs["lora_init_image"] = result["output"]
                 else:
                     flux_dev_lora = Tool.load("flux_dev_lora")
-                    result = await flux_dev_lora.async_run(args_pre)
+                    if check_cancelled():
+                        return {"status": "cancelled", "output": []}
+                    result = await flux_dev_lora.async_run(
+                        args_pre, cancellation_event=cancellation_event
+                    )
                     filename = result["output"][0]["filename"]
                     init_image = get_full_url(filename)
                     tool_calls.append(
@@ -552,11 +599,19 @@ async def handle_image_creation(args: dict, user: str = None, agent: str = None)
 
         if init_image:
             args["image"] = [init_image]
-            result = await openai_image_edit.async_run(args, save_thumbnails=True)
+            if check_cancelled():
+                return {"status": "cancelled", "output": []}
+            result = await openai_image_edit.async_run(
+                args, save_thumbnails=True, cancellation_event=cancellation_event
+            )
 
         else:
             openai_image_generate = Tool.load("openai_image_generate")
-            result = await openai_image_generate.async_run(args, save_thumbnails=True)
+            if check_cancelled():
+                return {"status": "cancelled", "output": []}
+            result = await openai_image_generate.async_run(
+                args, save_thumbnails=True, cancellation_event=cancellation_event
+            )
 
     #########################################################
     # Seedream 3
@@ -580,7 +635,11 @@ async def handle_image_creation(args: dict, user: str = None, agent: str = None)
         if seed:
             args["seed"] = seed
 
-        result = await seedream3.async_run(args, save_thumbnails=True)
+        if check_cancelled():
+            return {"status": "cancelled", "output": []}
+        result = await seedream3.async_run(
+            args, save_thumbnails=True, cancellation_event=cancellation_event
+        )
 
     #########################################################
     # Seedream 4.5
@@ -614,7 +673,11 @@ async def handle_image_creation(args: dict, user: str = None, agent: str = None)
                 f"Use sequential_image_generation to generate exactly **{n_samples}** individual images in sequence. Do **NOT** make a grid/contact sheet/collage/panel layout. Make {n_samples} images. {prompt}"
             )
 
-        result = await seedream45.async_run(args, save_thumbnails=True)
+        if check_cancelled():
+            return {"status": "cancelled", "output": []}
+        result = await seedream45.async_run(
+            args, save_thumbnails=True, cancellation_event=cancellation_event
+        )
 
         # throw exception if there was an error
         if result.get("status") == "failed" or "output" not in result:
@@ -622,7 +685,11 @@ async def handle_image_creation(args: dict, user: str = None, agent: str = None)
 
         # retry once if fewer images than requested
         if len(result.get("output", [])) < n_samples:
-            result = await seedream45.async_run(args, save_thumbnails=True)
+            if check_cancelled():
+                return {"status": "cancelled", "output": []}
+            result = await seedream45.async_run(
+                args, save_thumbnails=True, cancellation_event=cancellation_event
+            )
 
     #########################################################
     # GPT Image 1.5 Edit
@@ -651,13 +718,21 @@ async def handle_image_creation(args: dict, user: str = None, agent: str = None)
             "num_images": min(4, n_samples),
         }
 
-        result = await gpt_image_15_edit.async_run(args, save_thumbnails=True)
+        if check_cancelled():
+            return {"status": "cancelled", "output": []}
+        result = await gpt_image_15_edit.async_run(
+            args, save_thumbnails=True, cancellation_event=cancellation_event
+        )
 
     else:
         raise Exception("Invalid args", args, image_tool)
 
     #########################################################
     # Final result
+    # Check for cancellation from result status
+    if result.get("status") == "cancelled":
+        return {"status": "cancelled", "output": []}
+
     if result.get("status") == "failed" or "output" not in result:
         raise Exception(f"Error in /create: {result.get('error')}")
 
@@ -686,8 +761,16 @@ async def handle_image_creation(args: dict, user: str = None, agent: str = None)
     return final_result
 
 
-async def handle_video_creation(args: dict, user: str = None, agent: str = None):
+async def handle_video_creation(
+    args: dict, user: str = None, agent: str = None, cancellation_event=None
+):
     """Handle video creation - copied from create_video tool handler"""
+
+    # Helper function to check cancellation and return early if cancelled
+    def check_cancelled():
+        if cancellation_event and cancellation_event.is_set():
+            return True
+        return False
 
     # veo3 is enabled by default
     # if a specific user is provided (e.g. from the website or api), check if paying user has access to veo3 and disable it if not
@@ -803,7 +886,11 @@ async def handle_video_creation(args: dict, user: str = None, agent: str = None)
                 )
             try:
                 create = Tool.load("create")
-                result = await create.async_run(args, save_thumbnails=True)
+                if check_cancelled():
+                    return {"status": "cancelled", "output": None}
+                result = await create.async_run(
+                    args, save_thumbnails=True, cancellation_event=cancellation_event
+                )
                 start_image = get_full_url(result["output"][0]["filename"])
                 tool_calls.append(
                     {"tool": create.key, "args": args, "output": start_image}
@@ -858,7 +945,11 @@ async def handle_video_creation(args: dict, user: str = None, agent: str = None)
         if seed:
             args["seed"] = seed
 
-        result = await runway.async_run(args, save_thumbnails=True)
+        if check_cancelled():
+            return {"status": "cancelled", "output": None}
+        result = await runway.async_run(
+            args, save_thumbnails=True, cancellation_event=cancellation_event
+        )
 
     #########################################################
     # Kling
@@ -880,7 +971,11 @@ async def handle_video_creation(args: dict, user: str = None, agent: str = None)
             if end_image:
                 args.update({"end_image": end_image})
 
-            result = await kling_pro.async_run(args, save_thumbnails=True)
+            if check_cancelled():
+                return {"status": "cancelled", "output": None}
+            result = await kling_pro.async_run(
+                args, save_thumbnails=True, cancellation_event=cancellation_event
+            )
 
         # else, use kling 2.1
         else:
@@ -896,7 +991,11 @@ async def handle_video_creation(args: dict, user: str = None, agent: str = None)
             if end_image:
                 args.update({"end_image": end_image})
 
-            result = await kling.async_run(args, save_thumbnails=True)
+            if check_cancelled():
+                return {"status": "cancelled", "output": None}
+            result = await kling.async_run(
+                args, save_thumbnails=True, cancellation_event=cancellation_event
+            )
 
     #########################################################
     # Kling v2.5 (img2vid via FAL)
@@ -915,7 +1014,11 @@ async def handle_video_creation(args: dict, user: str = None, agent: str = None)
         if end_image:
             args["tail_image_url"] = end_image
 
-        result = await kling_v25.async_run(args, save_thumbnails=True)
+        if check_cancelled():
+            return {"status": "cancelled", "output": None}
+        result = await kling_v25.async_run(
+            args, save_thumbnails=True, cancellation_event=cancellation_event
+        )
 
     #########################################################
     # Seedance
@@ -949,7 +1052,11 @@ async def handle_video_creation(args: dict, user: str = None, agent: str = None)
         if seed:
             args["seed"] = seed
 
-        result = await seedance1.async_run(args, save_thumbnails=True)
+        if check_cancelled():
+            return {"status": "cancelled", "output": None}
+        result = await seedance1.async_run(
+            args, save_thumbnails=True, cancellation_event=cancellation_event
+        )
 
     #########################################################
     # Veo-2
@@ -982,7 +1089,11 @@ async def handle_video_creation(args: dict, user: str = None, agent: str = None)
         #         "end_image": end_image,
         #     })
 
-        result = await veo2.async_run(args, save_thumbnails=True)
+        if check_cancelled():
+            return {"status": "cancelled", "output": None}
+        result = await veo2.async_run(
+            args, save_thumbnails=True, cancellation_event=cancellation_event
+        )
 
     #########################################################
     # Veo-3
@@ -1015,7 +1126,11 @@ async def handle_video_creation(args: dict, user: str = None, agent: str = None)
         if seed:
             args["seed"] = seed
 
-        result = await veo3.async_run(args, save_thumbnails=True)
+        if check_cancelled():
+            return {"status": "cancelled", "output": None}
+        result = await veo3.async_run(
+            args, save_thumbnails=True, cancellation_event=cancellation_event
+        )
 
     #########################################################
     # Hebra
@@ -1034,7 +1149,11 @@ async def handle_video_creation(args: dict, user: str = None, agent: str = None)
             "aspectRatio": aspect_ratio,
         }
 
-        result = await hedra.async_run(args, save_thumbnails=True)
+        if check_cancelled():
+            return {"status": "cancelled", "output": None}
+        result = await hedra.async_run(
+            args, save_thumbnails=True, cancellation_event=cancellation_event
+        )
 
     #########################################################
     # Runway3 (Runway Aleph)
@@ -1066,13 +1185,21 @@ async def handle_video_creation(args: dict, user: str = None, agent: str = None)
         if seed:
             args["seed"] = seed
 
-        result = await runway_aleph.async_run(args, save_thumbnails=True)
+        if check_cancelled():
+            return {"status": "cancelled", "output": None}
+        result = await runway_aleph.async_run(
+            args, save_thumbnails=True, cancellation_event=cancellation_event
+        )
 
     else:
         raise Exception("Invalid video tool", video_tool)
 
     #########################################################
     # Final video is now generated
+    # Check for cancellation from result status
+    if result.get("status") == "cancelled":
+        return {"status": "cancelled", "output": None}
+
     if "output" in result and result["output"]:
         final_video = get_full_url(result["output"][0]["filename"])
     else:
@@ -1092,8 +1219,14 @@ async def handle_video_creation(args: dict, user: str = None, agent: str = None)
                 "num_inference_steps": 24,
             }
             thinksound = Tool.load("thinksound")
-            sound_fx = await thinksound.async_run(args, save_thumbnails=True)
-            final_video = get_full_url(sound_fx["output"][0]["filename"])
+            if check_cancelled():
+                # Return without sound effects if cancelled
+                pass
+            else:
+                sound_fx = await thinksound.async_run(
+                    args, save_thumbnails=True, cancellation_event=cancellation_event
+                )
+                final_video = get_full_url(sound_fx["output"][0]["filename"])
             tool_calls.append(
                 {"tool": thinksound.key, "args": args, "output": final_video}
             )

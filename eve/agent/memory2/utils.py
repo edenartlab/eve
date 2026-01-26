@@ -6,7 +6,6 @@ and other parts of the codebase (session, handlers, etc.).
 """
 
 import traceback
-from datetime import datetime, timezone
 from typing import Dict, List, Optional
 
 from bson import ObjectId
@@ -205,9 +204,6 @@ def select_messages(
             valid_messages.append(ChatMessage(**msg))
         except Exception as e:
             logger.warning(f"Skipping message {msg.get('_id')} in memory: {e}")
-
-    # Filter out cancelled tool calls from the messages
-    valid_messages = [msg.filter_cancelled_tool_calls() for msg in valid_messages]
 
     return valid_messages
 

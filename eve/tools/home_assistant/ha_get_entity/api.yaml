@@ -1,0 +1,16 @@
+name: HA Get Entity
+description: Fetch the current state and attributes of a specific Home Assistant entity.
+tip: |-
+  Use this to check the state of any entity (sensor, switch, light, etc.).
+  Example entity IDs: sensor.battery_power, switch.shellypro4pm_bodywork, light.pixelblaze_1
+cost_estimate: 0
+output_type: string
+active: true
+visible: true
+handler: local
+parameters:
+  entity_id:
+    type: string
+    label: Entity ID
+    description: The entity ID to fetch (e.g., sensor.battery_power, switch.shellypro4pm_bodywork)
+    required: true

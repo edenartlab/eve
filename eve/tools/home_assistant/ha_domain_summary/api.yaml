@@ -1,0 +1,16 @@
+name: HA Domain Summary
+description: Get a summary overview of all entities in a specific Home Assistant domain.
+tip: |-
+  Use this for a quick overview of all devices in a category.
+  Common domains: sensor, switch, light, automation, scene, binary_sensor
+cost_estimate: 0
+output_type: string
+active: true
+visible: true
+handler: local
+parameters:
+  domain:
+    type: string
+    label: Domain
+    description: The domain to summarize (e.g., sensor, switch, light, automation)
+    required: true
