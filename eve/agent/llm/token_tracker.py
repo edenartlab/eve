@@ -59,6 +59,7 @@ import re
 import threading
 import time
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
@@ -494,6 +495,8 @@ class TokenTracker:
         self._initialized = False
         self._flush_fn: Optional[Callable[[Dict[str, Any]], bool]] = None
         self._last_cleanup = time.time()
+        # Background thread pool for file I/O - max 2 workers to avoid too many open files
+        self._executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="token_tracker")
 
     def _cleanup_expired(self) -> None:
         """Remove expired tracking entries to prevent memory leaks."""
@@ -729,7 +732,10 @@ class TokenTracker:
             return False
 
     def _finish(self, session_run_id: str, full_prompt: Optional[str] = None) -> bool:
-        """Internal: Flush a specific tracking session to storage."""
+        """Internal: Flush a specific tracking session to storage.
+
+        File I/O is performed in a background thread to avoid blocking the main loop.
+        """
         try:
             with self._lock:
                 if session_run_id not in self._calls:
@@ -737,7 +743,7 @@ class TokenTracker:
 
                 call_data = self._calls.pop(session_run_id)
 
-            # Process outside lock to avoid holding it too long
+            # Process data preparation synchronously (fast, in-memory operations)
             if full_prompt:
                 call_data["chunks"].append({
                     "category": "_full_prompt",
@@ -780,10 +786,21 @@ class TokenTracker:
             except Exception:
                 pass
 
-            if self._flush_fn:
-                return self._flush_fn(call_data)
-            else:
-                return self._flush_to_csv(call_data)
+            # Submit file I/O to background thread pool to avoid blocking main loop
+            def background_flush():
+                try:
+                    if self._flush_fn:
+                        self._flush_fn(call_data)
+                    else:
+                        self._flush_to_csv(call_data)
+                except Exception as e:
+                    try:
+                        logger.warning(f"[TokenTracker] Background flush failed: {e}")
+                    except Exception:
+                        pass
+
+            self._executor.submit(background_flush)
+            return True
 
         except Exception as e:
             try:
