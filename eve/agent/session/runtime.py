@@ -449,6 +449,8 @@ class PromptSessionRuntime:
 
     def _inject_social_reminder(self, config: Dict[str, Any]):
         """Inject SystemReminder into the last platform user message."""
+        from eve.user import User
+
         channel_type = config["channel_type"]
         tool_name = config["post_tool_name"]
 
@@ -460,8 +462,37 @@ class PromptSessionRuntime:
                 and msg.channel
                 and msg.channel.type == channel_type
             ):
-                # Extract username from message.name or content
-                username = getattr(msg, "name", None) or "The user"
+                # Get username from sender's User record based on platform
+                username = "The user"
+                sender_id = getattr(msg, "sender", None)
+                if sender_id:
+                    try:
+                        user = User.from_mongo(sender_id)
+                        if user:
+                            if channel_type == "discord":
+                                username = (
+                                    user.discordUsername or user.username or "The user"
+                                )
+                            elif channel_type == "telegram":
+                                username = (
+                                    getattr(user, "telegramUsername", None)
+                                    or user.username
+                                    or "The user"
+                                )
+                            elif channel_type == "twitter":
+                                username = (
+                                    user.twitterUsername or user.username or "The user"
+                                )
+                            elif channel_type == "farcaster":
+                                username = (
+                                    user.farcasterUsername
+                                    or user.username
+                                    or "The user"
+                                )
+                            else:
+                                username = user.username or "The user"
+                    except Exception:
+                        pass  # Fallback to default
                 platform_display = channel_type.capitalize()
 
                 # Build the reminder based on platform type

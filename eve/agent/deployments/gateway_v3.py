@@ -248,6 +248,7 @@ async def process_discord_message_for_agent(
     source_agent: Optional[Agent] = None,
     source_deployment_id: Optional[str] = None,
     match_reason: Optional[str] = None,
+    is_dm: bool = False,
 ) -> Dict[str, Any]:
     """
     Process a Discord message for a single agent.
@@ -510,9 +511,10 @@ async def process_discord_message_for_agent(
                     agent=agent,
                     user_id=sender.id,
                     update_config=SessionUpdateConfig(
-                        discord_channel_id=channel_id,
+                        discord_channel_id=channel_id if not is_dm else None,
                         discord_message_id=message_id,
                         discord_guild_id=guild_id,
+                        discord_user_id=author_id if is_dm else None,
                         social_match_reason=match_reason,
                     ),
                 ):
@@ -1228,6 +1230,7 @@ async def on_message(message: discord.Message):
             source_agent=source_agent,
             source_deployment_id=source_deployment_id,
             match_reason=match_reason,
+            is_dm=is_dm,
         )
         tasks.append(task)
 

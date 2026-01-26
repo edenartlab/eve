@@ -88,6 +88,7 @@ def is_downloadable_file(value):
                 value.startswith(("http://", "https://"))
                 and "x.com" not in value
                 and "pbs.twimg.com" not in value
+                and "discord.com" not in value
                 and not any(
                     value.endswith(ext)
                     for ext in [
