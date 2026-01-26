@@ -461,6 +461,10 @@ async def handle_image_creation(
         if aspect_ratio != "auto":
             if aspect_ratio == "9:21":
                 aspect_ratio = "9:16"  # Nano Banana Pro doesn't support 9:21
+            elif aspect_ratio == "4:5":
+                aspect_ratio = "3:4"  # Nano Banana Pro doesn't support 4:5
+            elif aspect_ratio == "5:4":
+                aspect_ratio = "4:3"  # Nano Banana Pro doesn't support 5:4
             args["aspect_ratio"] = aspect_ratio
 
         if reference_images:
@@ -681,7 +685,8 @@ async def handle_image_creation(
 
         # throw exception if there was an error
         if result.get("status") == "failed" or "output" not in result:
-            raise Exception(f"Error in Seedream4.5: {result.get('error')}")
+            error_msg = result.get("error") or "Unknown error (no output returned)"
+            raise Exception(f"Error in Seedream4.5: {error_msg}")
 
         # retry once if fewer images than requested
         if len(result.get("output", [])) < n_samples:
@@ -734,7 +739,8 @@ async def handle_image_creation(
         return {"status": "cancelled", "output": []}
 
     if result.get("status") == "failed" or "output" not in result:
-        raise Exception(f"Error in /create: {result.get('error')}")
+        error_msg = result.get("error") or "Unknown error (no output returned)"
+        raise Exception(f"Error in /create ({image_tool}): {error_msg}")
 
     final_result = [get_full_url(r["filename"]) for r in result["output"]]
 
@@ -1200,11 +1206,16 @@ async def handle_video_creation(
     if result.get("status") == "cancelled":
         return {"status": "cancelled", "output": None}
 
+    if result.get("status") == "failed":
+        error_msg = result.get("error") or "Unknown error"
+        raise Exception(f"Error in /create ({video_tool}): {error_msg}")
+
     if "output" in result and result["output"]:
         final_video = get_full_url(result["output"][0]["filename"])
     else:
-        logger.error(f"Raw result from {video_tool}:", result)
-        raise Exception(f"No output from {video_tool}:", result)
+        logger.error(f"Raw result from {video_tool}: {result}")
+        error_msg = result.get("error") or f"No output returned from {video_tool}"
+        raise Exception(f"Error in /create ({video_tool}): {error_msg}")
 
     tool_calls.append({"tool": video_tool, "args": args, "output": final_video})
 

@@ -570,6 +570,12 @@ class Tool(Document, ABC):
                 and isinstance(args[field], str)
             ):
                 args[field] = json.loads(args[field])
+            if (
+                parameter.get("type") == "array"
+                and field in args
+                and isinstance(args[field], str)
+            ):
+                args[field] = json.loads(args[field])
             if field in args:
                 prepared_args[field] = args[field]
             elif parameter.get("default") == "random":
