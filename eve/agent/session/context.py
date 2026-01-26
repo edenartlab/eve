@@ -13,7 +13,7 @@ from eve.agent.agent import Agent
 from eve.agent.llm.prompts.agent_session_template import agent_session_template
 from eve.agent.llm.prompts.social_media_template import social_media_template
 from eve.agent.llm.prompts.system_template import system_template
-from eve.agent.llm.token_tracker import token_tracker
+from eve.agent.llm.token_tracker import render_template_with_token_tracking, token_tracker
 from eve.agent.llm.util import is_fake_llm_mode, is_test_mode_prompt
 from eve.agent.memory2.backend import memory2_backend
 from eve.agent.memory2.utils import (
@@ -498,6 +498,7 @@ async def build_system_message(
     tools: Dict[str, Tool],
     instrumentation=None,
     trigger_context: Optional[dict] = None,  # {"name": str, "prompt": str}
+    session_run_id: Optional[str] = None,  # For token tracking
 ):  # Get the last speaker ID for memory prioritization
     # Get concepts
     concepts = Concept.find({"agent": actor.id, "deleted": {"$ne": True}})
@@ -600,8 +601,11 @@ async def build_system_message(
 
     current_date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
-    # Build system prompt with memory context
-    content = system_template.render(
+    # Build system prompt with memory context (each component is tracked for token analysis)
+    content = render_template_with_token_tracking(
+        system_template,
+        session_run_id=session_run_id,
+        prefix="system",
         name=actor.name,
         current_date=current_date,
         description=actor.description,
@@ -882,6 +886,7 @@ async def build_llm_context(
     # session_run_id links to ChatMessage.observability.session_run_id in the database
     token_tracker.register_call(
         agent_id=actor.id,
+        agent_name=actor.username,
         session_id=session.id,
         user_id=context.initiating_user_id,
         session_run_id=context.session_run_id,
@@ -951,6 +956,7 @@ async def build_llm_context(
         tools,
         instrumentation=instrumentation,
         trigger_context=trigger_context,
+        session_run_id=context.session_run_id,
     )
 
     messages = [system_message]
@@ -1013,9 +1019,7 @@ async def build_llm_context(
     )
     llm_context.instrumentation = instrumentation
 
-    # Track all context components with a single call
-    # Note: memory, social_instructions, concepts, loras are computed inside
-    # build_system_message and included in system_message_content
+    # Track tools and messages (system message components are tracked in build_system_message)
     if context.session_run_id:
         token_tracker.track_context(
             session_run_id=context.session_run_id,
@@ -1025,7 +1029,6 @@ async def build_llm_context(
             tools=tools,
             messages=messages,
             trigger_context=trigger_context,
-            system_message_content=system_message.content,
         )
 
     return llm_context
@@ -1042,6 +1045,7 @@ async def build_agent_session_system_message(
     actor: Agent,
     tools: Dict[str, Tool],
     instrumentation=None,
+    session_run_id: Optional[str] = None,  # For token tracking
 ) -> ChatMessage:
     """Build system message for an agent_session with chatroom framing.
 
@@ -1090,8 +1094,11 @@ async def build_agent_session_system_message(
             instrumentation=instrumentation,
         )
 
-    # Render the agent session template
-    content = agent_session_template.render(
+    # Render the agent session template (each component is tracked for token analysis)
+    content = render_template_with_token_tracking(
+        agent_session_template,
+        session_run_id=session_run_id,
+        prefix="agent_session",
         name=actor.name,
         description=actor.description,
         persona=actor.persona,
@@ -1155,6 +1162,7 @@ async def build_agent_session_llm_context(
     # session_run_id links to ChatMessage.observability.session_run_id in the database
     token_tracker.register_call(
         agent_id=actor.id,
+        agent_name=actor.username,
         session_id=agent_session.id,
         user_id=context.initiating_user_id,
         session_run_id=context.session_run_id,
@@ -1217,6 +1225,7 @@ async def build_agent_session_llm_context(
         actor,
         tools,
         instrumentation=instrumentation,
+        session_run_id=context.session_run_id,
     )
 
     messages = [system_message]
@@ -1326,7 +1335,7 @@ async def build_agent_session_llm_context(
     else:
         tool_choice = "auto"
 
-    # Track all context components with a single call (agent_session prefix)
+    # Track tools and messages (system message components are tracked in build_agent_session_system_message)
     if context.session_run_id:
         token_tracker.track_context(
             session_run_id=context.session_run_id,
@@ -1335,7 +1344,6 @@ async def build_agent_session_llm_context(
             user=user,
             tools=tools,
             messages=messages,
-            system_message_content=system_message.content,
             prefix="agent_session",
         )
 
