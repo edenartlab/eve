@@ -17,23 +17,34 @@ database in ChatMessage.observability.session_run_id for the assistant
 message output.
 
 Usage:
-    from eve.agent.llm.token_tracker import token_tracker
+    from eve.agent.llm.token_tracker import render_template_with_token_tracking, token_tracker
 
     # Register a new LLM call - returns a tracker handle
     tracker = token_tracker.register_call(
         agent_id=agent.id,
+        agent_name=agent.username,
         session_id=session.id,
         user_id=user.id,
         session_run_id=context.session_run_id,
     )
 
-    # Track context using the handle
+    # Track system message components via template rendering
+    content = render_template_with_token_tracking(
+        system_template,
+        session_run_id=context.session_run_id,
+        prefix="system",
+        name=actor.name,
+        memory=memory,
+        persona=actor.persona,
+        # ... all template variables are tracked as system/{key}
+    )
+
+    # Track tools and messages separately
     tracker.track_context(
         agent=actor,
         session=session,
         tools=tools,
         messages=messages,
-        system_message_content=system_message.content,
     )
 
     # Finish tracking
@@ -82,6 +93,64 @@ def estimate_tokens(text: str) -> int:
         return int(len(text) / 4.5)
     except Exception:
         return 0
+
+
+def render_template_with_token_tracking(
+    template,
+    session_run_id: Optional[str] = None,
+    prefix: str = "system",
+    **kwargs
+) -> str:
+    """
+    Render a Jinja template while tracking each component's tokens.
+
+    This function wraps template.render() and automatically tracks each
+    kwarg as a separate token category. This allows granular token analysis
+    without polluting the calling code with tracking logic.
+
+    Args:
+        template: Jinja2 Template object
+        session_run_id: The session run ID for token tracking (optional)
+        prefix: Category prefix for tracking (e.g., "system" or "agent_session")
+        **kwargs: All arguments to pass to template.render()
+
+    Returns:
+        The rendered template string
+
+    Example:
+        content = render_template_with_token_tracking(
+            system_template,
+            session_run_id=context.session_run_id,
+            prefix="system",
+            name=actor.name,
+            memory=memory,
+            persona=actor.persona,
+        )
+        # Tracks: system/name, system/memory, system/persona, etc.
+    """
+    import json
+
+    # Track each component if session_run_id is provided
+    if session_run_id:
+        try:
+            for key, value in kwargs.items():
+                if value is not None:
+                    # Convert to string for tracking
+                    if isinstance(value, str):
+                        content = value
+                    elif isinstance(value, (list, dict)):
+                        content = json.dumps(value, default=str)
+                    else:
+                        content = str(value)
+
+                    if content:  # Only track non-empty content
+                        token_tracker._add_chunk(session_run_id, f"{prefix}/{key}", content)
+        except Exception:
+            # Never let tracking errors affect the render
+            pass
+
+    # Always render the template
+    return template.render(**kwargs)
 
 
 def normalize_for_comparison(text: str) -> str:
@@ -227,37 +296,33 @@ class TrackerHandle:
         tools: Dict = None,
         messages: List = None,
         trigger_context: Dict = None,
-        system_message_content: str = None,
         prefix: str = "system",
         **extras,
     ) -> None:
         """
-        Extract and track all token usage from context objects.
+        Extract and track token usage from context objects.
 
-        Tracks mutually exclusive components that sum to total input tokens:
-        - system_message: The full system message content
+        Tracks:
         - tool_schemas/*: Each tool's schema (sent as separate API param)
         - messages: Combined conversation history (excluding tool results)
         - messages/tool_results: Tool call results from conversation history
 
+        Note: System message components (memory, persona, etc.) are tracked
+        separately via render_template_with_token_tracking() in build_system_message.
+
         Args:
-            agent: Agent object (not tracked separately - included in system_message)
-            session: Session object (not tracked separately - included in system_message)
+            agent: Agent object (for future use)
+            session: Session object (for future use)
             user: User object (for future use)
             tools: Dict of Tool objects (extracts schemas)
             messages: List of ChatMessage objects (tracks by role)
-            trigger_context: Dict with trigger info (not tracked separately)
-            system_message_content: The final rendered system message
+            trigger_context: Dict with trigger info (for future use)
             prefix: Category prefix ("system" or "agent_session")
             **extras: Any additional string values to track
         """
         try:
             if self._finished:
                 return
-
-            # Track the complete system message (includes identity, persona, memory, etc.)
-            if system_message_content:
-                self.add_chunk(f"{prefix}/system_message", system_message_content)
 
             # Tool schemas (sent as separate API parameter, but counts as input tokens)
             if tools:
@@ -487,6 +552,7 @@ class TokenTracker:
         user_id: Optional[Any] = None,
         session_run_id: Optional[str] = None,
         model: Optional[str] = None,
+        agent_name: Optional[str] = None,
     ) -> TrackerHandle:
         """
         Register a new LLM call to track.
@@ -497,6 +563,7 @@ class TokenTracker:
             user_id: Optional user who triggered this call
             session_run_id: Unique ID for this prompt session run
             model: Optional model name being used
+            agent_name: Optional human-readable agent name (username)
 
         Returns:
             TrackerHandle for this call (use for all subsequent operations)
@@ -513,6 +580,7 @@ class TokenTracker:
                     "session_run_id": run_id,
                     "timestamp": datetime.now(timezone.utc).isoformat(),
                     "agent_id": agent_id_str,
+                    "agent_name": _safe_str(agent_name),
                     "session_id": session_id_str,
                     "user_id": _safe_str(user_id),
                     "model": model,
@@ -618,8 +686,9 @@ class TokenTracker:
                 writer = csv.writer(f)
                 if not usage_exists:
                     writer.writerow([
-                        "session_run_id", "timestamp", "agent_id", "session_id",
-                        "user_id", "model", "category", "tokens", "char_count",
+                        "session_run_id", "timestamp", "agent_id", "agent_name",
+                        "session_id", "user_id", "model", "category", "tokens",
+                        "char_count",
                     ])
 
                 for chunk in call_data["chunks"]:
@@ -627,6 +696,7 @@ class TokenTracker:
                         call_data["session_run_id"],
                         call_data["timestamp"],
                         call_data["agent_id"],
+                        call_data.get("agent_name", ""),
                         call_data["session_id"],
                         call_data["user_id"],
                         call_data["model"],
@@ -750,7 +820,6 @@ class TokenTracker:
         tools: Dict = None,
         messages: List = None,
         trigger_context: Dict = None,
-        system_message_content: str = None,
         prefix: str = "system",
         **extras,
     ) -> None:
@@ -759,6 +828,9 @@ class TokenTracker:
 
         This is a convenience method that doesn't require passing a handle.
         Use after register_call() with the same session_run_id.
+
+        Note: System message components (memory, persona, etc.) are tracked
+        separately via render_template_with_token_tracking() in build_system_message.
         """
         try:
             with self._lock:
@@ -779,7 +851,6 @@ class TokenTracker:
                 tools=tools,
                 messages=messages,
                 trigger_context=trigger_context,
-                system_message_content=system_message_content,
                 prefix=prefix,
                 **extras,
             )
