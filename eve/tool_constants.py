@@ -157,17 +157,18 @@ CALCULATOR_MCP_TOOLS = ["calculator_calculate"]
 EDEN_MCP_TOOLS = [
     # BEGIN GENERATED EDEN MCP TOOLS
     # auto-generated
+    "eden_artifacts_v3_create",
+    "eden_artifacts_v3_delete",
+    "eden_artifacts_v3_get",
+    "eden_artifacts_v3_get_permissions",
+    "eden_artifacts_v3_history",
+    "eden_artifacts_v3_list",
+    "eden_artifacts_v3_patch_items",
+    "eden_artifacts_v3_update",
+    "eden_artifacts_v3_update_permissions",
     "eden_ping",
     "eden_search_creations",
-    "eden_artifacts_v3_list",
-    "eden_artifacts_v3_get",
-    "eden_artifacts_v3_create",
-    "eden_artifacts_v3_update",
-    "eden_artifacts_v3_delete",
-    "eden_artifacts_v3_patch_items",
-    "eden_artifacts_v3_get_permissions",
-    "eden_artifacts_v3_update_permissions",
-    "eden_artifacts_v3_history",
+    "eden_v3_sessions_prompt",
     # END GENERATED EDEN MCP TOOLS
 ]
 
