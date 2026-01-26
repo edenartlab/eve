@@ -834,11 +834,14 @@ async def process_farcaster_cast_fn(
     cast_hash: str,
     cast_data: dict,
     deployment_id: str,
+    match_reason: str | None = None,
 ):
     """Modal wrapper for Farcaster cast processing"""
     from eve.agent.deployments.farcaster import process_farcaster_cast
 
-    return await process_farcaster_cast(cast_hash, cast_data, deployment_id)
+    return await process_farcaster_cast(
+        cast_hash, cast_data, deployment_id, match_reason
+    )
 
 
 ########################################################
