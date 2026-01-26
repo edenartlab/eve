@@ -329,7 +329,9 @@ async def process_discord_message_for_agent(
         # Determine sender/role (webhook messages may map to an agent)
         if source_agent:
             sender = source_agent
-            role = "assistant"
+            # Other agents' messages appear as "user" from this agent's perspective
+            # (The agent's own messages are already skipped before reaching this point)
+            role = "user"
         else:
             sender = User.from_discord(
                 author_id,
