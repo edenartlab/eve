@@ -1,5 +1,5 @@
 from datetime import datetime, timezone
-from typing import TYPE_CHECKING, Any, Dict, List
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 from fastapi import Request
 from loguru import logger
@@ -239,6 +239,7 @@ async def process_twitter_tweet(
     tweet_id: str,
     tweet_data: Dict[str, Any],
     deployment_id: str,
+    match_reason: Optional[str] = None,
 ):
     """Process a Twitter tweet event - main processing logic"""
     try:
@@ -461,6 +462,7 @@ async def process_twitter_tweet(
                 update_endpoint=f"{get_api_url()}/v2/deployments/emission",
                 twitter_tweet_id=tweet_id,
                 twitter_author_id=author_id,
+                social_match_reason=match_reason,
             ),
             llm_config=LLMConfig(model="claude-sonnet-4-5"),
             extra_tools={twitter_tool.name: twitter_tool},
@@ -855,7 +857,10 @@ async def poll_twitter_gateway(local_mode: bool = False):
                                 f"Processing tweet {tweet_id} locally (synchronous)"
                             )
                             result = await process_twitter_tweet(
-                                tweet_id, tweet_data, str(matching_deployment.id)
+                                tweet_id,
+                                tweet_data,
+                                str(matching_deployment.id),
+                                match_reason,
                             )
                             logger.info(f"Local processing result: {result}")
                         else:
@@ -866,7 +871,10 @@ async def poll_twitter_gateway(local_mode: bool = False):
                                 environment_name="main",
                             )
                             func.spawn(
-                                tweet_id, tweet_data, str(matching_deployment.id)
+                                tweet_id,
+                                tweet_data,
+                                str(matching_deployment.id),
+                                match_reason,
                             )
                             logger.info(f"Spawned processing task for tweet {tweet_id}")
                     except Exception as e:

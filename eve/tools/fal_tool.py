@@ -30,6 +30,64 @@ def is_valid_url(value: Any) -> bool:
     return bool(url_pattern.match(value))
 
 
+# Retry configuration
+MAX_RETRIES = 3
+INITIAL_DELAY = 1.0
+
+
+def _is_retryable_error(error: Exception) -> bool:
+    """Determine if an error is retryable."""
+    error_str = str(error).lower()
+
+    # Rate limit errors (429)
+    if (
+        "429" in error_str
+        or "rate limit" in error_str
+        or "too many requests" in error_str
+    ):
+        return True
+
+    # Server errors (5xx)
+    if any(f"{code}" in error_str for code in range(500, 600)):
+        return True
+
+    # Network/timeout errors
+    if any(
+        term in error_str
+        for term in ["timeout", "connection", "network", "unavailable"]
+    ):
+        return True
+
+    return False
+
+
+def _format_error_for_user(error: Exception) -> str:
+    """Format error message for user-friendly display."""
+    error_str = str(error).lower()
+
+    if "429" in error_str or "rate limit" in error_str:
+        return "Rate limit reached for this model. Please try again later or use a different model."
+
+    if (
+        "401" in error_str
+        or "unauthorized" in error_str
+        or "authentication" in error_str
+    ):
+        return "Authentication error with FAL API. Please check API credentials."
+
+    if "403" in error_str or "forbidden" in error_str:
+        return "Access denied to FAL API. Please check API permissions."
+
+    if any(f"{code}" in error_str for code in range(500, 600)):
+        return "FAL API server error. Please try again later."
+
+    if "timeout" in error_str:
+        return "Request timed out. Please try again."
+
+    # Return original error for unknown cases
+    return str(error)
+
+
 @tool_context("fal")
 class FalTool(Tool):
     fal_endpoint: str
@@ -37,23 +95,65 @@ class FalTool(Tool):
         default=True, description="Whether to include logs in the response"
     )
 
+    async def _call_with_retry(self, endpoint: str, args: dict) -> dict:
+        """
+        Call FAL API with exponential backoff retry logic.
+
+        Args:
+            endpoint: The FAL API endpoint
+            args: Arguments for the API call
+
+        Returns:
+            The API response dict
+
+        Raises:
+            Exception: With user-friendly error message
+        """
+        delay = INITIAL_DELAY
+        last_error = None
+
+        for attempt in range(MAX_RETRIES + 1):
+            try:
+
+                def on_queue_update(update):
+                    if isinstance(update, fal_client.InProgress):
+                        for log in update.logs:
+                            logger.info(log["message"])
+
+                result = await asyncio.to_thread(
+                    fal_client.subscribe,
+                    endpoint,
+                    arguments=args,
+                    with_logs=self.with_logs,
+                    on_queue_update=on_queue_update if self.with_logs else None,
+                )
+                return result
+
+            except Exception as e:
+                last_error = e
+                logger.warning(
+                    f"FAL API call failed (attempt {attempt + 1}/{MAX_RETRIES + 1}): {e}"
+                )
+
+                # Check if error is retryable and we have retries left
+                if _is_retryable_error(e) and attempt < MAX_RETRIES:
+                    logger.info(f"Retrying in {delay}s...")
+                    await asyncio.sleep(delay)
+                    delay *= 2  # Exponential backoff
+                    continue
+
+                # Non-retryable or max retries reached
+                raise Exception(_format_error_for_user(e))
+
+        # Should not reach here, but just in case
+        raise Exception(_format_error_for_user(last_error))
+
     @Tool.handle_run
     async def async_run(self, context: ToolContext):
         check_fal_api_token()
         args = await asyncio.to_thread(self._format_args_for_fal, context.args)
 
-        def on_queue_update(update):
-            if isinstance(update, fal_client.InProgress):
-                for log in update.logs:
-                    logger.info(log["message"])
-
-        result = await asyncio.to_thread(
-            fal_client.subscribe,
-            self.fal_endpoint,
-            arguments=args,
-            with_logs=self.with_logs,
-            on_queue_update=on_queue_update if self.with_logs else None,
-        )
+        result = await self._call_with_retry(self.fal_endpoint, args)
 
         # Extract URLs from common FAL response structures (e.g., {"images": [{"url": "..."}]})
         output_urls = self._extract_urls_from_fal_result(result)

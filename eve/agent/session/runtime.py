@@ -55,6 +55,41 @@ from .notifications import (
 from .tools import process_tool_calls
 from .util import validate_prompt_session
 
+# Platform configuration for social media post reminders/forcing
+# Each platform has its own trigger field, tool name, and restriction parameters
+PLATFORM_CONFIGS = {
+    "discord": {
+        "post_tool_name": "discord_post",
+        "channel_type": "discord",
+        "trigger_field": "discord_channel_id",
+        "restriction_param": "channel_id",
+        "dm_pattern": "-dm-",
+        "dm_restriction_param": "discord_user_id",
+        "dm_config_field": "discord_user_id",
+    },
+    "telegram": {
+        "post_tool_name": "telegram_post",
+        "channel_type": "telegram",
+        "trigger_field": "telegram_chat_id",
+        "restriction_param": "channel_id",
+        "dm_pattern": None,  # No DM support for Telegram
+    },
+    "twitter": {
+        "post_tool_name": "tweet",
+        "channel_type": "twitter",
+        "trigger_field": "twitter_tweet_id",
+        "reply_param": "reply_to",
+        "reply_config_field": "twitter_tweet_id",
+    },
+    "farcaster": {
+        "post_tool_name": "farcaster_cast",
+        "channel_type": "farcaster",
+        "trigger_field": "farcaster_hash",
+        "reply_param": "reply_to",
+        "reply_config_field": "farcaster_hash",
+    },
+}
+
 
 def _resolve_triggering_user_id(
     context: PromptSessionContext,
@@ -124,9 +159,10 @@ class PromptSessionRuntime:
         self.active_request_registered = False
         self._last_stream_result: Optional[Dict[str, Any]] = None
 
-        # Discord post tracking for forced reprompt
-        self.discord_post_used = False
-        self.discord_reprompt_attempted = False
+        # Social platform post tracking for forced reprompt
+        self.social_post_used = False
+        self.social_reprompt_attempted = False
+        self.active_platform = None  # Platform config dict or None
 
         # Resolve billing users
         self.triggering_user_id = (
@@ -237,15 +273,17 @@ class PromptSessionRuntime:
                         # Serialize messages
                         if self.llm_context.messages:
                             for msg in self.llm_context.messages:
-                                role = getattr(msg, 'role', 'unknown')
-                                content = getattr(msg, 'content', '') or ''
+                                role = getattr(msg, "role", "unknown")
+                                content = getattr(msg, "content", "") or ""
                                 parts.append(f"[{role.upper()}]\n{content}")
                         # Serialize tool schemas (they count as input tokens too)
                         if self.llm_context.tools:
                             for tool_name, tool in self.llm_context.tools.items():
-                                if hasattr(tool, 'anthropic_schema'):
+                                if hasattr(tool, "anthropic_schema"):
                                     schema = tool.anthropic_schema()
-                                    parts.append(f"[TOOL:{tool_name}]\n{json.dumps(schema)}")
+                                    parts.append(
+                                        f"[TOOL:{tool_name}]\n{json.dumps(schema)}"
+                                    )
                         full_prompt = "\n\n".join(parts)
                 except Exception:
                     pass
@@ -281,17 +319,26 @@ class PromptSessionRuntime:
                     yield update
 
                 if llm_result.get("stop_reason") in ["stop", "completed", "end_turn"]:
-                    # Check if we need to force discord_post
-                    # Only force for @mentioned guild channel messages, NOT DMs
-                    should_force_discord = (
-                        self._should_add_discord_reminder()  # Is Discord-triggered
-                        and not self._is_discord_dm()  # NOT a DM (must be @mention in channel)
-                        and not self.discord_post_used  # Hasn't used discord_post
-                        and not self.discord_reprompt_attempted  # Haven't tried forcing yet
+                    # Check if we need to force the platform's post tool
+                    # Only force for @mentions, NOT DMs or replies
+                    should_force_post = (
+                        self.active_platform is not None  # Platform triggered this
+                        and not self._is_dm_session(self.active_platform)  # NOT a DM
+                        and self.context
+                        and self.context.update_config
+                        and self.context.update_config.social_match_reason
+                        == "mention"  # Only for @mentions
+                        and not self.social_post_used  # Hasn't used post tool
+                        and not self.social_reprompt_attempted  # Haven't tried forcing yet
                         and self.llm_context.tools  # Tools are available
                         and any(
-                            getattr(t, "name", None) == "discord_post"
-                            or (isinstance(t, dict) and t.get("name") == "discord_post")
+                            getattr(t, "name", None)
+                            == self.active_platform["post_tool_name"]
+                            or (
+                                isinstance(t, dict)
+                                and t.get("name")
+                                == self.active_platform["post_tool_name"]
+                            )
                             for t in (
                                 self.llm_context.tools
                                 if isinstance(self.llm_context.tools, list)
@@ -300,9 +347,11 @@ class PromptSessionRuntime:
                         )
                     )
 
-                    if should_force_discord:
-                        self.discord_reprompt_attempted = True
-                        self.llm_context.tool_choice = "discord_post"
+                    if should_force_post:
+                        self.social_reprompt_attempted = True
+                        self.llm_context.tool_choice = self.active_platform[
+                            "post_tool_name"
+                        ]
                         # Don't set prompt_session_finished - continue loop
                     else:
                         prompt_session_finished = True
@@ -363,52 +412,187 @@ class PromptSessionRuntime:
         self.llm_context.messages = refreshed_messages
         self.llm_context.metadata.generation_id = str(uuid.uuid4())
 
-        # Inject discord_post reminder into last Discord user message
-        if self._should_add_discord_reminder():
-            self._inject_discord_reminder()
+        # Inject social platform post reminder into last platform user message
+        self.active_platform = self._get_active_platform()
+        if self.active_platform:
+            self._inject_social_reminder(self.active_platform)
+            self._restrict_social_tool(self.active_platform)
 
-    def _should_add_discord_reminder(self) -> bool:
-        """Check if we should add a discord_post reminder.
+    def _get_active_platform(self) -> Optional[Dict[str, Any]]:
+        """Get the active platform config if any platform's trigger field is set.
 
-        Only returns True when the current message is from Discord,
-        not just when the session is a Discord session. Users can
-        send messages via web to a Discord session, and those shouldn't
-        trigger the reminder.
+        Returns platform config dict if a social platform triggered this message,
+        or None otherwise. Only returns True when the current message is from
+        a social platform, not just when the session is for that platform.
         """
-        return (
-            self.context is not None
-            and self.context.update_config is not None
-            and self.context.update_config.discord_channel_id is not None
-        )
+        if not self.context or not self.context.update_config:
+            return None
 
-    def _is_discord_dm(self) -> bool:
-        """Check if this is a Discord DM session (vs guild channel)."""
+        update_config = self.context.update_config
+        for platform_name, config in PLATFORM_CONFIGS.items():
+            trigger_field = config["trigger_field"]
+            if getattr(update_config, trigger_field, None) is not None:
+                return config
+
+        return None
+
+    def _is_dm_session(self, config: Dict[str, Any]) -> bool:
+        """Check if this is a DM session for the given platform.
+
+        Returns False if platform has no DM support.
+        """
+        dm_pattern = config.get("dm_pattern")
+        if not dm_pattern:
+            return False
         session_key = self.session.session_key or ""
-        return "-dm-" in session_key
+        return dm_pattern in session_key
 
-    def _inject_discord_reminder(self):
-        """Inject SystemReminder into the last Discord user message."""
-        # Find last user message with discord channel type
+    def _inject_social_reminder(self, config: Dict[str, Any]):
+        """Inject SystemReminder into the last platform user message."""
+        channel_type = config["channel_type"]
+        tool_name = config["post_tool_name"]
+
+        # Find last user message with the platform's channel type
         for msg in reversed(self.llm_context.messages):
             if (
                 msg.role == "user"
                 and hasattr(msg, "channel")
                 and msg.channel
-                and msg.channel.type == "discord"
+                and msg.channel.type == channel_type
             ):
                 # Extract username from message.name or content
                 username = getattr(msg, "name", None) or "The user"
+                platform_display = channel_type.capitalize()
 
-                if self._is_discord_dm():
-                    # For DMs, use discord_user_id from update_config
-                    discord_user_id = self.context.update_config.discord_user_id
-                    reminder = f"\n(<SystemReminder>{username} does not see the messages in this workspace. If you want them to hear from you, remember to use discord_post to user {discord_user_id}</SystemReminder>)"
+                # Build the reminder based on platform type
+                if self._is_dm_session(config):
+                    # DM mode (currently only Discord supports this)
+                    dm_config_field = config.get("dm_config_field")
+                    target_id = getattr(
+                        self.context.update_config, dm_config_field, None
+                    )
+                    reminder = (
+                        f"\n\n├─────────────────────────────────────\n"
+                        f"│ Note: {platform_display} users cannot see your messages in this workspace. "
+                        f"To reply to or communicate with {username}, send a message to user {target_id} with the {tool_name} tool.\n"
+                        f"├─────────────────────────────────────"
+                    )
+                elif "reply_param" in config:
+                    # Reply-based platforms (Twitter, Farcaster)
+                    reply_config_field = config["reply_config_field"]
+                    target_id = getattr(
+                        self.context.update_config, reply_config_field, None
+                    )
+                    reminder = (
+                        f"\n\n├─────────────────────────────────────\n"
+                        f"│ Note: {platform_display} users cannot see your messages in this workspace. "
+                        f"To reply to or communicate with {username} on {platform_display}, use the {tool_name} tool with reply_to={target_id}.\n"
+                        f"├─────────────────────────────────────"
+                    )
                 else:
-                    channel_id = self.context.update_config.discord_channel_id
-                    reminder = f"\n(<SystemReminder>{username} does not see the messages in this workspace. If you want them or anyone else in Discord to hear from you, remember to use discord_post to channel {channel_id}</SystemReminder>)"
+                    # Channel-based platforms (Discord channel, Telegram)
+                    trigger_field = config["trigger_field"]
+                    target_id = getattr(self.context.update_config, trigger_field, None)
+                    reminder = (
+                        f"\n\n├─────────────────────────────────────\n"
+                        f"│ Note: {platform_display} users cannot see your messages in this workspace. "
+                        f"To reply to or communicate with {username} or others on {platform_display}, send a message to channel {target_id} with the {tool_name} tool.\n"
+                        f"├─────────────────────────────────────"
+                    )
 
                 msg.content = (msg.content or "") + reminder
                 break
+
+    def _restrict_social_tool(self, config: Dict[str, Any]):
+        """Restrict social platform tool to only allow posting to the current target.
+
+        For Discord/Telegram: restricts channel_id (or discord_user_id for DMs)
+        For Twitter/Farcaster: auto-fills reply_to with the triggering message ID
+        """
+        import copy
+
+        if not self.llm_context.tools:
+            return
+
+        tool_name = config["post_tool_name"]
+
+        # Find the platform's post tool
+        platform_tool = None
+        tool_key = None
+        tools = self.llm_context.tools
+        if isinstance(tools, dict):
+            for key, tool in tools.items():
+                if getattr(tool, "name", None) == tool_name or key == tool_name:
+                    platform_tool = tool
+                    tool_key = key
+                    break
+        elif isinstance(tools, list):
+            for i, tool in enumerate(tools):
+                if getattr(tool, "name", None) == tool_name:
+                    platform_tool = tool
+                    tool_key = i
+                    break
+
+        if not platform_tool:
+            return
+
+        # Make a copy to avoid modifying shared tool instances
+        platform_tool = copy.deepcopy(platform_tool)
+
+        # Handle DM vs channel for Discord/Telegram
+        if self._is_dm_session(config):
+            # DM mode - restrict to user ID
+            dm_config_field = config.get("dm_config_field")
+            target_id = getattr(self.context.update_config, dm_config_field, None)
+            param_name = config.get("dm_restriction_param")
+
+            # Hide channel_id to prevent confusion
+            restriction_param = config.get("restriction_param")
+            if (
+                restriction_param
+                and hasattr(platform_tool, "parameters")
+                and restriction_param in platform_tool.parameters
+            ):
+                platform_tool.parameters[restriction_param]["hide_from_agent"] = True
+        elif "reply_param" in config:
+            # Reply-based platforms (Twitter, Farcaster)
+            reply_config_field = config["reply_config_field"]
+            target_id = getattr(self.context.update_config, reply_config_field, None)
+            param_name = config["reply_param"]
+        else:
+            # Channel-based platforms
+            trigger_field = config["trigger_field"]
+            target_id = getattr(self.context.update_config, trigger_field, None)
+            param_name = config.get("restriction_param")
+
+            # For Discord channels, hide discord_user_id to prevent confusion
+            dm_restriction_param = config.get("dm_restriction_param")
+            if (
+                dm_restriction_param
+                and hasattr(platform_tool, "parameters")
+                and dm_restriction_param in platform_tool.parameters
+            ):
+                platform_tool.parameters[dm_restriction_param]["hide_from_agent"] = True
+
+        if not target_id or not param_name:
+            return
+
+        # Update the parameter with enum (choices) and default
+        if (
+            hasattr(platform_tool, "parameters")
+            and param_name in platform_tool.parameters
+        ):
+            platform_tool.parameters[param_name]["enum"] = [target_id]
+            platform_tool.parameters[param_name]["default"] = target_id
+            # Rebuild the model to reflect parameter changes
+            if hasattr(platform_tool, "update_parameters"):
+                platform_tool.update_parameters(platform_tool.parameters)
+
+        # Replace the tool in the context
+        if isinstance(self.llm_context.tools, dict):
+            self.llm_context.tools[tool_key] = platform_tool
+        elif isinstance(self.llm_context.tools, list):
+            self.llm_context.tools[tool_key] = platform_tool
 
     def _maybe_disable_tools(self):
         if self.tool_was_cancelled:
@@ -723,11 +907,13 @@ class PromptSessionRuntime:
         if not assistant_message.tool_calls:
             return
 
-        # Track if discord_post was used
-        for tc in assistant_message.tool_calls:
-            if tc.tool == "discord_post":
-                self.discord_post_used = True
-                break
+        # Track if the active platform's post tool was used
+        if self.active_platform:
+            target_tool = self.active_platform["post_tool_name"]
+            for tc in assistant_message.tool_calls:
+                if tc.tool == target_tool:
+                    self.social_post_used = True
+                    break
 
         async with trace_async_operation(
             "tools.process_all", tool_count=len(assistant_message.tool_calls)

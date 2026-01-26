@@ -1,7 +1,9 @@
+from loguru import logger
 from telegram import Bot
 
 from eve.agent import Agent
 from eve.agent.deployments import Deployment
+from eve.agent.session.models import Session
 from eve.tool import ToolContext
 
 
@@ -25,6 +27,25 @@ async def handler(context: ToolContext):
 
     if not channel_id:
         raise Exception("channel_id is required")
+
+    # Validate that the channel matches the session's Telegram target
+    # This prevents agents from posting to wrong chats based on memories
+    if context.session:
+        try:
+            session = Session.from_mongo(context.session)
+            if session and session.telegram_chat_id:
+                if channel_id != session.telegram_chat_id:
+                    raise Exception(
+                        f"This Telegram session only allows posting to chat {session.telegram_chat_id}. "
+                        f"You tried to post to chat {channel_id}. "
+                        f"Please use channel_id={session.telegram_chat_id}."
+                    )
+        except Exception as e:
+            # If it's our validation error, re-raise it
+            if "This Telegram session" in str(e):
+                raise
+            # Otherwise log and continue (session lookup failed)
+            logger.warning(f"telegram_post: Failed to validate session target: {e}")
 
     # Verify the channel is in the allowlist
     if not any(str(chat.id) == channel_id for chat in allowed_chats):

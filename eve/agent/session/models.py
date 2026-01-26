@@ -162,7 +162,7 @@ class ToolCall(BaseModel):
                 o["url"]
                 for r in content["result"]
                 for o in r.get("output", [])
-                if isinstance(o, dict) and o.get("url")
+                if isinstance(o, dict) and isinstance(o.get("url"), str)
             ]
             file_outputs = [
                 o
@@ -750,7 +750,7 @@ class ChatMessage(Document):
                             o["url"]
                             for r in result
                             for o in r.get("output", [])
-                            if isinstance(o, dict) and o.get("url")
+                            if isinstance(o, dict) and isinstance(o.get("url"), str)
                         ]
                         image_outputs = [
                             o
@@ -859,6 +859,7 @@ class SessionUpdateConfig(BaseModel):
     twitter_tweet_id: Optional[str] = None
     twitter_author_id: Optional[str] = None
     twitter_tweet_to_reply_id: Optional[str] = None
+    social_match_reason: Optional[Literal["mention", "reply"]] = None
     user_is_bot: Optional[bool] = False
     email_sender: Optional[str] = None
     email_recipient: Optional[str] = None
@@ -1017,6 +1018,7 @@ class Session(Document):
         Literal["discord", "telegram", "twitter", "farcaster", "gmail", "app"]
     ] = None
     discord_channel_id: Optional[str] = None  # Discord channel ID for discord_post tool
+    telegram_chat_id: Optional[str] = None  # Telegram chat ID for telegram_post tool
     trigger: Optional[ObjectId] = None
     active_requests: Optional[List[str]] = []
     extras: Optional[SessionExtras] = None  # Additional session configuration flags

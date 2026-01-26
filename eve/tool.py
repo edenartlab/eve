@@ -874,7 +874,7 @@ def get_tools_from_api_files(
     }
 
     if not include_inactive:
-        tools = {k: v for k, v in tools.items() if v.status != "inactive"}
+        tools = {k: v for k, v in tools.items() if v.active}
 
     return tools
 

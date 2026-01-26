@@ -91,6 +91,51 @@ async def handler(context: ToolContext):
     if not discord_user_id and not channel_id:
         raise Exception("Either channel_id or discord_user_id must be provided")
 
+    # Validate that the channel/user matches the session's Discord target
+    # This prevents agents from posting to wrong channels based on memories
+    if context.session:
+        try:
+            session = Session.from_mongo(context.session)
+            if session:
+                # Check if this is a DM session
+                is_dm_session = session.session_key and "-dm-" in session.session_key
+
+                if is_dm_session:
+                    # For DM sessions, extract expected user_id from session_key
+                    # Format: discord-dm-{agent_id}-{user_id}
+                    expected_user_id = session.session_key.split("-")[-1]
+                    if discord_user_id and discord_user_id != expected_user_id:
+                        raise Exception(
+                            f"This Discord DM session only allows messaging user {expected_user_id}. "
+                            f"You tried to message user {discord_user_id}. "
+                            f"Please use discord_user_id={expected_user_id}."
+                        )
+                    if channel_id:
+                        raise Exception(
+                            f"This is a Discord DM session. Use discord_user_id={expected_user_id} "
+                            f"instead of channel_id to send messages."
+                        )
+                else:
+                    # For channel sessions, validate channel_id
+                    if session.discord_channel_id:
+                        if channel_id and channel_id != session.discord_channel_id:
+                            raise Exception(
+                                f"This Discord session only allows posting to channel {session.discord_channel_id}. "
+                                f"You tried to post to channel {channel_id}. "
+                                f"Please use channel_id={session.discord_channel_id}."
+                            )
+                        if discord_user_id:
+                            raise Exception(
+                                f"This is a Discord channel session. Use channel_id={session.discord_channel_id} "
+                                f"instead of discord_user_id to send messages."
+                            )
+        except Exception as e:
+            # If it's our validation error, re-raise it
+            if "This Discord" in str(e):
+                raise
+            # Otherwise log and continue (session lookup failed)
+            logger.warning(f"discord_post: Failed to validate session target: {e}")
+
     # Content can be empty only if media URLs are provided
     if (not content or not content.strip()) and not media_urls:
         raise Exception("Either content or media_urls must be provided")

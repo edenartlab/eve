@@ -656,6 +656,16 @@ run = app.function(
     },
 )(modal.concurrent(max_inputs=4)(run))
 
+run_3h = app.function(
+    image=image,
+    max_containers=4,
+    timeout=3600 * 3,  # 3 hours for long-running tools (reel, etc.)
+    volumes={
+        "/data/media-cache": media_cache_vol,
+        "/data/token-tracker": token_tracker_vol,
+    },
+)(modal.concurrent(max_inputs=2)(run))
+
 
 run_task = app.function(
     image=image,

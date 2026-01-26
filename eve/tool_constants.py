@@ -155,6 +155,8 @@ EDEN_DB_TOOLS = [
 CONTEXT7_MCP_TOOLS = ["context7_resolve_library_id"]
 CALCULATOR_MCP_TOOLS = ["calculator_calculate"]
 EDEN_MCP_TOOLS = [
+    # BEGIN GENERATED EDEN MCP TOOLS
+    # auto-generated
     "eden_ping",
     "eden_search_creations",
     "eden_artifacts_v3_list",
@@ -166,6 +168,7 @@ EDEN_MCP_TOOLS = [
     "eden_artifacts_v3_get_permissions",
     "eden_artifacts_v3_update_permissions",
     "eden_artifacts_v3_history",
+    # END GENERATED EDEN MCP TOOLS
 ]
 
 TOOL_SETS = {

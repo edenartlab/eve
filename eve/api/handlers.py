@@ -770,8 +770,7 @@ async def _cancel_tool_call_child_session(
             if tc.id == tool_call_id or (
                 tool_call_index is not None and idx == tool_call_index
             ):
-                # Cancel child session regardless of tool call status
-                # The child session might still be running even if tool call failed
+                # Cancel child session if it exists
                 if tc.child_session:
                     try:
                         child_session = Session.from_mongo(tc.child_session)
@@ -795,21 +794,40 @@ async def _cancel_tool_call_child_session(
                             cancelled.extend(grandchildren)
 
                             cancelled.append(str(tc.child_session))
-
-                        # Update tool call status if it was pending/running
-                        if tc.status in ["pending", "running"]:
-                            tc.status = "cancelled"
-                            tc.result = [
-                                {
-                                    "status": "cancelled",
-                                    "error": "The tool call was cancelled by the user",
-                                }
-                            ]
-                            msg.save()
                     except Exception as e:
                         logger.warning(
                             f"Failed to cancel child session {tc.child_session}: {e}"
                         )
+
+                # Cancel the underlying Task (Modal job) if it exists
+                if tc.task:
+                    try:
+                        task = Task.from_mongo(tc.task)
+                        if task and task.status in ["pending", "running"]:
+                            tool = Tool.load(key=task.tool)
+                            if tool:
+                                await tool.async_cancel(task)
+                                logger.info(
+                                    f"Cancelled task {tc.task} for tool call {tool_call_id}"
+                                )
+                    except Exception as e:
+                        logger.warning(f"Failed to cancel task {tc.task}: {e}")
+
+                # Always update tool call status if it was pending/running
+                # This must happen even if there's no child_session
+                if tc.status in ["pending", "running"]:
+                    tc.status = "cancelled"
+                    tc.result = [
+                        {
+                            "status": "cancelled",
+                            "error": "The tool call was cancelled by the user",
+                        }
+                    ]
+                    msg.save()
+                    logger.info(
+                        f"Cancelled tool call {tool_call_id} (index {idx}) in message {msg.id}"
+                    )
+
                 break
 
     return cancelled
@@ -841,9 +859,11 @@ async def handle_session_cancel(request: CancelSessionRequest):
 
     try:
         if request.tool_call_id:
-            # Specific tool call cancellation - only cancel the child session
-            # Do NOT send cancel signal to parent or cancel parent's tasks
-            # Run in background so we don't block
+            # Specific tool call cancellation
+            # 1. Send Ably signal so the runtime stops waiting for this tool call
+            await _send_ably_cancel_signal(request)
+
+            # 2. Cancel child session and update tool call status in background
             asyncio.create_task(
                 _cancel_tool_call_child_session(
                     session,
