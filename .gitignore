@@ -13,6 +13,8 @@ scripts/analytics/data
 scripts/analytics/results
 .claude
 
+eve/data
+
 scripts/gcp
 
 **/CLAUDE.md

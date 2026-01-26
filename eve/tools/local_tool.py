@@ -84,7 +84,9 @@ class LocalTool(Tool):
                 if isinstance(result["output"], list)
                 else [result["output"]]
             )
-            result = utils.upload_result(result, save_thumbnails=True)
+            result = utils.upload_result(
+                result, save_thumbnails=True, tool_key=self.parent_tool or self.key
+            )
 
             # Preserve status from result, default to completed only if not set
             final_status = result.get("status", "completed")
