@@ -1,9 +1,11 @@
 import asyncio
+import base64
 import os
 import random
 from tempfile import NamedTemporaryFile
-from typing import Iterator, List, Literal
+from typing import List, Literal
 
+import httpx
 import instructor
 from elevenlabs.client import ElevenLabs
 
@@ -14,22 +16,26 @@ from eve import utils
 from eve.tool import ToolContext
 
 eleven = ElevenLabs(api_key=os.getenv("ELEVEN_API_KEY"))
+ELEVEN_API_KEY = os.getenv("ELEVEN_API_KEY")
 
 DEFAULT_VOICE = "XB0fDUnXU5powFXDhCwa"
 
 
 async def handler(context: ToolContext):
     args = context.args
-    args["stability"] = args.get("stability", 0.5)
-    args["style"] = args.get("style", 0.0)
-    args["speed"] = args.get("speed", 1.0)
+    stability = args.get("stability", 0.5)
+    style = args.get("style", 0.0)
+    speed = args.get("speed", 1.0)
+    text = args["text"]
 
-    async def generate_with_params():
+    async def generate_with_timestamps():
         def _generate():
+            # Get all available voices for resolution
             response = eleven.voices.get_all()
             voices = {v.name: v.voice_id for v in response.voices}
             voice_ids = [v.voice_id for v in response.voices]
             voice_id = args.get("voice", DEFAULT_VOICE)
+
             if voice_id not in voice_ids:
                 if voice_id in voices:
                     voice_id = voices[voice_id]
@@ -38,40 +44,85 @@ async def handler(context: ToolContext):
                         f"Voice ID {voice_id} not found, try another one (DEFAULT_VOICE: {DEFAULT_VOICE})"
                     )
 
-            audio_generator = eleven.text_to_speech.convert(
-                text=args["text"],
-                voice_id=voice_id,
-                voice_settings={
-                    "stability": args["stability"],
-                    "style": args["style"],
-                    "speed": args["speed"],
-                    "use_speaker_boost": True,  # args["use_speaker_boost"],
-                    # similarity_boost=args["similarity_boost"],
+            # Get voice name for transcript
+            voice_name = None
+            for name, vid in voices.items():
+                if vid == voice_id:
+                    voice_name = name.split(" - ")[0]  # Get first part before " - "
+                    break
+            if not voice_name:
+                voice_name = "Narrator"
+
+            if not ELEVEN_API_KEY:
+                raise ValueError("ELEVEN_API_KEY environment variable is not set")
+
+            # Use the with-timestamps endpoint for transcript generation
+            api_response = httpx.post(
+                f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}/with-timestamps",
+                headers={
+                    "xi-api-key": ELEVEN_API_KEY,
+                    "Content-Type": "application/json",
                 },
-                model_id="eleven_multilingual_v2",
-                output_format="mp3_44100_128",
+                json={
+                    "text": text,
+                    "model_id": "eleven_multilingual_v2",
+                    "voice_settings": {
+                        "stability": stability,
+                        "style": style,
+                        "speed": speed,
+                        "use_speaker_boost": True,
+                    },
+                    "output_format": "mp3_44100_128",
+                },
+                timeout=120.0,
             )
-            if isinstance(audio_generator, Iterator):
-                return b"".join(audio_generator)
-            return audio_generator
+            api_response.raise_for_status()
+            return api_response.json(), voice_name
 
         return await asyncio.to_thread(_generate)
 
-    audio_generator = await utils.async_exponential_backoff(
-        generate_with_params,
-        max_attempts=3,  # args["max_attempts"],
-        initial_delay=1,  # args["initial_delay"],
+    response = await utils.async_exponential_backoff(
+        generate_with_timestamps,
+        max_attempts=3,
+        initial_delay=1,
     )
 
-    audio = audio_generator
+    if response is None:
+        raise ValueError("Failed to generate speech after multiple attempts")
 
-    # save to file
-    audio_file = NamedTemporaryFile(delete=False)
-    audio_file.write(audio)
+    result, voice_name = response
+
+    # Decode audio from base64
+    audio_bytes = base64.b64decode(result["audio_base64"])
+
+    # Save to file
+    audio_file = NamedTemporaryFile(delete=False, suffix=".mp3")
+    audio_file.write(audio_bytes)
     audio_file.close()
+
+    # Build transcript from alignment data
+    alignment = result.get("alignment", {})
+    # characters = alignment.get("characters", [])
+    start_times = alignment.get("character_start_times_seconds", [])
+    end_times = alignment.get("character_end_times_seconds", [])
+
+    # Get overall start and end times
+    if start_times and end_times:
+        start_time = round(start_times[0], 1)
+        end_time = round(end_times[-1], 1)
+    else:
+        # Fallback: estimate from text length (~150 words per minute)
+        word_count = len(text.split())
+        duration = (word_count / 150) * 60
+        start_time = 0.0
+        end_time = round(duration, 1)
+
+    # Format transcript like elevenlabs_dialogue
+    transcript = f"{voice_name} {start_time}-{end_time} : {text}"
 
     return {
         "output": audio_file.name,
+        "transcript": transcript,
     }
 
 
