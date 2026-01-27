@@ -74,12 +74,62 @@ class Memory2Backend(MemoryBackend):
     def __init__(self):
         self._indexes_ensured = False
 
+    def _deduplicate_facts(self) -> int:
+        """
+        Remove duplicate facts from memory2_facts collection.
+
+        Keeps the oldest fact for each (hash, agent_id) combination.
+
+        Returns:
+            Number of duplicates removed
+        """
+        try:
+            from eve.agent.memory2.models import Fact
+
+            collection = Fact.get_collection()
+
+            # Find duplicates using aggregation
+            pipeline = [
+                {
+                    "$group": {
+                        "_id": {"hash": "$hash", "agent_id": "$agent_id"},
+                        "count": {"$sum": 1},
+                        "docs": {"$push": "$_id"},
+                        "oldest": {"$min": "$formed_at"},
+                    }
+                },
+                {"$match": {"count": {"$gt": 1}}},
+            ]
+
+            duplicates_removed = 0
+            for group in collection.aggregate(pipeline):
+                doc_ids = group["docs"]
+                # Keep the first document (oldest by formed_at due to $push order)
+                # Remove all others
+                ids_to_remove = doc_ids[1:]  # Keep first, remove rest
+                if ids_to_remove:
+                    result = collection.delete_many({"_id": {"$in": ids_to_remove}})
+                    duplicates_removed += result.deleted_count
+
+            if duplicates_removed > 0:
+                logger.info(
+                    f"Deduplicated memory2_facts: removed {duplicates_removed} duplicates"
+                )
+
+            return duplicates_removed
+
+        except Exception as e:
+            logger.error(f"Error deduplicating facts: {e}")
+            return 0
+
     def _ensure_indexes(self) -> None:
         """Ensure MongoDB indexes are created (once per process)."""
         if self._indexes_ensured:
             return
 
         try:
+            from pymongo.errors import DuplicateKeyError
+
             from eve.agent.memory2.models import (
                 ConsolidatedMemory,
                 Fact,
@@ -88,9 +138,19 @@ class Memory2Backend(MemoryBackend):
 
             Reflection.ensure_indexes()
             ConsolidatedMemory.ensure_indexes()
-            # Only create Fact indexes if RAG is enabled
-            from eve.agent.memory2.constants import RAG_ENABLED
-            if RAG_ENABLED:
+
+            try:
+                Fact.ensure_indexes()
+            except DuplicateKeyError as e:
+                # Duplicate key error means there are existing duplicate facts
+                # in the collection. We need to deduplicate before the unique
+                # index can be created.
+                logger.warning(
+                    f"Duplicate facts detected in memory2_facts collection. "
+                    f"Run deduplication to fix: {e}"
+                )
+                self._deduplicate_facts()
+                # Retry index creation after deduplication
                 Fact.ensure_indexes()
 
             self._indexes_ensured = True
@@ -98,6 +158,8 @@ class Memory2Backend(MemoryBackend):
                 logger.debug("Memory2 indexes ensured")
 
         except Exception as e:
+            # Mark as ensured to prevent repeated failures on every request
+            self._indexes_ensured = True
             logger.error(f"Error ensuring memory2 indexes: {e}")
 
     async def assemble_memory_context(

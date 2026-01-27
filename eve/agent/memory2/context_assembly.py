@@ -22,6 +22,7 @@ from eve.agent.memory2.constants import (
     LOCAL_DEV,
     FACTS_FIFO_ENABLED,
     FACTS_FIFO_LIMIT,
+    FACTS_FIFO_MAX_AGE_HOURS,
     Memory2Config,
     is_multi_user_session,
 )
@@ -261,19 +262,21 @@ async def assemble_always_in_context_memory(
                 },
             )
 
-        # TEMPORARY: Fetch facts via FIFO when enabled (to be replaced by RAG)
+        # Fetch facts via FIFO when enabled
         # Only fetch facts if FIFO is enabled AND at least one fact scope is enabled
+        # RAG retrieval is implemented as a separate tool call in the agent stack
         facts_content = None
         fact_scopes = config.fact_scopes
         if FACTS_FIFO_ENABLED and fact_scopes:
             facts_start = time.time()
-            # Pass enabled scopes to filter facts
+            # Pass enabled scopes and age limit to filter facts
             facts = await asyncio.to_thread(
                 get_recent_facts_fifo,
                 agent_id,
                 user_id if "user" in fact_scopes else None,
                 FACTS_FIFO_LIMIT,
                 fact_scopes,  # Filter by enabled scopes
+                FACTS_FIFO_MAX_AGE_HOURS,  # Only include facts within age limit
             )
             if facts:
                 # Format facts with scope indicator and temporal age
@@ -418,8 +421,8 @@ def _build_memory_xml(
     2. Recent reflections (if any) - not yet consolidated
 
     The Facts section (when FIFO mode enabled) contains recent facts
-    retrieved via simple FIFO query. This is temporary until full RAG
-    is implemented.
+    within the configured age limit, retrieved via FIFO query.
+    RAG retrieval is available as a separate tool call for explicit memory search.
 
     The XML structure provides clear separation between memory scopes
     and makes it easy for the agent to understand and utilize the context.
@@ -462,9 +465,9 @@ def _build_memory_xml(
             f"<SessionMemory>\n{chr(10).join(session_parts)}\n</SessionMemory>"
         )
 
-    # TEMPORARY: Facts section (FIFO mode - to be replaced by RAG)
-    # This section contains recent facts retrieved via simple FIFO query.
-    # When RAG is enabled, facts will be retrieved via semantic search instead.
+    # Facts section (FIFO mode)
+    # Contains recent facts (within age limit) retrieved via FIFO query.
+    # RAG retrieval is available as a separate tool call for explicit memory search.
     if facts_content:
         sections.append(
             f"<Facts>\n{facts_content}\n</Facts>"

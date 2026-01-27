@@ -164,6 +164,68 @@ def normalize_for_comparison(text: str) -> str:
         return ""
 
 
+def generate_content_fingerprint(text: str, max_length: int = 40) -> str:
+    """
+    Generate a stable, human-readable fingerprint from content.
+
+    This creates consistent identifiers for untracked segments so that
+    the same static template content gets the same name across different
+    API calls, even if it appears at different positions.
+
+    Args:
+        text: The content to fingerprint
+        max_length: Maximum length of the fingerprint identifier
+
+    Returns:
+        A stable identifier like "agent_spec_name_ver" or "behavior_capabiliti"
+    """
+    try:
+        if not text:
+            return "empty"
+
+        # Normalize: collapse whitespace, lowercase
+        normalized = re.sub(r'\s+', ' ', text.strip().lower())
+
+        # Extract meaningful content by removing common XML/markup patterns
+        # This helps get to the "meat" of the content for fingerprinting
+        # Remove XML tags but keep their names as they're often descriptive
+        tag_names = re.findall(r'</?([a-z_]+)', normalized)
+
+        # Remove XML tags, keeping content
+        cleaned = re.sub(r'<[^>]+>', ' ', normalized)
+        cleaned = re.sub(r'\s+', ' ', cleaned).strip()
+
+        # Build fingerprint from either tag names or content
+        if tag_names and len(tag_names) >= 2:
+            # Use first few tag names if XML-heavy
+            fingerprint = '_'.join(tag_names[:3])
+        elif cleaned:
+            # Use first N characters of cleaned content
+            # Keep only alphanumeric and spaces, then convert to identifier
+            alpha_only = re.sub(r'[^a-z0-9\s]', '', cleaned)
+            words = alpha_only.split()[:5]  # First 5 words
+            fingerprint = '_'.join(words)
+        else:
+            fingerprint = "unknown"
+
+        # Ensure valid identifier: starts with letter, only alphanumeric and underscore
+        fingerprint = re.sub(r'[^a-z0-9_]', '_', fingerprint)
+        fingerprint = re.sub(r'_+', '_', fingerprint).strip('_')
+
+        # Truncate to max length
+        if len(fingerprint) > max_length:
+            fingerprint = fingerprint[:max_length].rstrip('_')
+
+        # Ensure non-empty
+        if not fingerprint:
+            fingerprint = "content"
+
+        return fingerprint
+
+    except Exception:
+        return "unknown"
+
+
 def extract_untracked_segments(
     full_prompt: str,
     tracked_chunks: List[str],
@@ -652,7 +714,12 @@ class TokenTracker:
         full_prompt: str,
         chunks: List[Dict[str, Any]]
     ) -> List[Dict[str, Any]]:
-        """Compare full prompt with tracked chunks to find untracked content."""
+        """Compare full prompt with tracked chunks to find untracked content.
+
+        Uses content-based fingerprinting to generate stable category names
+        that remain consistent across different API calls, even when the
+        same static content appears at different positions in the prompt.
+        """
         try:
             tracked_contents = [c.get("content", "") for c in chunks]
             untracked_segments = extract_untracked_segments(
@@ -662,9 +729,22 @@ class TokenTracker:
             )
 
             untracked_chunks = []
-            for idx, (segment, tokens) in enumerate(untracked_segments):
+            fingerprint_counts: Dict[str, int] = {}  # Track collisions
+
+            for segment, tokens in untracked_segments:
+                # Generate content-based fingerprint for stable naming
+                fingerprint = generate_content_fingerprint(segment)
+
+                # Handle collisions by appending a counter
+                if fingerprint in fingerprint_counts:
+                    fingerprint_counts[fingerprint] += 1
+                    category = f"untracked/{fingerprint}_{fingerprint_counts[fingerprint]}"
+                else:
+                    fingerprint_counts[fingerprint] = 1
+                    category = f"untracked/{fingerprint}"
+
                 untracked_chunks.append({
-                    "category": f"untracked_{idx + 1:02d}",
+                    "category": category,
                     "tokens": tokens,
                     "char_count": len(segment),
                     "content": segment,
