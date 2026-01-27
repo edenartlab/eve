@@ -84,11 +84,20 @@ REFLECTION_MAX_WORDS = 35  # Per reflection item
 # =============================================================================
 # RAG Configuration
 # =============================================================================
-SIMILARITY_THRESHOLD = 0.7  # Threshold for candidate retrieval in deduplication
-RAG_TOP_K = 10  # Number of facts to retrieve in RAG queries
 EMBEDDING_MODEL = "text-embedding-3-small"
 EMBEDDING_DIMENSIONS = 1536
 
+# Threshold for FACTS deduplication:
+SIMILARITY_THRESHOLD = 0.7  
+
+# RAG Retrieval Thresholds
+RAG_TOP_K = 15  # Number of facts to retrieve in RAG queries
+RAG_SEMANTIC_SCORE_THRESHOLD = 0.65  # Min vectorSearchScore (cosine similarity, 0-1)
+RAG_TEXT_SCORE_THRESHOLD = 1.5       # Min searchScore (BM25-based, unbounded)
+# RRF threshold: With k=60, a single-source rank-0 result scores 1/60 = 0.0167
+# Setting threshold to 0.015 allows high-ranking single-source results through
+# (important when semantic finds synonyms that text search misses, e.g. "pottery" -> "ceramics")
+RAG_RRF_SCORE_THRESHOLD = 0.015      # Min RRF score after fusion (don't change this!)
 
 # =============================================================================
 # Feature Toggles

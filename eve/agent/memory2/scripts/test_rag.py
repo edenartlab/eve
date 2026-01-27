@@ -26,59 +26,20 @@ from loguru import logger
 logger.remove()
 logger.add(sys.stderr, level="INFO", format="<level>{message}</level>")
 
-
-async def check_indexes_and_stats():
-    """Check MongoDB indexes and collection statistics."""
-    from eve.agent.memory2.models import Fact
-    from eve.agent.memory2.rag import get_vector_index_name, get_text_index_name
-
-    print("\n" + "=" * 60)
-    print("COLLECTION STATUS: memory2_facts")
-    print("=" * 60)
-
-    collection = Fact.get_collection()
-
-    total_count = collection.count_documents({})
-    agent_count = collection.count_documents({"scope": "agent"})
-    user_count = collection.count_documents({"scope": "user"})
-
-    print(f"\nDocument counts:")
-    print(f"  Total: {total_count} | Agent: {agent_count} | User: {user_count}")
-
-    with_embedding = collection.count_documents({"embedding": {"$exists": True, "$ne": []}})
-    print(f"  With embeddings: {with_embedding}")
-
-    vector_index = get_vector_index_name()
-    text_index = get_text_index_name()
-
-    print(f"\nAtlas Search indexes (env={os.getenv('DB', 'STAGE')}):")
-
-    # Test vector search index
-    try:
-        dummy_vector = [0.1] * 1536
-        pipeline = [{"$vectorSearch": {"index": vector_index, "path": "embedding",
-                     "queryVector": dummy_vector, "numCandidates": 1, "limit": 1}}]
-        list(collection.aggregate(pipeline))
-        print(f"  {vector_index}: ✅")
-    except Exception as e:
-        print(f"  {vector_index}: ❌ ({e})")
-
-    # Test text search index
-    try:
-        pipeline = [{"$search": {"index": text_index, "text": {"query": "test", "path": "content"}}},
-                    {"$limit": 1}]
-        list(collection.aggregate(pipeline))
-        print(f"  {text_index}: ✅")
-    except Exception as e:
-        print(f"  {text_index}: ❌ ({e})")
-
+# Import RAG thresholds for display
+from eve.agent.memory2.constants import (
+    RAG_TOP_K,
+    RAG_SEMANTIC_SCORE_THRESHOLD,
+    RAG_TEXT_SCORE_THRESHOLD,
+    RAG_RRF_SCORE_THRESHOLD,
+)
 
 async def run_semantic_search(
     embedding: List[float],
     pre_filter: Dict,
     limit: int,
-) -> tuple[List[Dict], float]:
-    """Run vector search with pre-computed embedding. Returns (results, elapsed_ms)."""
+) -> tuple[List[Dict], float, int]:
+    """Run vector search with pre-computed embedding. Returns (results, elapsed_ms, filtered_count)."""
     from eve.agent.memory2.rag import get_vector_index_name
     from eve.agent.memory2.models import Fact
 
@@ -100,9 +61,18 @@ async def run_semantic_search(
         {"$project": {"_id": 1, "content": 1, "scope": 1, "agent_id": 1,
                       "user_id": 1, "formed_at": 1, "score": 1, "search_type": 1}},
     ]
-    results = list(collection.aggregate(pipeline))
+    # Run sync PyMongo call in thread pool for true async parallelism
+    loop = asyncio.get_event_loop()
+    raw_results = await loop.run_in_executor(
+        None, lambda: list(collection.aggregate(pipeline))
+    )
+
+    # Apply semantic score threshold
+    results = [r for r in raw_results if r.get("score", 0) >= RAG_SEMANTIC_SCORE_THRESHOLD]
+    filtered_count = len(raw_results) - len(results)
+
     elapsed = (time.perf_counter() - start) * 1000
-    return results, elapsed
+    return results, elapsed, filtered_count
 
 
 async def run_text_search(
@@ -111,22 +81,27 @@ async def run_text_search(
     user_id: Optional[ObjectId],
     scope_filter: List[str],
     limit: int,
-) -> tuple[List[Dict], float]:
-    """Run text search. Returns (results, elapsed_ms)."""
+) -> tuple[List[Dict], float, int]:
+    """Run text search. Returns (results, elapsed_ms, filtered_count).
+
+    Note: _text_search already applies threshold filtering internally,
+    so we report 0 for filtered_count here (filtering logged in rag.py).
+    """
     from eve.agent.memory2.rag import _text_search
 
     start = time.perf_counter()
     results = await _text_search(query, agent_id, user_id, scope_filter, limit)
     elapsed = (time.perf_counter() - start) * 1000
-    return results, elapsed
+    # Filtered count is handled internally by _text_search
+    return results, elapsed, 0
 
 
 def reciprocal_rank_fusion(
     result_lists: List[List[Dict]],
     k: int = 60,
     limit: int = 10,
-) -> List[Dict]:
-    """Merge results using Reciprocal Rank Fusion."""
+) -> tuple[List[Dict], int]:
+    """Merge results using Reciprocal Rank Fusion. Returns (results, filtered_count)."""
     scores: Dict[str, float] = {}
     docs: Dict[str, Dict] = {}
 
@@ -138,8 +113,21 @@ def reciprocal_rank_fusion(
             if doc_id not in docs:
                 docs[doc_id] = doc
 
-    sorted_ids = sorted(scores.keys(), key=lambda x: scores[x], reverse=True)[:limit]
-    return [{**docs[doc_id], "rrf_score": scores[doc_id]} for doc_id in sorted_ids]
+    sorted_ids = sorted(scores.keys(), key=lambda x: scores[x], reverse=True)
+
+    # Apply RRF threshold and limit
+    results = []
+    filtered_count = 0
+    for doc_id in sorted_ids:
+        rrf_score = scores[doc_id]
+        if rrf_score < RAG_RRF_SCORE_THRESHOLD:
+            filtered_count += 1
+            continue
+        if len(results) >= limit:
+            break
+        results.append({**docs[doc_id], "rrf_score": rrf_score})
+
+    return results, filtered_count
 
 
 async def get_sample_agent_id():
@@ -154,8 +142,6 @@ async def main():
     parser.add_argument("--agent-id", type=str, help="Agent ID (uses sample if not provided)")
     parser.add_argument("--user-id", type=str, help="User ID for user-scoped facts")
     parser.add_argument("--query", type=str, default="project deadline budget", help="Search query")
-    parser.add_argument("--limit", type=int, default=10, help="Max results (default: 10)")
-    parser.add_argument("--check-indexes", action="store_true", help="Check indexes only")
 
     args = parser.parse_args()
 
@@ -163,10 +149,6 @@ async def main():
     print("MEMORY2 RAG TEST")
     print("=" * 60)
     print(f"Timestamp: {datetime.now(timezone.utc).isoformat()}")
-
-    if args.check_indexes:
-        await check_indexes_and_stats()
-        return
 
     # Resolve agent ID
     agent_id = ObjectId(args.agent_id) if args.agent_id else await get_sample_agent_id()
@@ -179,10 +161,15 @@ async def main():
 
     print(f"\nAgent: {agent_id}")
     print(f"Query: '{args.query}'")
-    print(f"Limit: {args.limit}")
+    print(f"Limit: {RAG_TOP_K}")
+
+    print(f"\nRelevance Thresholds:")
+    print(f"  Semantic: {RAG_SEMANTIC_SCORE_THRESHOLD} (cosine similarity)")
+    print(f"  Text:     {RAG_TEXT_SCORE_THRESHOLD} (BM25 score)")
+    print(f"  RRF:      {RAG_RRF_SCORE_THRESHOLD} (post-fusion)")
 
     # =========================================================================
-    # STEP 1: Generate embedding (this is the slow part)
+    # STEP 1: Generate query embedding
     # =========================================================================
     from eve.agent.memory2.fact_storage import get_embedding
     from eve.agent.memory2.rag import _build_scope_filter
@@ -203,25 +190,28 @@ async def main():
     pre_filter = _build_scope_filter(agent_id, user_id, scope_filter)
 
     search_start = time.perf_counter()
-    semantic_task = run_semantic_search(embedding, pre_filter, args.limit * 2)
-    text_task = run_text_search(args.query, agent_id, user_id, scope_filter, args.limit * 2)
+    semantic_task = run_semantic_search(embedding, pre_filter, RAG_TOP_K * 2)
+    text_task = run_text_search(args.query, agent_id, user_id, scope_filter, RAG_TOP_K * 2)
 
-    (semantic_results, semantic_time), (text_results, text_time) = await asyncio.gather(
+    (semantic_results, semantic_time, semantic_filtered), (text_results, text_time, text_filtered) = await asyncio.gather(
         semantic_task, text_task
     )
     parallel_time = (time.perf_counter() - search_start) * 1000
 
-    print(f"2. SEMANTIC SEARCH:  {semantic_time:7.1f}ms  ({len(semantic_results)} results)")
-    print(f"3. TEXT SEARCH:      {text_time:7.1f}ms  ({len(text_results)} results)")
+    semantic_filter_info = f", {semantic_filtered} filtered" if semantic_filtered else ""
+    text_filter_info = f", {text_filtered} filtered" if text_filtered else ""
+    print(f"2. SEMANTIC SEARCH:  {semantic_time:7.1f}ms  ({len(semantic_results)} results{semantic_filter_info})")
+    print(f"3. TEXT SEARCH:      {text_time:7.1f}ms  ({len(text_results)} results{text_filter_info})")
     print(f"   (parallel wall):  {parallel_time:7.1f}ms")
 
     # =========================================================================
     # STEP 3: Merge with RRF
     # =========================================================================
     rrf_start = time.perf_counter()
-    merged_results = reciprocal_rank_fusion([semantic_results, text_results], k=60, limit=args.limit)
+    merged_results, rrf_filtered = reciprocal_rank_fusion([semantic_results, text_results], k=60, limit=RAG_TOP_K)
     rrf_time = (time.perf_counter() - rrf_start) * 1000
-    print(f"4. RRF MERGE:        {rrf_time:7.1f}ms  ({len(merged_results)} results)")
+    rrf_filter_info = f", {rrf_filtered} filtered" if rrf_filtered else ""
+    print(f"4. RRF MERGE:        {rrf_time:7.1f}ms  ({len(merged_results)} results{rrf_filter_info})")
 
     # =========================================================================
     # STEP 4: Format tool response
@@ -238,16 +228,45 @@ async def main():
     print(f"   TOTAL:            {total_time:7.1f}ms")
 
     # =========================================================================
-    # Results
+    # Individual Search Stage Results
     # =========================================================================
     print("\n" + "=" * 60)
-    print("HYBRID RESULTS (RRF merged)")
+    print("SEMANTIC SEARCH RESULTS (cosine similarity)")
+    print("=" * 60)
+    if semantic_results:
+        for i, r in enumerate(semantic_results, 1):
+            score = r.get("score", 0)
+            scope = r.get("scope", "?")
+            content = r.get("content", "")[:100]
+            print(f"{i:2}. [{scope}] score={score:.4f} {content}...")
+    else:
+        print("   No results above threshold")
+
+    print("\n" + "=" * 60)
+    print("TEXT SEARCH RESULTS (BM25)")
+    print("=" * 60)
+    if text_results:
+        for i, r in enumerate(text_results, 1):
+            score = r.get("score", 0)
+            scope = r.get("scope", "?")
+            content = r.get("content", "")[:100]
+            print(f"{i:2}. [{scope}] score={score:.4f} {content}...")
+    else:
+        print("   No results above threshold")
+
+    # =========================================================================
+    # Hybrid Results
+    # =========================================================================
+    print("\n" + "=" * 60)
+    print("HYBRID RESULTS (RRF merged, threshold-filtered)")
     print("=" * 60)
     for i, r in enumerate(merged_results, 1):
         rrf_score = r.get("rrf_score", 0)
+        raw_score = r.get("score", 0)
+        search_type = r.get("search_type", "?")
         scope = r.get("scope", "?")
-        content = r.get("content", "")[:75]
-        print(f"{i:2}. [{scope}] (rrf: {rrf_score:.4f}) {content}...")
+        content = r.get("content", "")[:100]
+        print(f"{i:2}. [{scope}] rrf={rrf_score:.4f} ({search_type}: {raw_score:.3f}) {content}...")
 
     print("\n" + "=" * 60)
     print("TOOL RESPONSE")

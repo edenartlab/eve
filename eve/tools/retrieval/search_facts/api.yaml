@@ -1,0 +1,54 @@
+name: search_facts
+description: Search long-term memory using query(s). Returns relevant facts from the agent's knowledge base.
+tip: |-
+  This tool searches the agent's long-term memory for stored facts using hybrid retrieval (semantic + keyword search with RRF fusion).
+
+  WHEN TO USE:
+  - When you receive a clear question or information request and the answer is not in your current memory context
+  - Recalling specific information about users, projects, or events
+  - Finding stored contact details, urls, project specifications etc
+  - Retrieving factual data that was previously discussed or stored
+
+  CRAFTING EFFECTIVE QUERIES:
+  - Be specific: "John's email address" is better than "contact info"
+  - Use natural language: "project deadline for Mars Festival" works well
+  - Include key entities: usernames, project names, dates, or technical terms
+  - For broad searches, use multiple related queries in a list
+
+  QUERY EXAMPLES:
+  - Single topic: ["Alice's programming language preferences"]
+  - Multiple aspects: ["Mars Festival deadline", "Mars Festival budget", "Mars Festival team members"]
+
+  Using multiple queries is useful when you need to gather information about different aspects of the same topic.
+  Each query runs in parallel for efficiency, and results are combined. 
+  IMPORTANT:
+  - This toolcall takes a few seconds to run, DO NOT execute this unless you really need to search specific information from long-term memory
+  - Do not keep calling this tool over and over if no relevant information is returned. This typically means the answer is not stored in memory.
+
+cost_estimate: 1 * query.length 
+output_type: string
+active: true
+handler: modal
+visible: true
+parameters:
+  query:
+    type: array
+    items:
+      type: string
+    min_length: 1
+    max_length: 3
+    description: List of search queries. Use multiple queries to search for different aspects of a topic in parallel.
+    required: true
+  top_k:
+    type: integer
+    description: Number of facts to retrieve per query (5-25)
+    default: 10
+    minimum: 5
+    maximum: 25
+    hide_from_agent: true
+  debug:
+    type: boolean
+    description: Enable debug output with intermediate search results and scores
+    default: false
+    hide_from_agent: true
+    hide_from_user: true

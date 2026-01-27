@@ -11,7 +11,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from ..models import Model
 from ..mongo import Collection, get_collection
-from ..tool_constants import FEATURE_FLAG_TOOL_SETS, TOOL_SETS
+from ..tool_constants import FEATURE_FLAG_TOOL_SETS, RETRIEVAL_TOOLS, TOOL_SETS
 from ..user import Manna, User
 
 
@@ -201,6 +201,10 @@ class Agent(User):
         for feature_flag, flagged_tools in FEATURE_FLAG_TOOL_SETS.items():
             if feature_flag in (self.featureFlags or []):
                 tools_to_load.extend(flagged_tools)
+
+        # Load retrieval tools for memory-enabled agents
+        if self.user_memory_enabled or self.agent_memory_enabled:
+            tools_to_load.extend(RETRIEVAL_TOOLS)
 
         # Load extra tools
         tools_to_load.extend(extra_tools)
