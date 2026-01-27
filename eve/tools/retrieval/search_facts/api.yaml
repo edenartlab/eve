@@ -1,13 +1,14 @@
 name: search_facts
-description: Search long-term memory using query(s). Returns relevant facts from the agent's knowledge base.
+description: Search long-term memory using query(s). Returns relevant facts from your cold storage knowledge base.
 tip: |-
-  This tool searches the agent's long-term memory for stored facts using hybrid retrieval (semantic + keyword search with RRF fusion).
+  This tool searches the agent's long-term memory for stored facts using hybrid retrieval (semantic + keyword search).
 
   WHEN TO USE:
-  - When you receive a clear question or information request and the answer is not in your current memory context
+  - When you receive a clear question or information request and the answer is not in your current <MemoryContext>
   - Recalling specific information about users, projects, or events
   - Finding stored contact details, urls, project specifications etc
-  - Retrieving factual data that was previously discussed or stored
+  - Retrieving factual data that was likely previously discussed or stored
+  - You typically use this tool first before calling web_search 
 
   CRAFTING EFFECTIVE QUERIES:
   - Be specific: "John's email address" is better than "contact info"
@@ -22,8 +23,7 @@ tip: |-
   Using multiple queries is useful when you need to gather information about different aspects of the same topic.
   Each query runs in parallel for efficiency, and results are combined. 
   IMPORTANT:
-  - This toolcall takes a few seconds to run, DO NOT execute this unless you really need to search specific information from long-term memory
-  - Do not keep calling this tool over and over if no relevant information is returned. This typically means the answer is not stored in memory.
+  - Don't keep calling this tool iteratively if no relevant information is returned. This typically means the answer just isn't stored in memory.
 
 cost_estimate: 1 * query.length 
 output_type: string
