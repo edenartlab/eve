@@ -26,7 +26,6 @@ from loguru import logger
 
 from eve.agent.memory2.constants import (
     LOCAL_DEV,
-    RAG_TOP_K,
     RAG_SEMANTIC_SCORE_THRESHOLD,
     RAG_TEXT_SCORE_THRESHOLD,
     RAG_RRF_SCORE_THRESHOLD,
@@ -59,7 +58,7 @@ async def search_facts(
     agent_id: ObjectId,
     user_id: Optional[ObjectId] = None,
     scope_filter: List[str] = None,
-    match_count: int = RAG_TOP_K,
+    match_count: int = 10,
     search_type: str = "hybrid",
 ) -> List[Dict[str, Any]]:
     """

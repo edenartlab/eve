@@ -446,14 +446,13 @@ def mark_reflections_absorbed(
 
 
 # -----------------------------------------------------------------------------
-# TEMPORARY: Facts FIFO Retrieval (to be replaced by RAG)
+# Facts FIFO Retrieval
 # -----------------------------------------------------------------------------
-# This function retrieves facts via simple FIFO (most recent N) instead of
-# semantic vector search. Used when FACTS_FIFO_ENABLED=True and RAG_ENABLED=False.
+# This function retrieves recent facts via FIFO for always-in-context injection.
+# Facts are filtered by age (default 48h) and limited to a max count.
 #
-# When migrating to full RAG:
-# - This function can be removed or kept as a fallback
-# - Replace usage in context_assembly.py with RAG retrieval
+# RAG retrieval is implemented as a separate tool call in the agent stack,
+# allowing agents to explicitly search their memory when needed.
 # -----------------------------------------------------------------------------
 
 def get_recent_facts_fifo(
@@ -461,31 +460,39 @@ def get_recent_facts_fifo(
     user_id: Optional[ObjectId] = None,
     limit: int = 50,
     enabled_scopes: Optional[List[str]] = None,
+    max_age_hours: int = 48,
 ) -> List[Fact]:
     """
-    TEMPORARY: Get recent facts via simple FIFO query (no RAG/vector search).
+    Get recent facts via simple FIFO query.
 
-    Retrieves the N most recent facts for an agent, filtered by enabled scopes:
+    Retrieves facts for an agent with the following filters:
+    - Only facts that are max `max_age_hours` old (default: 48h)
     - Agent-scoped facts (if "agent" in enabled_scopes)
     - User-scoped facts for the specified user (if "user" in enabled_scopes and user_id provided)
+    - Limited to `limit` facts (oldest dropped if more exist)
 
-    This is a temporary implementation until full RAG is enabled.
     Facts are sorted by formed_at descending (most recent first).
 
     Args:
         agent_id: Agent ID
         user_id: User ID (optional, for user-scoped facts)
-        limit: Maximum number of facts to return
+        limit: Maximum number of facts to return (oldest dropped if exceeded)
         enabled_scopes: List of enabled scopes ["user", "agent"] (default: both)
+        max_age_hours: Maximum age of facts in hours (default: 48)
 
     Returns:
         List of Fact documents, most recent first
     """
+    from datetime import timedelta
+
     # Default to all scopes if not specified
     if enabled_scopes is None:
         enabled_scopes = ["user", "agent"]
 
     try:
+        # Calculate cutoff time for max age filter
+        cutoff_time = datetime.now(timezone.utc) - timedelta(hours=max_age_hours)
+
         # Build query based on enabled scopes
         or_conditions = []
 
@@ -499,18 +506,23 @@ def get_recent_facts_fifo(
         if not or_conditions:
             return []
 
-        # Build final query
+        # Build final query with age filter
         if len(or_conditions) == 1:
             # Single condition: no need for $or
-            query = {"agent_id": agent_id, **or_conditions[0]}
+            query = {
+                "agent_id": agent_id,
+                "formed_at": {"$gte": cutoff_time},
+                **or_conditions[0],
+            }
         else:
             # Multiple conditions: use $or
             query = {
                 "agent_id": agent_id,
+                "formed_at": {"$gte": cutoff_time},
                 "$or": or_conditions,
             }
 
-        # Find facts sorted by formed_at descending
+        # Find facts sorted by formed_at descending, limited to max count
         collection = Fact.get_collection()
         cursor = collection.find(query).sort("formed_at", -1).limit(limit)
 

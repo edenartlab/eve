@@ -9,14 +9,14 @@ This module implements a redesigned memory system with two independent subsystem
    - Evolves over time via buffer → consolidation
    - Three scopes: session, user, agent
 
-2. RAG Memory (Facts):
-   - Stored in vector database (MongoDB Atlas)
-   - Retrieved via semantic search
-   - Infinitely scalable
+2. Facts (FIFO):
+   - Stored in MongoDB with embeddings
+   - Recent facts (within age limit) injected via FIFO
+   - RAG retrieval available as separate tool call in agent stack
    - Two scopes: user, agent (no session scope)
 
 Key concepts:
-- Fact: Atomic, objective statement for semantic retrieval
+- Fact: Atomic, objective statement for retrieval
 - Reflection: Interpreted memory that evolves agent persona
 - Consolidation: Merging buffered reflections into condensed blob
 - Scope: Where memory lives (session, user, agent)
@@ -32,9 +32,6 @@ Usage:
 
     # Form memories from conversation
     await service.maybe_form_memories(session, messages, user_id)
-
-    # Search facts via RAG
-    facts = await service.search_facts("user preferences", user_id)
 """
 
 # Models
@@ -62,9 +59,10 @@ from eve.agent.memory2.constants import (
     EMBEDDING_DIMENSIONS,
     EMBEDDING_MODEL,
     FACT_MAX_WORDS,
+    FACTS_FIFO_ENABLED,
+    FACTS_FIFO_LIMIT,
+    FACTS_FIFO_MAX_AGE_HOURS,
     MEMORY_LLM_MODEL_FAST,
-    RAG_ENABLED,
-    RAG_TOP_K,
     REFLECTION_MAX_WORDS,
     SIMILARITY_THRESHOLD,
     get_memory_llm_model_slow,
@@ -139,20 +137,11 @@ from eve.agent.memory2.fact_management import (
     search_similar_facts,
 )
 
-# RAG
+# RAG (for backward compatibility - actual RAG retrieval is in agent stack)
 from eve.agent.memory2.rag import (
     format_facts_for_tool_response,
     get_relevant_facts_for_context,
     search_facts,
-)
-from eve.agent.memory2.rag_tool import (
-    MEMORY_SEARCH_TOOL,
-    MemorySearchTool,
-    build_rag_context_section,
-    get_memory_tool,
-    get_memory_tool_definition,
-    handle_memory_search,
-    proactive_memory_retrieval,
 )
 
 __all__ = [
@@ -182,11 +171,12 @@ __all__ = [
     "SIMILARITY_THRESHOLD",
     "FACT_MAX_WORDS",
     "REFLECTION_MAX_WORDS",
-    "RAG_ENABLED",
     "ALWAYS_IN_CONTEXT_ENABLED",
     "EMBEDDING_MODEL",
     "EMBEDDING_DIMENSIONS",
-    "RAG_TOP_K",
+    "FACTS_FIFO_ENABLED",
+    "FACTS_FIFO_LIMIT",
+    "FACTS_FIFO_MAX_AGE_HOURS",
     # Formation
     "maybe_form_memories",
     "form_memories",
@@ -228,15 +218,8 @@ __all__ = [
     "llm_memory_update_decision",
     "execute_decision",
     "deduplicate_facts",
-    # RAG
+    # RAG (backward compatibility)
     "search_facts",
     "get_relevant_facts_for_context",
     "format_facts_for_tool_response",
-    "MEMORY_SEARCH_TOOL",
-    "MemorySearchTool",
-    "get_memory_tool",
-    "get_memory_tool_definition",
-    "handle_memory_search",
-    "proactive_memory_retrieval",
-    "build_rag_context_section",
 ]
