@@ -49,6 +49,7 @@ HANDLER_PATHS = {
     "shopify": "shopify.handler",
     "news": "news.handler",
     "reel": "media_utils.reel.handler",
+    "reel_audio": "media_utils.reel_audio.handler",
     "runway": "runway.handler",
     "runway2": "runway2.handler",
     "runway3": "runway3.handler",

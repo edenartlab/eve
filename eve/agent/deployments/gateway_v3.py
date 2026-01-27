@@ -5,8 +5,9 @@ import socket
 import sys
 import threading
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Set
 
 _original_path = sys.path.copy()
 _deployment_dir = os.path.dirname(os.path.abspath(__file__))
@@ -21,6 +22,7 @@ import aiohttp
 import modal
 from bson import ObjectId
 from fastapi import FastAPI
+from pymongo import UpdateOne
 
 from eve.agent.agent import Agent
 from eve.agent.deployments.discord_gateway import (
@@ -538,6 +540,556 @@ async def process_discord_message_for_agent(
     except Exception as e:
         logger.error(f"[{trace_id}] Error processing message: {e}", exc_info=True)
         return {"status": "error", "message": str(e)}
+
+
+# ============================================================================
+# BATCHED MESSAGE PROCESSING
+# ============================================================================
+
+
+def _get_or_create_user_for_discord(
+    author_id: str,
+    author_username: str,
+    discord_avatar: Optional[str] = None,
+) -> User:
+    """
+    Thread-safe wrapper to get or create a Discord user.
+
+    This is a blocking call that should be run in a thread pool.
+    """
+    return User.from_discord(author_id, author_username, discord_avatar=discord_avatar)
+
+
+async def _bulk_find_or_create_sessions(
+    deployments: List[Deployment],
+    message: discord.Message,
+    sender: User,
+    parent_channel_id: Optional[str],
+    source_agent: Optional[Agent] = None,
+) -> Dict[str, Session]:
+    """
+    Find or create sessions for all deployments in batched operations.
+
+    Uses bulk_write with upsert to minimize DB round-trips.
+
+    Args:
+        deployments: List of deployments to create sessions for
+        message: Discord message
+        sender: Message sender (User)
+        parent_channel_id: Parent channel ID for threads
+
+    Returns:
+        Dict mapping deployment_id (str) -> Session object
+    """
+    channel_id = str(message.channel.id)
+    guild_id = str(message.guild.id) if message.guild else None
+    timestamp = message.created_at
+
+    # Build session keys and data for each deployment
+    session_data_by_key: Dict[str, dict] = {}
+    deployment_to_key: Dict[str, str] = {}
+
+    for deployment in deployments:
+        agent = Agent.from_mongo(deployment.agent)
+        if not agent:
+            continue
+
+        # Build session key
+        if guild_id:
+            session_key = f"discord-{agent.id}-{guild_id}-{channel_id}"
+        else:
+            author_id = str(message.author.id)
+            session_key = f"discord-dm-{agent.id}-{author_id}"
+
+        deployment_to_key[str(deployment.id)] = session_key
+
+        # Skip if we've already seen this session key (same agent in multiple deployments)
+        if session_key in session_data_by_key:
+            continue
+
+        # Build title
+        if guild_id:
+            channel_name = getattr(message.channel, "name", None)
+            guild_name = message.guild.name if message.guild else None
+
+            if isinstance(message.channel, discord.Thread):
+                parent_name = (
+                    message.channel.parent.name if message.channel.parent else "Unknown"
+                )
+                title = f"{guild_name}: {parent_name}: {channel_name}"
+            else:
+                title = f"{guild_name}: {channel_name}"
+        else:
+            title = "Discord DM"
+
+        # Determine owner
+        owner_id = sender.id if not guild_id else agent.owner
+
+        session_data_by_key[session_key] = {
+            "session_key": session_key,
+            "owner": owner_id,
+            "agent_id": agent.id,
+            "title": title,
+            "channel_id": channel_id,
+            "guild_id": guild_id,
+            "parent_channel_id": parent_channel_id,
+        }
+
+    if not session_data_by_key:
+        return {}
+
+    # Build bulk upsert operations
+    # We use $setOnInsert for fields that should only be set on creation
+    bulk_ops = []
+    for session_key, data in session_data_by_key.items():
+        bulk_ops.append(
+            UpdateOne(
+                {"session_key": session_key},
+                {
+                    "$setOnInsert": {
+                        "owner": data["owner"],
+                        "users": [],
+                        "agents": [data["agent_id"]],
+                        "settings": None,
+                        "session_type": "passive",
+                        "platform": "discord",
+                        "title": data["title"],
+                        "channel": {
+                            "type": "discord",
+                            "key": data["channel_id"],
+                        },
+                        "discord_channel_id": data["channel_id"],
+                        "discord_guild_id": data["guild_id"],
+                        "status": "active",
+                        "messages": [],
+                        "createdAt": timestamp,
+                    },
+                    # Reactivate if deleted
+                    "$set": {
+                        "deleted": False,
+                    },
+                },
+                upsert=True,
+            )
+        )
+
+    # Execute bulk upsert
+    if bulk_ops:
+        await asyncio.to_thread(
+            lambda: Session.get_collection().bulk_write(bulk_ops, ordered=False)
+        )
+
+    # Fetch all sessions by their keys
+    session_keys = list(session_data_by_key.keys())
+    sessions_cursor = await asyncio.to_thread(
+        lambda: list(
+            Session.get_collection().find({"session_key": {"$in": session_keys}})
+        )
+    )
+
+    # Build mapping of session_key -> Session object
+    sessions_by_key: Dict[str, Session] = {}
+    for doc in sessions_cursor:
+        session = Session(**doc)
+        sessions_by_key[session.session_key] = session
+
+    # Handle parent session inheritance for threads (if needed)
+    # This is done after bulk creation to handle thread-specific settings
+    if parent_channel_id and guild_id:
+        for session_key, data in session_data_by_key.items():
+            session = sessions_by_key.get(session_key)
+            if not session:
+                continue
+
+            # Check if this is a new session (no users, no settings) that needs inheritance
+            if session.users or session.settings:
+                continue
+
+            agent_id = data["agent_id"]
+            parent_session_key = f"discord-{agent_id}-{guild_id}-{parent_channel_id}"
+            parent_session = await asyncio.to_thread(
+                lambda pk=parent_session_key: Session.find_one({"session_key": pk})
+            )
+            if parent_session:
+                # Update session with inherited values
+                await asyncio.to_thread(
+                    lambda s=session,
+                    ps=parent_session: Session.get_collection().update_one(
+                        {"_id": s.id},
+                        {
+                            "$set": {
+                                "users": ps.users or [],
+                                "agents": ps.agents or [data["agent_id"]],
+                                "settings": ps.settings.model_dump()
+                                if ps.settings
+                                else None,
+                                "parent_session": ps.id,
+                            }
+                        },
+                    )
+                )
+                # Update local object
+                session.users = parent_session.users or []
+                session.agents = parent_session.agents or [agent_id]
+                session.settings = parent_session.settings
+                session.parent_session = parent_session.id
+
+    # Build result mapping: deployment_id -> Session
+    result: Dict[str, Session] = {}
+    for deployment in deployments:
+        dep_id = str(deployment.id)
+        session_key = deployment_to_key.get(dep_id)
+        if session_key and session_key in sessions_by_key:
+            result[dep_id] = sessions_by_key[session_key]
+
+    return result
+
+
+async def _bulk_add_user_to_sessions(
+    sessions: List[Session],
+    user_id: ObjectId,
+) -> None:
+    """
+    Add a user to multiple sessions in one bulk operation.
+
+    Uses $addToSet to avoid duplicates.
+    """
+    if not sessions or not user_id:
+        return
+
+    ops = [
+        UpdateOne({"_id": session.id}, {"$addToSet": {"users": user_id}})
+        for session in sessions
+    ]
+
+    await asyncio.to_thread(
+        lambda: Session.get_collection().bulk_write(ops, ordered=False)
+    )
+
+
+async def process_message_for_all_deployments(
+    message: discord.Message,
+    deployments: List[Deployment],
+    mentioned_ids: Set[ObjectId],
+    reply_ids: Set[ObjectId],
+    source_agent: Optional[Agent],
+    source_deployment_id: Optional[str],
+    parent_channel_id: Optional[str],
+) -> List[Dict[str, Any]]:
+    """
+    Process a Discord message for all deployments in batched operations.
+
+    This optimizes N deployments from ~7N DB calls to ~6 DB calls total:
+    1. Resolve sender (1 call, threaded)
+    2. Bulk find/create sessions (1 bulk_write + 1 find)
+    3. Create/update ChatMessage with all session IDs (1 call)
+    4. Create/update DiscordMessage with all session IDs (1 call)
+    5. Increment message count once (1 call, threaded)
+    6. Bulk add user to sessions (1 bulk_write)
+    7. Dispatch orchestration for prompted deployments (async, parallel)
+
+    Args:
+        message: Discord.py Message object
+        deployments: List of deployments to process
+        mentioned_ids: Set of deployment IDs that were mentioned
+        reply_ids: Set of deployment IDs that were reply targets
+        source_agent: Source agent if this is a webhook message
+        source_deployment_id: Source deployment ID if webhook message
+        parent_channel_id: Parent channel ID if this is a thread
+
+    Returns:
+        List of result dicts with status for each deployment
+    """
+    trace_id = f"discord-batch-{message.id}"
+    channel_id = str(message.channel.id)
+    guild_id = str(message.guild.id) if message.guild else None
+    message_id = str(message.id)
+    author_id = str(message.author.id)
+    author_username = message.author.name
+    timestamp = message.created_at
+
+    logger.info(
+        f"[{trace_id}] Processing message for {len(deployments)} deployments (batched)"
+    )
+
+    try:
+        # Step 1: Resolve sender (1 threaded call)
+        if source_agent:
+            sender = source_agent
+            role = "user"
+        else:
+            sender = await asyncio.to_thread(
+                _get_or_create_user_for_discord,
+                author_id,
+                author_username,
+                message.author.avatar.key if message.author.avatar else None,
+            )
+            role = "user"
+
+        # Step 2: Bulk find/create sessions
+        deployment_sessions = await _bulk_find_or_create_sessions(
+            deployments=deployments,
+            message=message,
+            sender=sender,
+            parent_channel_id=parent_channel_id,
+            source_agent=source_agent,
+        )
+
+        if not deployment_sessions:
+            logger.warning(f"[{trace_id}] No sessions created for any deployment")
+            return [{"status": "error", "message": "No sessions created"}]
+
+        # Collect all session IDs
+        all_sessions = list(deployment_sessions.values())
+        all_session_ids = [s.id for s in all_sessions]
+
+        logger.info(
+            f"[{trace_id}] Created/found {len(all_sessions)} sessions for {len(deployments)} deployments"
+        )
+
+        # Extract message content
+        content = message.content or ""
+
+        # Convert Discord mentions to readable format
+        if message.mentions:
+            # Get any deployment to access bot info for mention conversion
+            first_deployment = deployments[0] if deployments else None
+            bot_discord_id = None
+            bot_name = None
+            if (
+                first_deployment
+                and first_deployment.secrets
+                and first_deployment.secrets.discord
+            ):
+                bot_discord_id = first_deployment.secrets.discord.application_id
+                agent = Agent.from_mongo(first_deployment.agent)
+                if agent:
+                    bot_name = agent.name
+
+            mentions_data = [
+                {"id": str(u.id), "username": u.name} for u in message.mentions
+            ]
+            content = convert_discord_mentions_to_usernames(
+                content=content,
+                mentions_data=mentions_data,
+                bot_discord_id=bot_discord_id,
+                bot_name=bot_name,
+            )
+
+        # Convert role mentions
+        if message.role_mentions:
+            for role_obj in message.role_mentions:
+                role_mention_pattern = f"<@&{role_obj.id}>"
+                content = content.replace(role_mention_pattern, f"@{role_obj.name}")
+
+        # Extract and upload media
+        media_urls = []
+        if message.attachments:
+            for attachment in message.attachments:
+                media_urls.append(attachment.url)
+            media_urls = await upload_discord_media_to_s3(media_urls)
+
+        # Skip empty messages
+        if not content and not media_urls:
+            logger.info(f"[{trace_id}] Skipping empty message")
+            return [{"status": "skipped", "message": "Empty message"}]
+
+        # Step 3: Create/update ChatMessage with ALL session IDs
+        existing_chat = await asyncio.to_thread(
+            lambda: ChatMessage.find_one(
+                {
+                    "channel.key": message_id,
+                    "channel.type": "discord",
+                }
+            )
+        )
+
+        if existing_chat:
+            # Add all session IDs to existing message
+            await asyncio.to_thread(
+                lambda: ChatMessage.get_collection().update_one(
+                    {"_id": existing_chat.id},
+                    {"$addToSet": {"session": {"$each": all_session_ids}}},
+                )
+            )
+            chat_message = existing_chat
+            logger.info(
+                f"[{trace_id}] Added {len(all_session_ids)} sessions to existing ChatMessage {existing_chat.id}"
+            )
+        else:
+            # Build Discord message URL
+            if guild_id:
+                discord_url = (
+                    f"https://discord.com/channels/{guild_id}/{channel_id}/{message_id}"
+                )
+            else:
+                discord_url = (
+                    f"https://discord.com/channels/@me/{channel_id}/{message_id}"
+                )
+
+            # Create new ChatMessage with ALL session IDs
+            chat_message = ChatMessage(
+                createdAt=timestamp,
+                session=all_session_ids,  # All sessions at once
+                channel=Channel(type="discord", key=message_id, url=discord_url),
+                role=role,
+                content=content,
+                sender=sender.id,
+                attachments=media_urls if media_urls else None,
+            )
+            await asyncio.to_thread(chat_message.save)
+            logger.info(
+                f"[{trace_id}] Created ChatMessage {chat_message.id} with {len(all_session_ids)} sessions"
+            )
+
+        # Step 4: Create/update DiscordMessage with ALL session IDs
+        update_ops: Dict[str, Any] = {
+            "$addToSet": {"session_id": {"$each": all_session_ids}},
+            "$set": {"last_seen_at": datetime.now(timezone.utc)},
+        }
+        if not existing_chat:
+            # Only set eve_message_id on insert
+            update_ops["$setOnInsert"] = {
+                "eve_message_id": chat_message.id,
+                "discord_message_id": message_id,
+                "channel_id": channel_id,
+                "guild_id": guild_id,
+                "author_id": author_id,
+                "author_username": author_username,
+                "content": message.content or "",
+                "timestamp": timestamp,
+                "attachments": [{"url": a.url} for a in message.attachments],
+                "first_seen_at": datetime.now(timezone.utc),
+            }
+            if source_agent:
+                update_ops["$setOnInsert"]["source_agent_id"] = str(source_agent.id)
+                update_ops["$setOnInsert"]["source_deployment_id"] = (
+                    source_deployment_id
+                )
+
+        await asyncio.to_thread(
+            lambda: DiscordMessage.get_collection().update_one(
+                {"discord_message_id": message_id},
+                update_ops,
+                upsert=True,
+            )
+        )
+
+        # Step 5: Increment message count ONCE (same sender for all deployments)
+        await asyncio.to_thread(increment_message_count, sender.id)
+
+        # Step 6: Bulk add user to all sessions
+        await _bulk_add_user_to_sessions(all_sessions, sender.id)
+
+        # Step 7: Dispatch orchestration for mentioned/reply deployments
+        # Import here to avoid circular imports
+        from eve.agent.session.orchestrator import orchestrate_deployment
+
+        prompt_tasks = []
+        results = []
+
+        for deployment in deployments:
+            dep_id = str(deployment.id)
+            session = deployment_sessions.get(dep_id)
+
+            if not session:
+                results.append(
+                    {
+                        "deployment_id": dep_id,
+                        "status": "error",
+                        "message": "No session found",
+                    }
+                )
+                continue
+
+            # Check if this deployment should respond
+            # Effective channel for write access check
+            effective_channel_id = (
+                parent_channel_id if parent_channel_id else channel_id
+            )
+            has_write_access = deployment_can_write_to_channel(
+                deployment, effective_channel_id
+            )
+            was_mentioned = deployment.id in mentioned_ids
+            was_reply_target = deployment.id in reply_ids
+            should_prompt = (was_mentioned or was_reply_target) and has_write_access
+
+            # Don't prompt for webhook messages (already handled by source agent)
+            is_webhook_message = getattr(message, "webhook_id", None) is not None
+            if is_webhook_message:
+                should_prompt = False
+
+            # Determine match_reason
+            match_reason = None
+            if was_mentioned:
+                match_reason = "mention"
+            elif was_reply_target:
+                match_reason = "reply"
+
+            if should_prompt:
+                agent = Agent.from_mongo(deployment.agent)
+                if agent:
+                    logger.info(
+                        f"[{trace_id}] Queuing prompt for deployment {dep_id} (reason: {match_reason})"
+                    )
+
+                    async def run_orchestration(
+                        s=session,
+                        a=agent,
+                        sid=sender.id,
+                        cid=channel_id,
+                        mid=message_id,
+                        gid=guild_id,
+                        aid=author_id,
+                        mr=match_reason,
+                    ):
+                        async for _ in orchestrate_deployment(
+                            session=s,
+                            agent=a,
+                            user_id=sid,
+                            update_config=SessionUpdateConfig(
+                                discord_channel_id=cid,
+                                discord_message_id=mid,
+                                discord_guild_id=gid,
+                                social_match_reason=mr,
+                            ),
+                        ):
+                            pass
+
+                    prompt_tasks.append(run_orchestration())
+
+            results.append(
+                {
+                    "deployment_id": dep_id,
+                    "status": "success",
+                    "session_id": str(session.id),
+                    "message_id": str(chat_message.id),
+                    "prompted": should_prompt,
+                }
+            )
+
+        # Execute all orchestration tasks in parallel
+        if prompt_tasks:
+            logger.info(
+                f"[{trace_id}] Executing {len(prompt_tasks)} orchestration tasks in parallel"
+            )
+            orchestration_results = await asyncio.gather(
+                *prompt_tasks, return_exceptions=True
+            )
+            for i, orch_result in enumerate(orchestration_results):
+                if isinstance(orch_result, Exception):
+                    logger.error(
+                        f"[{trace_id}] Orchestration task {i} failed: {orch_result}"
+                    )
+
+        logger.info(
+            f"[{trace_id}] Batched processing complete: {len(results)} deployments processed"
+        )
+        return results
+
+    except Exception as e:
+        logger.error(f"[{trace_id}] Batched processing error: {e}", exc_info=True)
+        return [{"status": "error", "message": str(e)}]
 
 
 def parse_mentioned_deployments(
@@ -1166,37 +1718,28 @@ async def on_message(message: discord.Message):
             except Exception as e:
                 logger.warning(f"Failed webhook name fallback: {e}")
 
-    # Process for each following deployment
-    tasks = []
+    # Check if this is a DM
+    is_dm = isinstance(message.channel, (discord.DMChannel, discord.GroupChannel))
+
+    # Filter deployments: skip those whose agent sent the message
+    eligible_deployments = []
     for deployment in following_deployments:
-        # Skip if this deployment's agent sent the message (avoid duplicate messages)
-        # The agent already has the tool call message in its session
         if source_agent and str(source_agent.id) == str(deployment.agent):
             logger.info(
                 f"Skipping message processing for deployment {deployment.id} - agent's own webhook message"
             )
             continue
+        eligible_deployments.append(deployment)
 
-        # Determine if this deployment should respond
-        has_write_access = deployment_can_write_to_channel(
-            deployment, effective_channel_id
-        )
-        was_mentioned = deployment.id in mentioned_ids
-        was_reply_target = deployment.id in reply_ids
-        should_prompt = (was_mentioned or was_reply_target) and has_write_access
+    if not eligible_deployments:
+        logger.info("No eligible deployments after filtering")
+        return
 
-        # Determine match_reason for force reprompt logic
-        match_reason = None
-        if was_mentioned:
-            match_reason = "mention"
-        elif was_reply_target:
-            match_reason = "reply"
-        if is_webhook_message:
-            should_prompt = False
-
-        # For DMs, check if user is in the DM allowlist
-        is_dm = isinstance(message.channel, (discord.DMChannel, discord.GroupChannel))
-        if is_dm:
+    # DMs require special handling (allowlist checking, always prompt)
+    # Process them individually using the original function
+    if is_dm:
+        tasks = []
+        for deployment in eligible_deployments:
             dm_allowlist = (
                 deployment.config.discord.dm_user_allowlist
                 if deployment.config and deployment.config.discord
@@ -1219,31 +1762,46 @@ async def on_message(message: discord.Message):
                 except Exception as e:
                     logger.error(f"Failed to send DM redirect: {e}")
                 continue
-            else:
-                # User in allowlist - always prompt
-                should_prompt = True
 
-        # Process the message for this deployment
-        task = process_discord_message_for_agent(
-            message=message,
-            deployment=deployment,
-            should_prompt=should_prompt,
-            parent_channel_id=parent_channel_id,
-            source_agent=source_agent,
-            source_deployment_id=source_deployment_id,
-            match_reason=match_reason,
-            is_dm=is_dm,
-        )
-        tasks.append(task)
+            # User in allowlist - always prompt for DMs
+            task = process_discord_message_for_agent(
+                message=message,
+                deployment=deployment,
+                should_prompt=True,
+                parent_channel_id=parent_channel_id,
+                source_agent=source_agent,
+                source_deployment_id=source_deployment_id,
+                match_reason="dm",
+                is_dm=True,
+            )
+            tasks.append(task)
 
-    # Run all processing in parallel
-    if tasks:
-        results = await asyncio.gather(*tasks, return_exceptions=True)
-        for i, result in enumerate(results):
-            if isinstance(result, Exception):
-                logger.error(f"Error processing message for deployment: {result}")
-            else:
-                logger.info(f"Processing result: {result}")
+        if tasks:
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+            for i, result in enumerate(results):
+                if isinstance(result, Exception):
+                    logger.error(f"Error processing DM for deployment: {result}")
+                else:
+                    logger.info(f"DM processing result: {result}")
+        return
+
+    # Non-DM messages: use batched processing for efficiency
+    # (reduces ~7N DB calls to ~6 total for N deployments)
+    logger.info(f"Using batched processing for {len(eligible_deployments)} deployments")
+    results = await process_message_for_all_deployments(
+        message=message,
+        deployments=eligible_deployments,
+        mentioned_ids=mentioned_ids,
+        reply_ids=reply_ids,
+        source_agent=source_agent,
+        source_deployment_id=source_deployment_id,
+        parent_channel_id=parent_channel_id,
+    )
+    for result in results:
+        if result.get("status") == "error":
+            logger.error(f"Batched processing error: {result}")
+        else:
+            logger.info(f"Batched processing result: {result}")
 
 
 @bot.event
