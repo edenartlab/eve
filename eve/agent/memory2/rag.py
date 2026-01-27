@@ -24,7 +24,12 @@ from typing import Any, Dict, List, Optional
 from bson import ObjectId
 from loguru import logger
 
-from eve.agent.memory2.constants import LOCAL_DEV, RAG_TOP_K
+from eve.agent.memory2.constants import (
+    LOCAL_DEV,
+    RAG_SEMANTIC_SCORE_THRESHOLD,
+    RAG_TEXT_SCORE_THRESHOLD,
+    RAG_RRF_SCORE_THRESHOLD,
+)
 from eve.agent.memory2.fact_storage import get_embedding
 from eve.agent.memory2.models import Fact
 
@@ -53,7 +58,7 @@ async def search_facts(
     agent_id: ObjectId,
     user_id: Optional[ObjectId] = None,
     scope_filter: List[str] = None,
-    match_count: int = RAG_TOP_K,
+    match_count: int = 10,
     search_type: str = "hybrid",
 ) -> List[Dict[str, Any]]:
     """
@@ -143,6 +148,7 @@ def _build_scope_filter(
         conditions.append({
             "$and": [
                 {"scope": {"$eq": "user"}},
+                {"agent_id": {"$eq": agent_id}},
                 {"user_id": {"$eq": user_id}},
             ]
         })
@@ -191,6 +197,7 @@ def _build_atlas_search_filter(
             "compound": {
                 "must": [
                     {"equals": {"path": "scope", "value": "user"}},
+                    {"equals": {"path": "agent_id", "value": agent_id}},
                     {"equals": {"path": "user_id", "value": user_id}},
                 ]
             }
@@ -257,8 +264,25 @@ async def _semantic_search(
         ]
 
         try:
-            results = list(collection.aggregate(pipeline))
-            return results
+            # Run sync PyMongo call in thread pool for true async parallelism
+            loop = asyncio.get_event_loop()
+            results = await loop.run_in_executor(
+                None, lambda: list(collection.aggregate(pipeline))
+            )
+
+            # Filter by semantic score threshold (pre-fusion filtering)
+            filtered_results = [
+                r for r in results
+                if r.get("score", 0) >= RAG_SEMANTIC_SCORE_THRESHOLD
+            ]
+
+            if LOCAL_DEV and len(results) != len(filtered_results):
+                logger.debug(
+                    f"Semantic search: filtered {len(results) - len(filtered_results)} "
+                    f"results below threshold {RAG_SEMANTIC_SCORE_THRESHOLD}"
+                )
+
+            return filtered_results
         except Exception as e:
             # Fallback for environments without vector search
             if "no such index" in str(e).lower() or "vectorSearch" in str(e):
@@ -328,8 +352,25 @@ async def _text_search(
         ]
 
         try:
-            results = list(collection.aggregate(pipeline))
-            return results
+            # Run sync PyMongo call in thread pool for true async parallelism
+            loop = asyncio.get_event_loop()
+            results = await loop.run_in_executor(
+                None, lambda: list(collection.aggregate(pipeline))
+            )
+
+            # Filter by text score threshold (pre-fusion filtering)
+            filtered_results = [
+                r for r in results
+                if r.get("score", 0) >= RAG_TEXT_SCORE_THRESHOLD
+            ]
+
+            if LOCAL_DEV and len(results) != len(filtered_results):
+                logger.debug(
+                    f"Text search: filtered {len(results) - len(filtered_results)} "
+                    f"results below threshold {RAG_TEXT_SCORE_THRESHOLD}"
+                )
+
+            return filtered_results
         except Exception as e:
             # Fallback: simple regex search
             if "no such index" in str(e).lower() or "$search" in str(e):
@@ -363,10 +404,15 @@ async def _regex_fallback_search(
         # Combine pre_filter with content regex
         search_query = {**pre_filter, "content": {"$regex": pattern}}
 
-        results = list(collection.find(
-            search_query,
-            {"_id": 1, "content": 1, "scope": 1, "formed_at": 1}
-        ).limit(limit))
+        # Run sync PyMongo call in thread pool for true async parallelism
+        loop = asyncio.get_event_loop()
+        results = await loop.run_in_executor(
+            None,
+            lambda: list(collection.find(
+                search_query,
+                {"_id": 1, "content": 1, "scope": 1, "formed_at": 1}
+            ).limit(limit))
+        )
 
         # Add mock scores
         for r in results:
@@ -399,7 +445,7 @@ def _reciprocal_rank_fusion(
         limit: Maximum results to return
 
     Returns:
-        Merged and re-ranked results
+        Merged and re-ranked results (filtered by RRF threshold, capped by limit)
     """
     rrf_scores = {}
     doc_map = {}
@@ -414,12 +460,28 @@ def _reciprocal_rank_fusion(
     # Sort by RRF score
     sorted_ids = sorted(rrf_scores.items(), key=lambda x: x[1], reverse=True)
 
-    # Build result list with RRF scores
+    # Build result list with RRF scores, filtering by threshold and limit
     results = []
-    for doc_id, rrf_score in sorted_ids[:limit]:
+    filtered_count = 0
+    for doc_id, rrf_score in sorted_ids:
+        # Apply RRF score threshold (post-fusion filtering)
+        if rrf_score < RAG_RRF_SCORE_THRESHOLD:
+            filtered_count += 1
+            continue
+
+        # Apply top-k limit
+        if len(results) >= limit:
+            break
+
         doc = doc_map[doc_id].copy()
         doc["rrf_score"] = rrf_score
         results.append(doc)
+
+    if LOCAL_DEV and filtered_count > 0:
+        logger.debug(
+            f"RRF fusion: filtered {filtered_count} results "
+            f"below threshold {RAG_RRF_SCORE_THRESHOLD}"
+        )
 
     return results
 

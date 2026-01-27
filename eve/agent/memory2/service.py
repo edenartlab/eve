@@ -21,7 +21,6 @@ from loguru import logger
 from eve.agent.memory2.constants import (
     ALWAYS_IN_CONTEXT_ENABLED,
     LOCAL_DEV,
-    RAG_ENABLED,
 )
 
 
@@ -36,7 +35,6 @@ class MemoryService:
     def __init__(
         self,
         agent_id: ObjectId,
-        enable_rag: bool = RAG_ENABLED,
         enable_always_in_context: bool = ALWAYS_IN_CONTEXT_ENABLED,
     ):
         """
@@ -44,11 +42,9 @@ class MemoryService:
 
         Args:
             agent_id: Agent ID for this service instance
-            enable_rag: Whether RAG retrieval is enabled
             enable_always_in_context: Whether always-in-context memory is enabled
         """
         self.agent_id = agent_id
-        self.enable_rag = enable_rag
         self.enable_always_in_context = enable_always_in_context
 
     # -------------------------------------------------------------------------
@@ -75,7 +71,7 @@ class MemoryService:
         Returns:
             True if memories were formed
         """
-        if not self.enable_always_in_context and not self.enable_rag:
+        if not self.enable_always_in_context:
             return False
 
         from eve.agent.memory2.formation import maybe_form_memories
@@ -150,92 +146,6 @@ class MemoryService:
             last_speaker_id=user_id,
             force_refresh=force_refresh,
         )
-
-    async def search_facts(
-        self,
-        query: str,
-        user_id: Optional[ObjectId] = None,
-        limit: int = 10,
-        search_type: str = "hybrid",
-    ) -> List[Dict[str, Any]]:
-        """
-        Search facts using RAG retrieval.
-
-        Uses hybrid search (semantic + text) with Reciprocal Rank Fusion.
-
-        Args:
-            query: Search query
-            user_id: User ID to filter user-scoped facts
-            limit: Maximum number of results
-            search_type: "hybrid", "semantic", or "text"
-
-        Returns:
-            List of fact documents with relevance scores
-        """
-        if not self.enable_rag:
-            return []
-
-        from eve.agent.memory2.rag import search_facts
-
-        return await search_facts(
-            query=query,
-            agent_id=self.agent_id,
-            user_id=user_id,
-            match_count=limit,
-            search_type=search_type,
-        )
-
-    async def get_relevant_facts(
-        self,
-        query: str,
-        user_id: Optional[ObjectId] = None,
-        max_facts: int = 5,
-    ) -> str:
-        """
-        Get relevant facts formatted for context injection.
-
-        This is a convenience method for getting facts to inject into
-        agent context alongside the always-in-context memory.
-
-        Args:
-            query: Query text (usually the user's message)
-            user_id: User ID
-            max_facts: Maximum facts to include
-
-        Returns:
-            Formatted string of relevant facts
-        """
-        if not self.enable_rag:
-            return ""
-
-        from eve.agent.memory2.rag import get_relevant_facts_for_context
-
-        return await get_relevant_facts_for_context(
-            query=query,
-            agent_id=self.agent_id,
-            user_id=user_id,
-            max_facts=max_facts,
-        )
-
-    def get_memory_search_tool(
-        self,
-        user_id: Optional[ObjectId] = None,
-    ):
-        """
-        Get a memory search tool for the agent.
-
-        This returns a tool that can be added to the agent's tool list
-        to enable explicit memory retrieval via tool calls.
-
-        Args:
-            user_id: User ID (optional)
-
-        Returns:
-            MemorySearchTool instance
-        """
-        from eve.agent.memory2.rag_tool import get_memory_tool
-
-        return get_memory_tool(self.agent_id, user_id)
 
     # -------------------------------------------------------------------------
     # Consolidation

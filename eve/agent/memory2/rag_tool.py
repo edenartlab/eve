@@ -1,11 +1,11 @@
 """
-Memory System v2 - RAG Tool
+Memory System v2 - RAG Tool (DEPRECATED)
 
-This module provides the tool definition for agents to search long-term memory.
-The tool can be added to an agent's tool list to enable explicit memory retrieval.
+NOTE: RAG retrieval is now implemented as a separate tool call in the agent stack.
+This module is kept for backward compatibility but should not be used for new code.
 
-This is Option A from the design doc - a tool call interface where the agent
-decides when to query memory and what to search for.
+The FIFO facts system provides recent facts in context automatically.
+For explicit memory search, use the RAG tool implemented in the agent stack.
 """
 
 from typing import Any, Dict, List, Optional
@@ -13,28 +13,19 @@ from typing import Any, Dict, List, Optional
 from bson import ObjectId
 from loguru import logger
 
-from eve.agent.memory2.constants import LOCAL_DEV, RAG_ENABLED, RAG_TOP_K
-from eve.agent.memory2.rag import format_facts_for_tool_response, search_facts
 
-
-# Tool definition for agent
+# Tool definition kept for backward compatibility
 MEMORY_SEARCH_TOOL = {
     "name": "search_memory",
     "description": """Search long-term memory for facts about users, projects, events, or any stored information.
 
-Use this tool when you need to recall specific facts that may not be in your immediate context, such as:
-- User preferences, birthdays, or personal information
-- Project details, deadlines, or status
-- Past conversations or decisions
-- Any factual information that was stored
-
-The search uses semantic similarity, so you can describe what you're looking for in natural language.""",
+NOTE: This tool is deprecated. RAG retrieval is now handled by the agent stack.""",
     "parameters": {
         "type": "object",
         "properties": {
             "query": {
                 "type": "string",
-                "description": "What to search for in memory. Be specific about what information you need.",
+                "description": "What to search for in memory.",
             },
             "max_results": {
                 "type": "integer",
@@ -54,40 +45,18 @@ async def handle_memory_search(
     max_results: int = 5,
 ) -> str:
     """
-    Handle a memory search tool call from the agent.
+    DEPRECATED: RAG retrieval is now implemented in the agent stack.
 
-    Args:
-        query: Search query
-        agent_id: Agent ID
-        user_id: User ID (for user-scoped facts)
-        max_results: Maximum results to return
-
-    Returns:
-        Formatted string response for the agent
+    This function returns a message indicating the tool is deprecated.
     """
-    if not RAG_ENABLED:
-        return "Memory search is currently disabled."
-
-    try:
-        facts = await search_facts(
-            query=query,
-            agent_id=agent_id,
-            user_id=user_id,
-            match_count=min(max_results, RAG_TOP_K),
-        )
-
-        return format_facts_for_tool_response(facts)
-
-    except Exception as e:
-        logger.error(f"Error in handle_memory_search: {e}")
-        return f"Error searching memory: {str(e)}"
+    return "Memory search via this interface is deprecated. RAG retrieval is now handled by the agent stack."
 
 
 class MemorySearchTool:
     """
-    Tool class for memory search that can be integrated into the agent's tool system.
+    DEPRECATED: Tool class kept for backward compatibility.
 
-    This provides a standard interface for the agent to search long-term memory.
+    RAG retrieval is now implemented in the agent stack.
     """
 
     def __init__(
@@ -95,13 +64,6 @@ class MemorySearchTool:
         agent_id: ObjectId,
         user_id: Optional[ObjectId] = None,
     ):
-        """
-        Initialize the memory search tool.
-
-        Args:
-            agent_id: Agent ID
-            user_id: User ID (optional, for user-scoped facts)
-        """
         self.agent_id = agent_id
         self.user_id = user_id
         self.name = "search_memory"
@@ -114,17 +76,6 @@ class MemorySearchTool:
         max_results: int = 5,
         **kwargs,
     ) -> str:
-        """
-        Execute a memory search.
-
-        Args:
-            query: Search query
-            max_results: Maximum results
-            **kwargs: Additional arguments (ignored)
-
-        Returns:
-            Formatted search results
-        """
         return await handle_memory_search(
             query=query,
             agent_id=self.agent_id,
@@ -133,12 +84,6 @@ class MemorySearchTool:
         )
 
     def to_dict(self) -> Dict[str, Any]:
-        """
-        Convert to dictionary format for tool registration.
-
-        Returns:
-            Tool definition dictionary
-        """
         return MEMORY_SEARCH_TOOL.copy()
 
 
@@ -146,26 +91,12 @@ def get_memory_tool(
     agent_id: ObjectId,
     user_id: Optional[ObjectId] = None,
 ) -> MemorySearchTool:
-    """
-    Get a memory search tool instance for an agent.
-
-    Args:
-        agent_id: Agent ID
-        user_id: User ID (optional)
-
-    Returns:
-        MemorySearchTool instance
-    """
+    """DEPRECATED: Returns a deprecated MemorySearchTool instance."""
     return MemorySearchTool(agent_id, user_id)
 
 
 def get_memory_tool_definition() -> Dict[str, Any]:
-    """
-    Get the tool definition for memory search.
-
-    Returns:
-        Tool definition dictionary
-    """
+    """DEPRECATED: Returns the deprecated tool definition."""
     return MEMORY_SEARCH_TOOL.copy()
 
 
@@ -177,59 +108,12 @@ async def proactive_memory_retrieval(
     max_facts: int = 3,
 ) -> Optional[str]:
     """
-    Proactively retrieve relevant facts based on user message.
+    DEPRECATED: Proactive memory retrieval is no longer used.
 
-    This is Option B from the design doc - a background subagent approach
-    where memory is retrieved automatically without explicit tool calls.
-
-    The returned facts can be injected into the agent's context alongside
-    the always-in-context memory.
-
-    Args:
-        user_message: The user's message to analyze
-        agent_id: Agent ID
-        user_id: User ID
-        threshold: Minimum relevance threshold (0-1)
-        max_facts: Maximum facts to return
-
-    Returns:
-        Formatted facts string if relevant facts found, None otherwise
+    RAG retrieval is now implemented in the agent stack.
+    Returns None to indicate no facts retrieved.
     """
-    if not RAG_ENABLED:
-        return None
-
-    try:
-        # Search for relevant facts
-        facts = await search_facts(
-            query=user_message,
-            agent_id=agent_id,
-            user_id=user_id,
-            match_count=max_facts,
-        )
-
-        if not facts:
-            return None
-
-        # Filter by relevance threshold
-        relevant_facts = [
-            f for f in facts
-            if (f.get("rrf_score") or f.get("score", 0)) >= threshold
-        ]
-
-        if not relevant_facts:
-            return None
-
-        # Format for context injection
-        fact_lines = []
-        for fact in relevant_facts:
-            scope = fact.get("scope", "")
-            fact_lines.append(f"- [{scope}] {fact['content']}")
-
-        return "\n".join(fact_lines)
-
-    except Exception as e:
-        logger.error(f"Error in proactive_memory_retrieval: {e}")
-        return None
+    return None
 
 
 def build_rag_context_section(facts_content: str) -> str:

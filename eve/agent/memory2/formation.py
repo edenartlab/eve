@@ -34,7 +34,6 @@ from eve.agent.memory2.constants import (
     MEMORY_FORMATION_MSG_INTERVAL,
     MEMORY_FORMATION_TOKEN_INTERVAL,
     NEVER_FORM_MEMORIES_LESS_THAN_N_MESSAGES,
-    RAG_ENABLED,
     FACTS_FIFO_ENABLED,
     Memory2Config,
 )
@@ -286,13 +285,14 @@ async def form_memories(
             logger.debug(f"{'='*60}")
 
         # --- LLM CALL 1: Fact Extraction ---
-        # Facts are extracted when either RAG or FIFO mode is enabled AND
+        # Facts are extracted when FIFO mode is enabled AND
         # at least one fact scope is enabled (user or agent).
+        # Note: RAG retrieval is now implemented as a separate tool call in the agent stack.
         newly_formed_facts: List[str] = []
         fact_count = 0
         saved_facts = []
 
-        if (RAG_ENABLED or FACTS_FIFO_ENABLED) and config.fact_scopes:
+        if FACTS_FIFO_ENABLED and config.fact_scopes:
             from eve.agent.memory2.fact_extraction import extract_and_prepare_facts
 
             # Extract facts only for enabled scopes
@@ -307,37 +307,25 @@ async def form_memories(
             )
 
             if prepared_facts:
-                if RAG_ENABLED:
-                    # Full RAG pipeline: deduplication + vector search
-                    from eve.agent.memory2.fact_management import process_extracted_facts
+                # FIFO mode - store facts with embeddings, skip dedup LLM
+                from eve.agent.memory2.fact_storage import store_facts_batch
 
-                    saved_facts, newly_formed_facts = await process_extracted_facts(
-                        extracted_facts=prepared_facts,
-                        agent_id=agent_id,
-                        user_id=user_id,
-                    )
-                    fact_count = len(saved_facts)
-                else:
-                    # TEMPORARY: FIFO mode - store facts with embeddings, skip dedup LLM
-                    from eve.agent.memory2.fact_storage import store_facts_batch
-
-                    saved_facts = await store_facts_batch(prepared_facts)
-                    newly_formed_facts = [
-                        f.content if hasattr(f, 'content') else f.get('content', '')
-                        for f in saved_facts
-                    ]
-                    fact_count = len(saved_facts)
+                saved_facts = await store_facts_batch(prepared_facts)
+                newly_formed_facts = [
+                    f.content if hasattr(f, 'content') else f.get('content', '')
+                    for f in saved_facts
+                ]
+                fact_count = len(saved_facts)
 
             if LOCAL_DEV:
-                mode = "RAG" if RAG_ENABLED else "FIFO"
                 if fact_count > 0:
-                    print(f"\n✓ Formed {fact_count} new facts ({mode} mode, scopes: {config.fact_scopes}):")
+                    print(f"\n✓ Formed {fact_count} new facts (FIFO mode, scopes: {config.fact_scopes}):")
                     for fact in saved_facts:
                         scope = fact.scope if hasattr(fact, 'scope') else fact.get('scope', '')
                         content = fact.content if hasattr(fact, 'content') else fact.get('content', '')
                         print(f"    - [{scope}] {content[:80]}...")
                 else:
-                    print(f"No new facts generated. ({mode} mode, scopes: {config.fact_scopes})")
+                    print(f"No new facts generated. (FIFO mode, scopes: {config.fact_scopes})")
 
         # --- LLM CALL 2: Reflection Extraction (with fact awareness) ---
         reflections_by_scope, reflection_count = await extract_and_save_reflections(
