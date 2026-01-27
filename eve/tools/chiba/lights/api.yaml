@@ -12,6 +12,8 @@ tip: |-
   - "mimos" → m
   - "all lights" / "everywhere" → all
 
+  "Chiba" usually refers to the combined galleries and auditorium, but not including the terrace or Mimos.
+
   Presets: all-off, all-on, warm-dim, cool-bright, max-bright
 
   Do **not** use a preset unless the user specifically requests it. If the user asks you to change "all" the lights, you can do so manually using target=all and parameters.
