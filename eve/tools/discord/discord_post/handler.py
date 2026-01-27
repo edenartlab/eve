@@ -14,6 +14,32 @@ from eve.tool import ToolContext
 
 DISCORD_MAX_LENGTH = 2000
 
+VIDEO_EXTENSIONS = {".mp4", ".mov", ".avi", ".webm", ".mkv"}
+
+
+def is_video_url(url: str) -> bool:
+    """Check if a URL points to a video file based on extension."""
+    # Get the path without query params
+    path = url.split("?")[0].lower()
+    return any(path.endswith(ext) for ext in VIDEO_EXTENSIONS)
+
+
+def separate_media_urls(media_urls: List[str]) -> tuple[List[str], List[str]]:
+    """
+    Separate media URLs into image URLs and video URLs.
+
+    Returns:
+        Tuple of (image_urls, video_urls)
+    """
+    image_urls = []
+    video_urls = []
+    for url in media_urls:
+        if is_video_url(url):
+            video_urls.append(url)
+        else:
+            image_urls.append(url)
+    return image_urls, video_urls
+
 
 def split_content_into_chunks(
     content: str, max_length: int = DISCORD_MAX_LENGTH
@@ -186,14 +212,26 @@ async def handler(context: ToolContext):
         # Login to Discord
         await client.login(deployment.secrets.discord.token)
 
-        # Download media files if provided
+        # Separate image and video URLs
+        # Images get attached as files, videos get appended as URLs (to avoid size limits)
         files = []
         if media_urls:
-            files = await download_media_files(media_urls)
-            # If download failed, fallback to appending URLs to content
-            if not files:
-                media_content = "\n".join(media_urls)
-                content = f"{content}\n\n{media_content}"
+            image_urls, video_urls = separate_media_urls(media_urls)
+
+            # Download and attach images
+            if image_urls:
+                files = await download_media_files(image_urls)
+                # If download failed, fallback to appending URLs to content
+                if not files:
+                    image_content = "\n".join(image_urls)
+                    content = (
+                        f"{content}\n\n{image_content}" if content else image_content
+                    )
+
+            # Append video URLs to content (avoid Discord file size limits)
+            if video_urls:
+                video_content = "\n".join(video_urls)
+                content = f"{content}\n\n{video_content}" if content else video_content
 
         if discord_user_id:
             # Validate DM user against allowlist
@@ -495,11 +533,6 @@ async def send_webhook_message(
     if not channel_config.webhook_id or not channel_config.webhook_token:
         raise Exception(f"No webhook configured for channel {channel_id}")
 
-    # Split content into chunks
-    chunks = split_content_into_chunks(content)
-    if not chunks:
-        chunks = [""]  # Allow empty if media_urls provided
-
     # Build webhook payload
     webhook_url = f"https://discord.com/api/v10/webhooks/{channel_config.webhook_id}/{channel_config.webhook_token}"
 
@@ -510,29 +543,43 @@ async def send_webhook_message(
         else agent.userImage
     )
 
-    # Download media files if provided
+    # Separate image and video URLs
+    # Images get attached as files, videos get appended as URLs (to avoid size limits)
     downloaded_files = []
     if media_urls:
-        async with aiohttp.ClientSession() as session:
-            for url in media_urls:
-                try:
-                    async with session.get(url) as response:
-                        if response.status == 200:
-                            filename = os.path.basename(url.split("?")[0])
-                            if not filename or "." not in filename:
-                                content_type = response.headers.get("content-type", "")
-                                if "image" in content_type:
-                                    ext = content_type.split("/")[-1].split(";")[0]
-                                    filename = f"image.{ext}"
-                                elif "video" in content_type:
-                                    ext = content_type.split("/")[-1].split(";")[0]
-                                    filename = f"video.{ext}"
-                                else:
-                                    filename = "attachment"
-                            file_data = await response.read()
-                            downloaded_files.append((filename, file_data))
-                except Exception as e:
-                    logger.error(f"Failed to download media from {url}: {str(e)}")
+        image_urls, video_urls = separate_media_urls(media_urls)
+
+        # Append video URLs to content (avoid Discord file size limits)
+        if video_urls:
+            video_content = "\n".join(video_urls)
+            content = f"{content}\n\n{video_content}" if content else video_content
+
+        # Download image files for attachment
+        if image_urls:
+            async with aiohttp.ClientSession() as session:
+                for url in image_urls:
+                    try:
+                        async with session.get(url) as response:
+                            if response.status == 200:
+                                filename = os.path.basename(url.split("?")[0])
+                                if not filename or "." not in filename:
+                                    content_type = response.headers.get(
+                                        "content-type", ""
+                                    )
+                                    if "image" in content_type:
+                                        ext = content_type.split("/")[-1].split(";")[0]
+                                        filename = f"image.{ext}"
+                                    else:
+                                        filename = "attachment"
+                                file_data = await response.read()
+                                downloaded_files.append((filename, file_data))
+                    except Exception as e:
+                        logger.error(f"Failed to download media from {url}: {str(e)}")
+
+    # Split content into chunks (after video URLs have been appended)
+    chunks = split_content_into_chunks(content)
+    if not chunks:
+        chunks = [""]  # Allow empty if media_urls provided
 
     messages = []
     async with aiohttp.ClientSession() as session:
