@@ -8,13 +8,11 @@ on a Modal Volume for later analysis.
 IMPORTANT: All methods in this module are designed to fail gracefully
 and will never raise exceptions that could crash the main code loop.
 
-Output files:
-- token_usage.csv: Token breakdown by category (for analysis)
-- token_prompts.csv: Full prompt content (for debugging/inspection)
+Output file:
+- token_usage_{DB}.csv: Token breakdown by category with content (for analysis and debugging)
 
-Both files are linked by session_run_id, which is also stored in the
-database in ChatMessage.observability.session_run_id for the assistant
-message output.
+The session_run_id is also stored in the database in ChatMessage.observability.session_run_id
+for the assistant message output. Files are suffixed with DB env (STAGE/PROD).
 
 Usage:
     from eve.agent.llm.token_tracker import render_template_with_token_tracking, token_tracker
@@ -69,8 +67,10 @@ logger = logging.getLogger(__name__)
 # Modal Volume mount path for token tracking logs
 TOKEN_TRACKER_MODAL_DIR = "/data/token-tracker"
 TOKEN_TRACKER_LOCAL_DIR = Path(__file__).parent.parent.parent / "data" / "token-tracker"
-TOKEN_USAGE_FILE = "token_usage.csv"
-TOKEN_PROMPTS_FILE = "token_prompts.csv"
+
+# DB environment suffix for separating stage/prod data
+db = os.getenv("DB", "STAGE").upper()
+TOKEN_USAGE_FILE = f"token_usage_{db}.csv"
 
 # Auto-expire tracking data after this many seconds (prevents memory leaks)
 TRACKING_EXPIRY_SECONDS = 600  # 10 minutes
@@ -474,13 +474,10 @@ class TokenTracker:
     All methods are wrapped in try/except to ensure they never crash the
     main application code.
 
-    Output files:
-    1. token_usage.csv - Token breakdown with columns:
-       session_run_id, timestamp, agent_id, session_id, user_id, model,
-       category, tokens, char_count
-
-    2. token_prompts.csv - Full prompt content with columns:
-       session_run_id, timestamp, agent_id, category, content
+    Output file:
+    token_usage_{DB}.csv - Token breakdown with columns:
+       session_run_id, timestamp, agent_id, agent_name, session_id, user_id,
+       model, category, tokens, char_count, content
 
     Usage:
         tracker = token_tracker.register_call(agent_id=..., session_id=..., ...)
@@ -670,7 +667,7 @@ class TokenTracker:
                     "category": f"untracked_{idx + 1:02d}",
                     "tokens": tokens,
                     "char_count": len(segment),
-                    "content": segment[:500] + "..." if len(segment) > 500 else segment,
+                    "content": segment,
                 })
             return untracked_chunks
         except Exception:
@@ -691,7 +688,7 @@ class TokenTracker:
                     writer.writerow([
                         "session_run_id", "timestamp", "agent_id", "agent_name",
                         "session_id", "user_id", "model", "category", "tokens",
-                        "char_count",
+                        "char_count", "content",
                     ])
 
                 for chunk in call_data["chunks"]:
@@ -706,24 +703,6 @@ class TokenTracker:
                         chunk["category"],
                         chunk["tokens"],
                         chunk["char_count"],
-                    ])
-
-            prompts_file = self._log_dir / TOKEN_PROMPTS_FILE
-            prompts_exists = prompts_file.exists()
-
-            with open(prompts_file, "a", newline="") as f:
-                writer = csv.writer(f)
-                if not prompts_exists:
-                    writer.writerow([
-                        "session_run_id", "timestamp", "agent_id", "category", "content",
-                    ])
-
-                for chunk in call_data["chunks"]:
-                    writer.writerow([
-                        call_data["session_run_id"],
-                        call_data["timestamp"],
-                        call_data["agent_id"],
-                        chunk["category"],
                         chunk.get("content", ""),
                     ])
 
