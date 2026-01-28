@@ -5,11 +5,11 @@ tip: |-
   Each segment can have a different voice, specified by voice name or @agent_username.
   Use the elevenlabs_search_voices tool to discover voice names.
   Returns audio file plus a transcript with precise timestamps for each segment.
-cost_estimate: 20
+cost_estimate: 20 * sumLengths(segments, "text")
 thumbnail: app/elevenlabs58.webp
 output_type: audio
 active: true
-visible: true
+visible: false
 parameters:
   segments:
     type: array
