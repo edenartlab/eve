@@ -132,6 +132,11 @@ def render_template_with_token_tracking(
     if session_run_id:
         try:
             for key, value in kwargs.items():
+                # Skip 'tools' - it's only used for conditional checks in templates,
+                # not rendered into the prompt. Tool schemas are tracked separately
+                # via track_context() as "tool_schemas/{tool_name}".
+                if key == "tools":
+                    continue
                 if value is not None:
                     # Convert to string for tracking
                     if isinstance(value, str):
