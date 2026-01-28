@@ -1492,7 +1492,7 @@ async def eden_agents(ctx: discord.ApplicationContext):
             profile_url = construct_agent_profile_url(agent)
             can_write = deployment_can_write_to_channel(deployment, channel_id)
             suffix = "" if can_write else " (read-only)"
-            lines.append(f"- {display_name}: <{profile_url}>{suffix}")
+            lines.append(f"- [{display_name}]({profile_url}){suffix}")
 
         if not lines:
             await ctx.followup.send(
