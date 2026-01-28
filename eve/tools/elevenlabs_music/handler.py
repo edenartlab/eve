@@ -1,4 +1,5 @@
 import asyncio
+import json
 import os
 from tempfile import NamedTemporaryFile
 
@@ -50,6 +51,11 @@ async def handler(context: ToolContext):
                 json=payload,
                 timeout=600.0,
             )
+            if response.status_code >= 400:
+                print(
+                    f"[elevenlabs_music] Error {response.status_code}: {response.text}"
+                )
+                print(f"[elevenlabs_music] Payload: {json.dumps(payload, indent=2)}")
             response.raise_for_status()
             return response.content
 

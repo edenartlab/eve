@@ -2,10 +2,11 @@ name: Reel Composer 2
 description: Compose a 30-300s reel using modular pipeline. Orchestrates audio, storyboard, video, and assembly automatically.
 tip: |-
   Executive producer for reel pipeline. Sequences all tools automatically:
-  1. reel_audio → audio + transcript
-  2. reel_storyboard → keyframe images
-  3. reel_video → animated clips
-  4. media_editor → final assembly
+  1. reel_audio → audio + transcript + composition_plan
+  2. reel_storyboard → keyframes + storyboard_transcript
+  3. reel_video → video clips + video_transcript
+  4. video_concat → single concatenated video
+  5. audio_video_combine → final video with audio
   No user prompts between steps. Fully automatic.
 cost_estimate: 1000
 output_type: video
@@ -13,29 +14,50 @@ active: true
 visible: false
 handler: modal
 parameters:
-  context:
+  script:
     type: string
-    label: Context (summary)
-    description: One concise paragraph summarizing the creative concept, tone, audience/platform, and constraints.
-    tip: Keep only what is needed to make THIS reel; no fluff.
+    label: Script
+    description: Full script/dialogue for the video. Include speaker names for dialogue.
     required: true
 
-  producer_instructions:
-    type: string
-    label: Producer instructions
-    description: Natural-language brief with audio plan, VO script, keyframe strategy, motion notes, and output format.
-    tip: Aim for 6-12 bullet points. Include VO script (50-300 words) if narration is requested.
-    required: true
-
-  media_files:
+  image_references:
     type: array
     items:
       anyOf:
         - type: image
-        - type: video
-        - type: audio
-    label: Media files
-    description: Reference images, footage, or audio to use in production.
+    label: Image references
+    description: Character references, style guides, or scene references.
+    required: false
+
+  voices:
+    type: array
+    items:
+      type: object
+      properties:
+        speaker:
+          type: string
+        voice:
+          type: string
+    label: Voice assignments
+    description: Map speakers to voices.
+    required: false
+
+  music_style:
+    type: string
+    label: Music style
+    description: Music genre, mood, or style preferences.
+    required: false
+
+  visual_style:
+    type: string
+    label: Visual style
+    description: Visual direction for storyboard and animation.
+    required: false
+
+  duration:
+    type: number
+    label: Target duration
+    description: Target duration in seconds.
     required: false
 
   title:

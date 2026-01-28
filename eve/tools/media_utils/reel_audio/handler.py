@@ -69,6 +69,7 @@ The tool automatically:
 - If combining with vocals: make music 5-10 seconds LONGER than vocals
 - Always use "instrumental only" when music goes under dialogue
 - Music at 0.3-0.5 volume, dialogue at 1.0
+- **IMPORTANT:** Do NOT reference specific artists/composers (e.g., "Hans Zimmer style") - this violates ElevenLabs ToS. Use generic descriptions instead (e.g., "epic cinematic orchestral", "dramatic film score style")
 
 ### For Combined Audio
 - Generate vocals FIRST to get exact duration
@@ -93,17 +94,37 @@ The tool automatically:
 When you need vocals timed precisely to specific moments in music, use a composition plan:
 
 1. **Generate vocals first** with `elevenlabs_speech`
-2. **Plan the music** with a composition_plan specifying sections:
+2. **Plan the music** with a composition_plan (all fields required):
    ```json
    {
+     "positive_global_styles": ["cinematic orchestral", "trailer music"],
+     "negative_global_styles": ["lo-fi", "comedy"],
      "sections": [
-       {"section_name": "Intro", "duration_ms": 5000},
-       {"section_name": "Verse 1", "duration_ms": 15000},
-       {"section_name": "Drop", "duration_ms": 10000}
+       {
+         "section_name": "Intro",
+         "positive_local_styles": ["soft strings", "tension bed"],
+         "negative_local_styles": ["loud", "busy"],
+         "duration_ms": 5000,
+         "lines": []
+       },
+       {
+         "section_name": "Build",
+         "positive_local_styles": ["rising tension", "percussion build"],
+         "negative_local_styles": ["drop too early"],
+         "duration_ms": 15000,
+         "lines": []
+       },
+       {
+         "section_name": "Drop",
+         "positive_local_styles": ["huge drums", "brass hits"],
+         "negative_local_styles": ["quiet", "ambient"],
+         "duration_ms": 10000,
+         "lines": []
+       }
      ]
    }
    ```
-3. **Generate music** with `respect_sections_durations=True` + `force_instrumental=True`
+3. **Generate music** with `respect_sections_durations=True` (note: `force_instrumental` only works with prompt mode, use empty `lines` arrays for instrumental with composition_plan)
 4. **Time the vocals** using `audio_pad` to add delays and `audio_concat` to sequence segments
 5. **Layer** with `audio_mix`
 

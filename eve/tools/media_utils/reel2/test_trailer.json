@@ -1,0 +1,16 @@
+{
+    "user_id": "65284b18f8bbb9bff13ebe65",
+    "agent_id": "675f880479e00297cd9b4688",
+    "script": "A heartwarming short film about two friends meeting up for a bike ride.\n\nUse the attached image as character references - these are the two main characters who will appear throughout the video.\n\nStructure:\n- 0-8s: Establishing shot of Central Park on a sunny day, one character waits by a bench\n- 8-14s: The second character arrives, they greet each other warmly\n- 14-22s: They hop on bikes and ride through the park paths together, laughing\n- 22-30s: They find a perfect spot, lay out a blanket, and enjoy a picnic together\n\nDialogue:\nCHARACTER_1: \"Beautiful day for a ride!\"\nCHARACTER_2: \"I brought sandwiches!\"\nCHARACTER_1: \"This is perfect.\"",
+    "image_references": [
+        "https://dtut5r9j4w7j4.cloudfront.net/c3dd01d06d0d348ccfc84016fe148fcd37dcc64ae597b1facd9fd8fd33787099.png"
+    ],
+    "voices": [
+        {"speaker": "CHARACTER_1", "voice": "warm friendly female voice, cheerful"},
+        {"speaker": "CHARACTER_2", "voice": "warm friendly male voice, enthusiastic"}
+    ],
+    "music_style": "upbeat acoustic folk, happy and carefree, gentle guitar, warm summer vibes",
+    "visual_style": "Bright sunny day in Central Park NYC, warm golden hour lighting, lush green trees, cheerful and wholesome aesthetic, the two characters from the reference image should appear consistently throughout",
+    "duration": 30,
+    "title": "Picnic in the Park"
+}

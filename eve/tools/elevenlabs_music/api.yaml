@@ -16,6 +16,8 @@ tip: |-
 
   Set `force_instrumental: true` if you want guaranteed instrumental music.
 
+  **IMPORTANT:** Do NOT reference specific artists/composers by name (e.g., "Hans Zimmer style", "like Beethoven"). This violates ElevenLabs ToS and will be rejected. Use generic style descriptions instead (e.g., "epic cinematic orchestral", "dramatic film score").
+
   ## Composition Plan Mode
   For complex multi-section compositions, provide a `composition_plan` object instead of a prompt.
 

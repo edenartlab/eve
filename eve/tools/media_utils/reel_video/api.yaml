@@ -1,26 +1,42 @@
 name: Reel Motion Director
-description: Animate keyframe images into video clips. Creates motion from storyboard.
+description: Animate keyframe images into video clips with precise timing. Creates motion from storyboard transcript.
 tip: |-
   Motion director for reel pipeline. Animates keyframes into video clips.
-  Motion-only prompts: describe movement, not image content.
-  Camera vocabulary: dolly, pan, tilt, truck, crane, orbit, tracking, static.
+  Takes storyboard_transcript JSON array with {start, end, image_url, description} for each keyframe.
+  MUST produce exactly one video clip per keyframe with EXACT duration matching the transcript.
+  Process in batches of 4 for parallelization. Motion-only prompts.
+  Returns video_transcript: JSON array of {start, end, video_url, description}.
 cost_estimate: 200
 output_type: video
 active: true
 visible: false
 handler: modal
 parameters:
-  storyboard:
+  storyboard_transcript:
     type: string
-    label: Storyboard
-    description: KEYFRAMES block from reel_storyboard with timing and image URLs.
+    label: Storyboard transcript
+    description: JSON array from reel_storyboard with {start, end, image_url, description} for each keyframe.
+    tip: |-
+      Example: [{"start": 0.0, "end": 6.0, "image_url": "https://...", "description": "Camera pans across city..."}]
+      Each entry defines a keyframe to animate. The description contains action/motion guidance.
     required: true
 
-  transcript:
-    type: string
-    label: Transcript
-    description: Timestamped transcript for motion context. Match motion intensity to content.
+  keyframes:
+    type: array
+    items:
+      anyOf:
+        - type: image
+    label: Keyframe images
+    description: Array of keyframe images in order, matching the storyboard_transcript entries.
+    tip: These are passed as visual attachments so the motion director can see each keyframe. Order must match storyboard_transcript.
     required: true
+
+  composition_plan:
+    type: string
+    label: Composition plan
+    description: JSON composition plan showing musical sections with timestamps for motion intensity matching.
+    tip: Match motion intensity to musical sections - subtle for intros, dynamic for drops.
+    required: false
 
   instructions:
     type: string

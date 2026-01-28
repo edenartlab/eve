@@ -1,0 +1,37 @@
+{
+    "composition_plan": {
+        "positive_global_styles": ["cinematic orchestral", "hybrid trailer", "wide stereo", "big drums"],
+        "negative_global_styles": ["lo-fi", "small room", "cheap synth", "comedy"],
+        "sections": [
+            {
+                "section_name": "Intro (mystery)",
+                "positive_local_styles": ["soft strings", "low drones", "subtle pulses", "tension bed"],
+                "negative_local_styles": ["main theme fully stated", "big choir", "busy drums"],
+                "duration_ms": 10000,
+                "lines": []
+            },
+            {
+                "section_name": "Build",
+                "positive_local_styles": ["rising ostinato", "snare build", "risers", "more percussion"],
+                "negative_local_styles": ["drop too early", "overly melodic"],
+                "duration_ms": 20000,
+                "lines": []
+            },
+            {
+                "section_name": "Drop / Climax",
+                "positive_local_styles": ["huge drums", "brass hits", "string runs", "anthemic motif"],
+                "negative_local_styles": ["quiet", "ambient wash", "thin bass"],
+                "duration_ms": 10000,
+                "lines": []
+            },
+            {
+                "section_name": "Cliffhanger",
+                "positive_local_styles": ["anxious", "quiet", "eerie", "fearful"],
+                "negative_local_styles": ["loud", "percussive"],
+                "duration_ms": 8000,
+                "lines": []
+            }
+        ]
+    },
+    "respect_sections_durations": true
+}
