@@ -1,0 +1,29 @@
+name: Reel Motion Director
+description: Animate keyframe images into video clips. Creates motion from storyboard.
+tip: |-
+  Motion director for reel pipeline. Animates keyframes into video clips.
+  Motion-only prompts: describe movement, not image content.
+  Camera vocabulary: dolly, pan, tilt, truck, crane, orbit, tracking, static.
+cost_estimate: 200
+output_type: video
+active: true
+visible: false
+handler: modal
+parameters:
+  storyboard:
+    type: string
+    label: Storyboard
+    description: KEYFRAMES block from reel_storyboard with timing and image URLs.
+    required: true
+
+  transcript:
+    type: string
+    label: Transcript
+    description: Timestamped transcript for motion context. Match motion intensity to content.
+    required: true
+
+  instructions:
+    type: string
+    label: Motion direction
+    description: Additional motion or pacing instructions.
+    required: false

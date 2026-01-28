@@ -1,0 +1,46 @@
+name: Reel Audio Producer
+description: Create audio track with timestamped transcript for video production. Produces vocals, music, or both.
+tip: |-
+  Audio producer for reel pipeline. Generates audio first, then produces human-readable transcript.
+  Output format: audio_url + transcript like "Charlotte 0.0-3.2 : Welcome to the future"
+  Dialogue-first workflow: generate vocals before music, match music duration to vocals + 5-10s.
+cost_estimate: 50
+output_type: audio
+active: true
+visible: false
+handler: modal
+parameters:
+  script:
+    type: string
+    label: Script
+    description: Script, dialogue, or description of audio to create. Include speaker names for dialogue, or narration text for single voice.
+    tip: 'For dialogue, format like "SPEAKER: Their line" for each speaker. For narration, just provide the text.'
+    required: true
+
+  voices:
+    type: array
+    items:
+      type: object
+      properties:
+        speaker:
+          type: string
+          description: Speaker name from the script
+        voice:
+          type: string
+          description: Voice ID, voice name, or @agent_username
+    label: Voice assignments
+    description: Map speaker names to specific voices. If not provided, voices will be auto-assigned.
+    required: false
+
+  music_style:
+    type: string
+    label: Music style
+    description: Music genre, mood, or style preferences. Use "none" to skip music generation.
+    tip: Examples - "epic orchestral", "lo-fi chill beats", "dramatic suspense". Add "instrumental" for no vocals in music.
+    required: false
+
+  duration:
+    type: number
+    label: Target duration
+    description: Target duration in seconds. If not provided, duration is determined by script length. Only set this if you are generating music only.
+    required: false

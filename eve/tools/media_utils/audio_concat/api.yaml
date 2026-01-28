@@ -1,0 +1,15 @@
+name: Concatenate audio
+description: Concatenate audio files sequentially
+cost_estimate: 0.1
+output_type: audio
+active: true
+handler: modal
+visible: false
+parameters:
+  audio_files:
+    type: array
+    items:
+      type: string
+    label: Audio files
+    description: Array of audio URLs to concatenate in order
+    required: true

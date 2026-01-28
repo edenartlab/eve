@@ -19,6 +19,8 @@ HANDLER_PATHS = {
     "magic_8_ball": "magic_8_ball.handler",
     "audio_video_combine": "media_utils.audio_video_combine.handler",
     "audio_mix": "media_utils.audio_mix.handler",
+    "audio_concat": "media_utils.audio_concat.handler",
+    "audio_pad": "media_utils.audio_pad.handler",
     "image_concat": "media_utils.image_concat.handler",
     "image_crop": "media_utils.image_crop.handler",
     "video_concat": "media_utils.video_concat.handler",
