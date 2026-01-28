@@ -18,7 +18,34 @@ from eve.tool import ToolContext
 eleven = ElevenLabs(api_key=os.getenv("ELEVEN_API_KEY"))
 ELEVEN_API_KEY = os.getenv("ELEVEN_API_KEY")
 
-DEFAULT_VOICE = "XB0fDUnXU5powFXDhCwa"
+DEFAULT_VOICE = "Charlotte"
+
+
+def resolve_voice_id(voice: str, voice_name_map: dict, voice_ids: list) -> str:
+    """Resolve a voice name to an ElevenLabs voice ID (case-insensitive)."""
+    # Check if it's already a valid voice ID
+    if voice in voice_ids:
+        return voice
+
+    # Check if it's an exact voice name match
+    if voice in voice_name_map:
+        return voice_name_map[voice]
+
+    # Case-insensitive matching
+    voice_lower = voice.lower()
+    for name, vid in voice_name_map.items():
+        if name.lower() == voice_lower:
+            return vid
+        # Match prefix (handles "George" matching "George - Warm Storyteller")
+        if name.lower().startswith(voice_lower):
+            return vid
+        # Match the part before " - "
+        if " - " in name and name.split(" - ")[0].lower() == voice_lower:
+            return vid
+
+    raise ValueError(
+        f"Voice '{voice}' not found. Use elevenlabs_search_voices to find valid voice names."
+    )
 
 
 async def handler(context: ToolContext):
@@ -32,21 +59,15 @@ async def handler(context: ToolContext):
         def _generate():
             # Get all available voices for resolution
             response = eleven.voices.get_all()
-            voices = {v.name: v.voice_id for v in response.voices}
+            voice_name_map = {v.name: v.voice_id for v in response.voices if v.name}
             voice_ids = [v.voice_id for v in response.voices]
-            voice_id = args.get("voice", DEFAULT_VOICE)
+            voice = args.get("voice", DEFAULT_VOICE)
 
-            if voice_id not in voice_ids:
-                if voice_id in voices:
-                    voice_id = voices[voice_id]
-                else:
-                    raise ValueError(
-                        f"Voice ID {voice_id} not found, try another one (DEFAULT_VOICE: {DEFAULT_VOICE})"
-                    )
+            voice_id = resolve_voice_id(voice, voice_name_map, voice_ids)
 
             # Get voice name for transcript
             voice_name = None
-            for name, vid in voices.items():
+            for name, vid in voice_name_map.items():
                 if vid == voice_id:
                     voice_name = name.split(" - ")[0]  # Get first part before " - "
                     break
@@ -100,25 +121,98 @@ async def handler(context: ToolContext):
     audio_file.write(audio_bytes)
     audio_file.close()
 
-    # Build transcript from alignment data
+    # Build transcript from alignment data, segmented into ~15 second chunks
     alignment = result.get("alignment", {})
-    # characters = alignment.get("characters", [])
+    characters = alignment.get("characters", [])
     start_times = alignment.get("character_start_times_seconds", [])
     end_times = alignment.get("character_end_times_seconds", [])
 
-    # Get overall start and end times
-    if start_times and end_times:
-        start_time = round(start_times[0], 1)
-        end_time = round(end_times[-1], 1)
+    MAX_SEGMENT_DURATION = 15.0  # Target segment length in seconds
+
+    if characters and start_times and end_times:
+        # Build words with timing from character data
+        words = []
+        current_word = ""
+        word_start = None
+
+        for i, char in enumerate(characters):
+            start = start_times[i] if i < len(start_times) else 0
+            end = end_times[i] if i < len(end_times) else 0
+
+            if char.isspace() or char in ".,!?;:'\"-":
+                if current_word:
+                    words.append(
+                        {
+                            "word": current_word,
+                            "start": word_start,
+                            "end": end,
+                        }
+                    )
+                    current_word = ""
+                    word_start = None
+                # Include punctuation as part of the previous word's text
+                if char in ".,!?;:" and words:
+                    words[-1]["word"] += char
+            else:
+                if word_start is None:
+                    word_start = start
+                current_word += char
+
+        # Don't forget the last word
+        if current_word and word_start is not None:
+            words.append(
+                {
+                    "word": current_word,
+                    "start": word_start,
+                    "end": end_times[-1] if end_times else 0,
+                }
+            )
+
+        # Group words into segments of ~15 seconds
+        segments = []
+        segment_words = []
+        segment_start = None
+
+        for word in words:
+            if segment_start is None:
+                segment_start = word["start"]
+                segment_words = [word]
+            elif word["end"] - segment_start > MAX_SEGMENT_DURATION:
+                # Close current segment and start new one
+                segments.append(
+                    {
+                        "start": segment_start,
+                        "end": segment_words[-1]["end"],
+                        "text": " ".join(w["word"] for w in segment_words),
+                    }
+                )
+                segment_start = word["start"]
+                segment_words = [word]
+            else:
+                segment_words.append(word)
+
+        # Add final segment
+        if segment_words:
+            segments.append(
+                {
+                    "start": segment_start,
+                    "end": segment_words[-1]["end"],
+                    "text": " ".join(w["word"] for w in segment_words),
+                }
+            )
+
+        # Build transcript lines
+        transcript_lines = []
+        for seg in segments:
+            start = round(seg["start"], 1)
+            end = round(seg["end"], 1)
+            transcript_lines.append(f"{voice_name} {start}-{end} : {seg['text']}")
+        transcript = "\n".join(transcript_lines)
     else:
         # Fallback: estimate from text length (~150 words per minute)
         word_count = len(text.split())
         duration = (word_count / 150) * 60
-        start_time = 0.0
-        end_time = round(duration, 1)
-
-    # Format transcript like elevenlabs_dialogue
-    transcript = f"{voice_name} {start_time}-{end_time} : {text}"
+        transcript = f"{voice_name} 0.0-{round(duration, 1)} : {text}"
 
     return {
         "output": audio_file.name,

@@ -13,7 +13,7 @@ from eve.tool import ToolContext
 eleven = ElevenLabs(api_key=os.getenv("ELEVEN_API_KEY"))
 ELEVEN_API_KEY = os.getenv("ELEVEN_API_KEY")
 
-DEFAULT_VOICE = "XB0fDUnXU5powFXDhCwa"  # Charlotte
+DEFAULT_VOICE = "Charlotte"
 
 
 def resolve_voice_id(
@@ -203,16 +203,63 @@ async def handler(context: ToolContext):
                 }
             )
 
-    # Keep detailed data available for future use if needed
-    # transcript_detailed = {
-    #     "segments": transcript_segments,
-    #     "words": words,
-    #     "duration": transcript_segments[-1]["end"] if transcript_segments else 0,
-    # }
+    # Split long segments into ~15 second chunks using word-level timing
+    MAX_SEGMENT_DURATION = 15.0
+
+    # Build a map of time -> word for lookup
+    def get_words_in_range(start_time, end_time):
+        return [w for w in words if w["start"] >= start_time and w["end"] <= end_time]
+
+    # Split segments that are too long
+    final_segments = []
+    for seg in transcript_segments:
+        seg_duration = seg["end"] - seg["start"]
+        if seg_duration <= MAX_SEGMENT_DURATION or not words:
+            final_segments.append(seg)
+        else:
+            # Get words for this segment
+            seg_words = get_words_in_range(seg["start"], seg["end"])
+            if not seg_words:
+                final_segments.append(seg)
+                continue
+
+            # Group words into sub-segments of ~15 seconds
+            sub_segment_words = []
+            sub_start = seg["start"]
+
+            for word in seg_words:
+                if not sub_segment_words:
+                    sub_segment_words = [word]
+                    sub_start = word["start"]
+                elif word["end"] - sub_start > MAX_SEGMENT_DURATION:
+                    # Close current sub-segment
+                    final_segments.append(
+                        {
+                            "voice": seg["voice"],
+                            "start": sub_start,
+                            "end": sub_segment_words[-1]["end"],
+                            "text": " ".join(w["word"] for w in sub_segment_words),
+                        }
+                    )
+                    sub_segment_words = [word]
+                    sub_start = word["start"]
+                else:
+                    sub_segment_words.append(word)
+
+            # Add final sub-segment
+            if sub_segment_words:
+                final_segments.append(
+                    {
+                        "voice": seg["voice"],
+                        "start": sub_start,
+                        "end": sub_segment_words[-1]["end"],
+                        "text": " ".join(w["word"] for w in sub_segment_words),
+                    }
+                )
 
     # Compact text format for context efficiency
     transcript_lines = []
-    for seg in transcript_segments:
+    for seg in final_segments:
         start = round(seg["start"], 1)
         end = round(seg["end"], 1)
         transcript_lines.append(f"{seg['voice']} {start}-{end} : {seg['text']}")

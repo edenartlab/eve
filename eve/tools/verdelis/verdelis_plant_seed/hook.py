@@ -10,7 +10,8 @@ import logging
 from bson import ObjectId
 
 from eve.agent.session.models import ChatMessage
-from eve.tool import Tool
+from eve.tool import ToolContext
+from eve.tools.session_post.handler import handler as session_post_handler
 from eve.tools.verdelis.verdelis_seed.handler import VerdelisSeed
 
 logger = logging.getLogger(__name__)
@@ -62,9 +63,6 @@ async def _run_hook(message_id: str, tool_call_id: str, reaction: str, user_id: 
                 )
                 return
 
-            # Load session_post tool to post a message
-            session_post = Tool.load("session_post")
-
             # Get the session to find the agent
             from eve.agent.session.models import Session
 
@@ -93,20 +91,29 @@ Run verdelis_draft_storyboard to draft a storyboard based on this seed, taking i
 """
 
             # Post to the ORIGINAL session with verdelis_draft_storyboard in extra_tools
-            result = await session_post.async_run(
-                {
-                    "role": "user",
-                    "user_id": owner_id,
-                    "agent_id": agent_id,
-                    "session": session_id,  # Post to the original session
-                    "content": content,
-                    "attachments": seed.images,  # Seed images as references
-                    "prompt": True,
-                    "async": True,  # Returns immediately
-                    "extra_tools": ["verdelis_draft_storyboard"],
-                    "visible": True,
-                }
+            args = {
+                "role": "user",
+                "user_id": owner_id,
+                "agent_id": agent_id,
+                "session": session_id,  # Post to the original session
+                "content": content,
+                "attachments": seed.images,  # Seed images as references
+                "prompt": True,
+                "async": True,  # Returns immediately
+                "extra_tools": ["verdelis_draft_storyboard"],
+                "visible": True,
+            }
+
+            # Call session_post handler directly to avoid nested Modal timeout
+            session_post_context = ToolContext(
+                args=args,
+                user=owner_id,
+                agent=agent_id,
+                session=session_id,
+                message=None,
+                tool_call_id=None,
             )
+            result = await session_post_handler(session_post_context)
 
             logger.info(
                 f"[verdelis_plant_seed hook] Posted to session {session_id}. "

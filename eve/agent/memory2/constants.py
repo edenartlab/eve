@@ -19,7 +19,6 @@ from typing import List, Optional, Set, Tuple
 
 from eve.agent.session.config import DEFAULT_SESSION_SELECTION_LIMIT
 
-
 # =============================================================================
 # Development/Production Toggle
 # =============================================================================
@@ -45,10 +44,16 @@ if LOCAL_DEV:
     NEVER_FORM_MEMORIES_LESS_THAN_N_MESSAGES = 2
     CONSIDER_COLD_AFTER_MINUTES = 10
 else:
-    MEMORY_FORMATION_MSG_INTERVAL = DEFAULT_SESSION_SELECTION_LIMIT  # Messages between formations
+    MEMORY_FORMATION_MSG_INTERVAL = (
+        DEFAULT_SESSION_SELECTION_LIMIT  # Messages between formations
+    )
     MEMORY_FORMATION_TOKEN_INTERVAL = 1500  # ~1.5k tokens triggers formation
-    NEVER_FORM_MEMORIES_LESS_THAN_N_MESSAGES = 4  # Minimum before attempting to form memories
-    CONSIDER_COLD_AFTER_MINUTES = 10  # Session inactivity threshold for cold session processing
+    NEVER_FORM_MEMORIES_LESS_THAN_N_MESSAGES = (
+        4  # Minimum before attempting to form memories
+    )
+    CONSIDER_COLD_AFTER_MINUTES = (
+        10  # Session inactivity threshold for cold session processing
+    )
 
 # =============================================================================
 # Consolidation Thresholds
@@ -71,7 +76,7 @@ else:
 CONSOLIDATED_WORD_LIMITS = {
     "agent": 1200,  # Largest - agent's full persona/project state
     "user": 300,  # Medium - user preferences and interaction style
-    "session": 200,  # Rolling summary of session events and status
+    "session": 2000,  # Rich session state - accumulates for long sessions (games, complex tasks)
 }
 
 # =============================================================================
@@ -92,11 +97,11 @@ SIMILARITY_THRESHOLD = 0.7
 
 # RAG Retrieval Thresholds
 RAG_SEMANTIC_SCORE_THRESHOLD = 0.65  # Min vectorSearchScore (cosine similarity, 0-1)
-RAG_TEXT_SCORE_THRESHOLD = 1.5       # Min searchScore (BM25-based, unbounded)
+RAG_TEXT_SCORE_THRESHOLD = 1.5  # Min searchScore (BM25-based, unbounded)
 # RRF threshold: With k=60, a single-source rank-0 result scores 1/60 = 0.0167
 # Setting threshold to 0.015 allows high-ranking single-source results through
 # (important when semantic finds synonyms that text search misses, e.g. "pottery" -> "ceramics")
-RAG_RRF_SCORE_THRESHOLD = 0.015      # Min RRF score after fusion (don't change this!)
+RAG_RRF_SCORE_THRESHOLD = 0.015  # Min RRF score after fusion (don't change this!)
 
 # =============================================================================
 # Feature Toggles
@@ -116,9 +121,9 @@ ALWAYS_IN_CONTEXT_ENABLED = True  # Can be toggled independently
 # - Only facts within FACTS_FIFO_MAX_AGE_HOURS are included
 # - Limited to FACTS_FIFO_LIMIT facts (oldest dropped if exceeded)
 # =============================================================================
-FACTS_FIFO_ENABLED = True           # Enable FIFO facts in context
-FACTS_FIFO_LIMIT = 40               # Max number of recent facts to include
-FACTS_FIFO_MAX_AGE_HOURS = 24*7     # Only include facts from last 48 hours
+FACTS_FIFO_ENABLED = True  # Enable FIFO facts in context
+FACTS_FIFO_LIMIT = 40  # Max number of recent facts to include
+FACTS_FIFO_MAX_AGE_HOURS = 24 * 7  # Only include facts from last 48 hours
 
 # =============================================================================
 # FACT EXTRACTION PROMPT TEMPLATE
@@ -250,12 +255,17 @@ These FACTS however, won't be in context by default. Sometimes important REFLECT
 
 ### {session_hierarchy_num}.SESSION REFLECTIONS (The "Thread")
 *Important context relevant to the CURRENT session that will disappear when the current conversation_segment disappears from context.*
-* **High level goals:** "We are generating a short AI movie about Mars College with 5 scenes."
-* **Assets to pin:** "Jmill provided the main character image at https://d14i3advvh2bvd.cloudfront.net/..."
-* **Corrections:** "Xander does not like impressionistic styles and wants the character to always be centered."
+* **High level goals:** "This session is creating a 5-scene AI-generated short film about Mars College, an off-grid desert community focused on AI and art. Current phase: scene 3 of 5."
+* **Assets to pin (MUST include URLs):** "Main character reference image (desert wanderer in Byzantine mosaic style): https://d14i3advvh2bvd.cloudfront.net/abc123.png" / "Project brief document: https://docs.google.com/doc/d/xyz789"
+* **Corrections & preferences:** "Gene (session owner) rejected impressionistic styles for this project; prefers bold, graphic aesthetics. All characters must be centered in frame."
+* **Game rules & state:** "Playing Werewolf with 8 players: Alice, Bob, Charlie, David, Eve, Frank, Grace, Henry. Secret roles: Alice and Bob are werewolves. Current phase: Day 2 voting. Villagers suspect Charlie."
+* **Session-specific knowledge:** "The group established naming conventions: 'blue team' = Alice, Charlie, Eve; 'red team' = Bob, David, Frank. Current score: Blue 3, Red 2."
+* **Strategic context:** "After losing rounds 1 and 2, the group adopted a defensive strategy focused on protecting the crystal artifact. Key constraint: crystal cannot be moved until round 5."
 {# END:session #}
 
 ## EXTRACTION RULES
+- **SELF-CONTAINED CONTEXT:** Each reflection must be fully understandable on its own. The LLM reading these memories is stateless and sees them for the first time with no prior context. Never use shorthand like "the project" or "the image" - always specify "the 'Inheritance and Rights' project" or "the Byzantine mosaic reference image at [URL]". A reflection that says "Shifted to aesthetic chaos" is useless without explaining what shifted, from what, and what "aesthetic chaos" means in this context. Write as if briefing someone who knows nothing about this session.
+- **PINNED ASSETS MUST INCLUDE URLs:** When pinning assets (images, documents, videos, links), ALWAYS include the full URL. "Main character image" is useless; "Main character image: https://cdn.example.com/char.png" is actionable. URLs are the whole point of pinning assets.
 - Avoid extracting ephemeral statements that won't be true for longer than a few hours.
 - Any information you do not extract as a reflection here (and is not already in CURRENT MEMORY STATE) is permanently lost from the agents memory.
 - Extracting too much information will bloat the memory context. Make thoughtful decisions, extract only salient information and be concise.
@@ -282,7 +292,6 @@ Return JSON:
 
 Return empty array(s) when there's nothing meaningful to extract.
 """
-
 
 
 # =============================================================================
@@ -410,7 +419,6 @@ Structure suggestions (adapt as needed):
 - Open proposals requiring input
 - Domain insights and learnings
 """,
-
     "user": """**User Memory**
 Focus on the "User" to guide and personalize private interactions:
 - Persistent behavioral rules and preferences for this user
@@ -420,19 +428,22 @@ Focus on the "User" to guide and personalize private interactions:
 - **Structure:** Use headers like [PREFERENCES], [SKILLS], [PERSONAL CONTEXT], [ACTIVE PROJECTS], ... to create dedicated sections in your memory.
 - **Retention:** Keep important working context, prune outdated or irrelevant information. Remove one-off mood fluctuations. Only keep traits that appear consistent.
 """,
-
     "session": """**Session Memory**
 Focus on the "Narrative Thread" of the current interaction:
 - Rolling summary of what has happened
 - Current task status and progress
 - Active creative context and assets (characters, storylines, reference images, ...)
 - Temporary instructions for this session only
+- Game state, rules, and strategic context (for games or interactive sessions)
 
-- **Structure:** Use headers like [CURRENT GOAL(S)], [RECENT ACTIONS], [OPEN LOOPS], [PINNED ASSETS], ... to create dedicated sections in your memory.
-- **Retention & pruning:** Keep important working context, prune outdated or irrelevant information. If a sub-task is done, delete it. If a topic changed, summarize the old topic in one sentence and focus on the new one.
-- **Tone:** Urgent and brief. This is a "Working Memory" scratchpad.
-"""
+- **Structure:** Use headers like [CURRENT GOAL(S)], [GAME STATE], [RULES & CONSTRAINTS], [KEY CONTEXT], [RECENT ACTIONS], [OPEN LOOPS], [PINNED ASSETS], ... to create dedicated sections in your memory.
+- **SELF-CONTAINED CONTEXT:** Write as if briefing someone who knows nothing about this session. The LLM reading this memory is stateless—it has no prior context. Never use shorthand like "the project" without first establishing what the project is, its purpose, and key details. Every section should be understandable without reference to anything outside this memory blob.
+- **PINNED ASSETS MUST INCLUDE URLs:** The [PINNED ASSETS] section exists specifically to preserve actionable links. Every pinned asset MUST include its full URL. "Reference image for main character" is useless; "Reference image for main character (Byzantine mosaic style): https://cdn.example.com/byzantine-char.png" is actionable. If an asset doesn't have a URL, it probably shouldn't be pinned.
+- **Retention & pruning:** Keep information that provides understanding of the current state. Preserve rules, constraints, and context that remain relevant. History of past events should be retained insofar as it helps understand why things are the way they are now. Completed sub-tasks can be pruned, but significant decisions or turning points should be summarized if they affect current context.
+- **Tone:** Be thorough for complex sessions. This memory can grow large (up to 2000 words) for sessions with rich state like games, multi-step projects, or ongoing collaborations. Start concise and accumulate detail as the session develops complexity.
+""",
 }
+
 
 def get_memory_llm_model_slow(
     subscription_tier: Optional[int] = None,
@@ -487,10 +498,13 @@ class Memory2Config:
     to prevent memory leakage between users. In multi-user sessions, only session and
     agent scoped memories are formed.
     """
+
     user_enabled: bool = False
     agent_enabled: bool = False
     is_multi_user: bool = False  # True when session has multiple users
-    subscription_tier: Optional[int] = None  # Owner's subscription tier for model selection
+    subscription_tier: Optional[int] = (
+        None  # Owner's subscription tier for model selection
+    )
     has_preview_flag: bool = False  # True if owner has "preview" feature flag
 
     @property
@@ -578,6 +592,7 @@ class Memory2Config:
         """
         try:
             from eve.agent.agent import Agent
+
             agent = Agent.from_mongo(agent_id)
             if agent:
                 return cls.from_agent(agent, session=session)
@@ -651,6 +666,7 @@ def _get_owner_premium_status(agent) -> Tuple[Optional[int], bool]:
 # =============================================================================
 # Section marker pattern: {# SECTION:name #} ... {# END:name #}
 
+
 def _process_template(
     template: str,
     values: dict,
@@ -674,23 +690,23 @@ def _process_template(
     result = template
 
     # Find all section names in the template
-    all_sections = set(re.findall(r'\{# SECTION:(\w+) #\}', result))
+    all_sections = set(re.findall(r"\{# SECTION:(\w+) #\}", result))
 
     # Remove disabled sections entirely (including their content)
     for section in all_sections - enabled_sections:
         # Pattern matches from SECTION marker to END marker, including newlines
-        pattern = rf'\{{# SECTION:{section} #\}}.*?\{{# END:{section} #\}}\n?'
-        result = re.sub(pattern, '', result, flags=re.DOTALL)
+        pattern = rf"\{{# SECTION:{section} #\}}.*?\{{# END:{section} #\}}\n?"
+        result = re.sub(pattern, "", result, flags=re.DOTALL)
 
     # Strip section markers from enabled sections (keep content)
-    result = re.sub(r'\{# SECTION:\w+ #\}\n?', '', result)
-    result = re.sub(r'\{# END:\w+ #\}\n?', '', result)
+    result = re.sub(r"\{# SECTION:\w+ #\}\n?", "", result)
+    result = re.sub(r"\{# END:\w+ #\}\n?", "", result)
 
     # Format with values
     result = result.format(**values)
 
     # Clean up multiple consecutive blank lines (3+ newlines -> 2)
-    result = re.sub(r'\n{3,}', '\n\n', result)
+    result = re.sub(r"\n{3,}", "\n\n", result)
 
     return result.strip()
 
@@ -743,7 +759,6 @@ def _format_memory_section(
     return "\n".join(lines)
 
 
-
 def build_fact_extraction_prompt(
     conversation_text: str,
     agent_persona: str,
@@ -769,9 +784,13 @@ def build_fact_extraction_prompt(
     # Note: Double braces {{ }} are literal characters that appear in output (not format escapes)
     json_examples = []
     if "user" in enabled_scopes:
-        json_examples.append('    {{ "content": "User\'s email is john@example.com", "scope": "user" }}')
+        json_examples.append(
+            '    {{ "content": "User\'s email is john@example.com", "scope": "user" }}'
+        )
     if "agent" in enabled_scopes:
-        json_examples.append('    {{ "content": "Project Apollo launch date is June 1st", "scope": "agent" }}')
+        json_examples.append(
+            '    {{ "content": "Project Apollo launch date is June 1st", "scope": "agent" }}'
+        )
 
     # Determine enabled sections
     enabled_sections = set()
@@ -790,7 +809,6 @@ def build_fact_extraction_prompt(
         },
         enabled_sections=enabled_sections,
     )
-
 
 
 def build_reflection_extraction_prompt(

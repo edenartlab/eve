@@ -1,6 +1,6 @@
 import asyncio
 import traceback
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 from loguru import logger
 from sentry_sdk import capture_exception
@@ -9,7 +9,10 @@ from eve.agent.llm.providers.fake import build_fake_tool_result_payload
 from eve.agent.llm.util import is_fake_llm_mode, should_force_fake_response
 from eve.agent.session.models import (
     ChatMessage,
+    ChatMessageObservability,
+    DiscordPlatformObservability,
     LLMContext,
+    PlatformObservability,
     Session,
     SessionUpdate,
     ToolCall,
@@ -19,6 +22,109 @@ from eve.agent.session.tracing import add_breadcrumb
 from eve.tool import Tool
 
 from .budget import update_session_budget
+
+
+def _parse_discord_url(url: str) -> tuple[Optional[str], Optional[str], Optional[str]]:
+    """Extract message_id/channel_id/guild_id from a Discord message URL."""
+    if not url:
+        return None, None, None
+    path = url.split("?", 1)[0].rstrip("/")
+    parts = path.split("/")
+    if len(parts) < 3:
+        return None, None, None
+    message_id = parts[-1]
+    channel_id = parts[-2]
+    guild_id = parts[-3]
+    if guild_id == "@me":
+        guild_id = None
+    return message_id, channel_id, guild_id
+
+
+def _extract_discord_message_meta(
+    tool_results: Optional[List[Dict[str, Any]]],
+) -> Optional[Dict[str, Optional[str]]]:
+    """Pull Discord message metadata from tool results."""
+    if not tool_results:
+        return None
+    for result in tool_results:
+        output = result.get("output")
+        if isinstance(output, dict):
+            outputs = [output]
+        elif isinstance(output, list):
+            outputs = output
+        elif isinstance(output, str) and output.startswith("http"):
+            outputs = [{"url": output}]
+        else:
+            outputs = []
+
+        for entry in outputs:
+            if not isinstance(entry, dict):
+                continue
+            url = entry.get("url")
+            message_id = entry.get("message_id") or entry.get("id")
+            channel_id = entry.get("channel_id")
+            guild_id = entry.get("guild_id")
+            if not message_id and url:
+                parsed_message_id, parsed_channel_id, parsed_guild_id = (
+                    _parse_discord_url(url)
+                )
+                message_id = message_id or parsed_message_id
+                channel_id = channel_id or parsed_channel_id
+                guild_id = guild_id or parsed_guild_id
+            if message_id or url:
+                return {
+                    "message_id": message_id,
+                    "channel_id": channel_id,
+                    "guild_id": guild_id,
+                    "url": url,
+                }
+    return None
+
+
+_TOOL_OBSERVABILITY_EXTRACTORS = {
+    "discord_post": _extract_discord_message_meta,
+}
+
+
+def extract_tool_observability_metadata(
+    tool_name: str, tool_results: Optional[List[Dict[str, Any]]]
+) -> Optional[Dict[str, str]]:
+    extractor = _TOOL_OBSERVABILITY_EXTRACTORS.get(tool_name)
+    if not extractor:
+        return None
+    meta = extractor(tool_results)
+    if not meta:
+        return None
+    payload = {
+        "discord_message_id": meta.get("message_id"),
+        "discord_channel_id": meta.get("channel_id"),
+        "discord_guild_id": meta.get("guild_id"),
+        "discord_url": meta.get("url"),
+    }
+    return {k: v for k, v in payload.items() if v}
+
+
+def _update_discord_observability(
+    assistant_message: ChatMessage, tool_results: Optional[List[Dict[str, Any]]]
+) -> None:
+    meta = _extract_discord_message_meta(tool_results)
+    if not meta:
+        return
+    if not assistant_message.observability:
+        assistant_message.observability = ChatMessageObservability()
+    platforms = assistant_message.observability.platforms or PlatformObservability()
+    discord_obs = platforms.discord or DiscordPlatformObservability()
+    if meta.get("message_id"):
+        discord_obs.message_id = meta["message_id"]
+    if meta.get("channel_id"):
+        discord_obs.channel_id = meta["channel_id"]
+    if meta.get("guild_id"):
+        discord_obs.guild_id = meta["guild_id"]
+    if meta.get("url"):
+        discord_obs.url = meta["url"]
+    platforms.discord = discord_obs
+    assistant_message.observability.platforms = platforms
+    assistant_message.save()
 
 
 def create_fake_tool_result(
@@ -311,6 +417,13 @@ async def process_tool_call(
                 )
 
             update_session_budget(session, manna_spent=result.get("cost", 0))
+            if tool_call.tool == "discord_post":
+                try:
+                    _update_discord_observability(assistant_message, tool_call.result)
+                except Exception as exc:
+                    logger.warning(
+                        f"Failed to update Discord observability for message {assistant_message.id}: {exc}"
+                    )
 
             return SessionUpdate(
                 type=UpdateType.TOOL_COMPLETE,

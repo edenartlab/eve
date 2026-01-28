@@ -10,6 +10,18 @@ from bson import ObjectId
 
 import eve.mongo as mongo_module
 
+# Try to load .env file for live tests
+try:
+    from dotenv import load_dotenv
+
+    # Look for .env in current directory or parent directories
+    for path in [".env", "../.env", "../../.env"]:
+        if os.path.exists(path):
+            load_dotenv(path)
+            break
+except ImportError:
+    pass
+
 
 class FakeCursor:
     def __init__(self, documents: Iterable[Dict[str, Any]]):
@@ -145,7 +157,12 @@ class FakeMongoClient:
 
 
 @pytest.fixture(autouse=True)
-def fake_mongo(monkeypatch):
+def fake_mongo(request, monkeypatch):
+    # Skip fake mongo for live tests - they need real database connections
+    if "live" in [marker.name for marker in request.node.iter_markers()]:
+        yield None
+        return
+
     os.environ.setdefault("MONGO_URI", "mongodb://localhost")
     os.environ.setdefault("MONGO_DB_NAME", "eve_new_tests")
     os.environ.setdefault("DB", "TEST")

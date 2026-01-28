@@ -1,0 +1,7 @@
+{
+    "user_id": "65284b18f8bbb9bff13ebe65",
+    "agent_id": "675f880479e00297cd9b4688",
+    "script": "A music video with sung lyrics about finding hope after darkness. The song should have:\n\nVerse 1: Walking through shadows, searching for light\nChorus: We rise again, we rise again, from the ashes we are born\nVerse 2: Every scar tells a story of survival\nChorus: We rise again, we rise again, from the ashes we are born\nOutro: Born again...\n\nThis is a SUNG piece - use elevenlabs_music with the lyrics, NOT elevenlabs_speech.",
+    "music_style": "indie pop rock, emotional female vocals, anthemic chorus, building energy, guitar-driven",
+    "duration": 60
+}

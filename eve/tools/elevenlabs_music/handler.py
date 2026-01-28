@@ -1,43 +1,72 @@
 import asyncio
 import os
 from tempfile import NamedTemporaryFile
-from typing import Iterator
 
-from elevenlabs.client import ElevenLabs
+import httpx
 
 from eve import utils
 from eve.tool import ToolContext
 
-eleven = ElevenLabs(api_key=os.getenv("ELEVEN_API_KEY"))
+ELEVEN_API_KEY = os.getenv("ELEVEN_API_KEY")
 
 
 async def handler(context: ToolContext):
-    async def generate_with_params():
+    prompt = context.args.get("prompt")
+    duration = context.args.get("duration", 30)
+    composition_plan = context.args.get("composition_plan")
+    force_instrumental = context.args.get("force_instrumental", False)
+    respect_sections_durations = context.args.get("respect_sections_durations", True)
+
+    if not prompt and not composition_plan:
+        raise ValueError("Must provide either 'prompt' or 'composition_plan'")
+
+    if prompt and composition_plan:
+        raise ValueError("Cannot use both 'prompt' and 'composition_plan'")
+
+    async def generate_music():
         def _generate():
-            audio_generator = eleven.music.compose(
-                prompt=context.args["prompt"],
-                music_length_ms=context.args["duration"] * 1000,
-                model_id="music_v1",
+            if not ELEVEN_API_KEY:
+                raise ValueError("ELEVEN_API_KEY environment variable is not set")
+
+            payload = {
+                "model_id": "music_v1",
+            }
+
+            if composition_plan:
+                payload["composition_plan"] = composition_plan
+                payload["respect_sections_durations"] = respect_sections_durations
+            else:
+                payload["prompt"] = prompt
+                payload["music_length_ms"] = int(duration * 1000)
+                if force_instrumental:
+                    payload["force_instrumental"] = True
+
+            response = httpx.post(
+                "https://api.elevenlabs.io/v1/music",
+                headers={
+                    "xi-api-key": ELEVEN_API_KEY,
+                    "Content-Type": "application/json",
+                },
+                json=payload,
+                timeout=600.0,
             )
-            if isinstance(audio_generator, Iterator):
-                return b"".join(audio_generator)
-            return audio_generator
+            response.raise_for_status()
+            return response.content
 
         return await asyncio.to_thread(_generate)
 
-    audio_generator = await utils.async_exponential_backoff(
-        generate_with_params,
-        max_attempts=3,  # context.args["max_attempts"],
-        initial_delay=1,  # context.args["initial_delay"],
+    audio = await utils.async_exponential_backoff(
+        generate_music,
+        max_attempts=3,
+        initial_delay=1,
     )
 
-    audio = audio_generator
+    if audio is None:
+        raise ValueError("Failed to generate music after multiple attempts")
 
-    # save to file
-    audio_file = NamedTemporaryFile(delete=False)
+    # Save to file
+    audio_file = NamedTemporaryFile(delete=False, suffix=".mp3")
     audio_file.write(audio)
     audio_file.close()
 
-    return {
-        "output": audio_file.name,
-    }
+    return {"output": audio_file.name}

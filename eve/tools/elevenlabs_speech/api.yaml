@@ -1,0 +1,52 @@
+name: Speech
+description: Text-to-speech with ElevenLabs - supports single or multi-speaker dialogue
+tip: |-
+  Generate speech audio from text. For single speaker, provide one segment.
+  For multi-speaker dialogue, provide multiple segments.
+  Use elevenlabs_search_voices to discover voice names.
+cost_estimate: 0.05 * sumLengths(segments, "text")
+thumbnail: app/elevenlabs58.webp
+output_type: audio
+active: true
+visible: false
+parameters:
+  segments:
+    type: array
+    label: Segments
+    description: Array of speech segments. For single speaker, use one segment. For dialogue, use multiple.
+    required: true
+    items:
+      type: object
+      properties:
+        text:
+          type: string
+          label: Text
+          description: The text to be spoken
+          required: true
+        voice:
+          type: string
+          label: Voice
+          description: Voice name, description, or @agent_username
+          tip: Use elevenlabs_search_voices to discover voice names.
+          required: true
+  stability:
+    type: float
+    label: Stability
+    description: Voice stability (0-1). Higher is more stable/monotonous, lower is more dynamic.
+    default: 0.5
+    minimum: 0
+    maximum: 1
+  style:
+    type: float
+    label: Style
+    description: Style exaggeration (0-1). 0.0 is normal, 1.0 is exaggerated.
+    default: 0.0
+    minimum: 0
+    maximum: 1
+  speed:
+    type: float
+    label: Speed
+    description: Speech speed. 1.0 is normal, range is 0.7-1.2.
+    default: 1.0
+    minimum: 0.7
+    maximum: 1.2

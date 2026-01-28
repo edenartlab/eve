@@ -454,6 +454,31 @@ async def backfill_discord_channel(
             continue
 
     logger.info(f"Backfilled {backfilled_count} messages for session {session.id}")
+
+    # Trigger memory formation for the backfilled session
+    # This catches up memory for newly synced channels
+    if backfilled_count > 0:
+        try:
+            from eve.agent.memory2.formation import process_cold_session
+
+            logger.info(
+                f"Triggering memory formation for backfilled session {session.id}"
+            )
+            memory_formed = await process_cold_session(
+                session=session,
+                agent_id=agent.id,
+            )
+            if memory_formed:
+                logger.info(f"Memory formation completed for session {session.id}")
+            else:
+                logger.info(
+                    f"No memories formed for session {session.id} (may not meet thresholds)"
+                )
+        except Exception as e:
+            logger.error(
+                f"Error forming memories for backfilled session {session.id}: {e}"
+            )
+
     return backfilled_count
 
 

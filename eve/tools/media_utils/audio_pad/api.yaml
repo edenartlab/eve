@@ -1,0 +1,23 @@
+name: Pad audio
+description: Add silence to start and/or end of audio
+cost_estimate: 0.1
+output_type: audio
+active: true
+handler: modal
+visible: false
+parameters:
+  audio_url:
+    type: string
+    label: Audio URL
+    description: Audio file to pad
+    required: true
+  pad_start:
+    type: number
+    label: Pad start (seconds)
+    description: Silence to add at start
+    required: false
+  pad_end:
+    type: number
+    label: Pad end (seconds)
+    description: Silence to add at end
+    required: false

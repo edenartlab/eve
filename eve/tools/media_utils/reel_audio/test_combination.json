@@ -1,0 +1,10 @@
+{
+    "user_id": "65284b18f8bbb9bff13ebe65",
+    "agent_id": "675f880479e00297cd9b4688",
+    "script": "CHARLOTTE: The stars are calling us home.\nGEORGE: After all these years of searching, we finally found it.\nCHARLOTTE: A new beginning for humanity.\nGEORGE: Let's make sure we get it right this time.",
+    "voices": [
+        {"speaker": "CHARLOTTE", "voice": "Sarah"},
+        {"speaker": "GEORGE", "voice": "George"}
+    ],
+    "music_style": "ethereal ambient space, soft synths, hopeful and emotional, instrumental"
+}

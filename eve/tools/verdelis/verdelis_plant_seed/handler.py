@@ -3,7 +3,8 @@ import logging
 from jinja2 import Template
 
 from eve.agent import Agent
-from eve.tool import Tool, ToolContext
+from eve.tool import ToolContext
+from eve.tools.session_post.handler import handler as session_post_handler
 
 logger = logging.getLogger(__name__)
 
@@ -234,8 +235,6 @@ async def handler(context: ToolContext):
     if agent.username != "verdelis":
         raise Exception("Agent is not Verdelis")
 
-    session_post = Tool.load("session_post")
-
     idea = context.args.get("idea", "Create a new seed for a story idea.")
 
     user_message = Template(init_message).render(
@@ -264,7 +263,16 @@ async def handler(context: ToolContext):
     if context.args.get("resume_session"):
         args["session"] = context.args.get("resume_session")
 
-    result = await session_post.async_run(args)
+    # Call session_post handler directly to avoid nested Modal timeout
+    session_post_context = ToolContext(
+        args=args,
+        user=context.user,
+        agent=context.agent,
+        session=context.session,
+        message=context.message,
+        tool_call_id=context.tool_call_id,
+    )
+    result = await session_post_handler(session_post_context)
 
     # Check for error
     if result.get("error"):

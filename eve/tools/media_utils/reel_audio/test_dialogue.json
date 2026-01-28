@@ -1,0 +1,9 @@
+{
+    "user_id": "65284b18f8bbb9bff13ebe65",
+    "agent_id": "675f880479e00297cd9b4688",
+    "script": "CHARLOTTE: Have you ever wondered what lies beyond the stars?\nGEORGE: Every night. But I never thought we'd actually get there.\nCHARLOTTE: Well, today's the day. The ship is ready.\nGEORGE: Are you scared?\nCHARLOTTE: Terrified. But that's what makes it worth doing.\nGEORGE: Then let's make history.",
+    "voices": [
+        {"speaker": "CHARLOTTE", "voice": "Sarah"},
+        {"speaker": "GEORGE", "voice": "George"}
+    ]
+}

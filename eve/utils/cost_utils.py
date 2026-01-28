@@ -1,15 +1,17 @@
 from __future__ import annotations
 
-from typing import Any, Dict
+from typing import Any, Dict, List
 
 from pyparsing import (
     Forward,
+    Group,
     Keyword,
     Literal,
     ParserElement,
     QuotedString,
     Suppress,
     Word,
+    ZeroOrMore,
     alphanums,
     alphas,
     infixNotation,
@@ -20,6 +22,35 @@ from pyparsing import (
 
 # Enable memoisation to speed up recursive parsing.  This has a global effect but does not interfere with other parsers in normal usage.
 ParserElement.enablePackrat()
+
+
+def _sum_lengths(array: List[Any], property_path: str) -> int:
+    """Sum the lengths of a property across all items in an array.
+
+    Parameters
+    ----------
+    array : List[Any]
+        A list of objects (dicts or objects with attributes).
+    property_path : str
+        A dot-separated path to the property whose length to sum.
+        E.g., "text" or "nested.field"
+
+    Returns
+    -------
+    int
+        The sum of len(item[property]) for all items.
+    """
+    total = 0
+    for item in array:
+        val = item
+        for prop in property_path.split("."):
+            if isinstance(val, dict):
+                val = val.get(prop, "")
+            else:
+                val = getattr(val, prop, "")
+        if val is not None:
+            total += len(val)
+    return total
 
 
 def _build_expression_parser(variables: Dict[str, Any]) -> ParserElement:
@@ -73,44 +104,90 @@ def _build_expression_parser(variables: Dict[str, Any]) -> ParserElement:
         lambda: [None]
     )
 
-    # Identifiers: variable names consisting of letters, digits and
-    # underscores.  When encountered, look up the value in ``variables``.
-    # The parse action returns a single‑element list containing the
-    # variable's value.  It is important to return a list rather than
-    # ``None`` directly; returning ``None`` from a parse action tells
-    # pyparsing to delete that token from the result, which leads to
-    # incorrect evaluation when a variable's value is ``None``.
-    ident = Word(alphas + "_", alphanums + "_").setParseAction(
-        lambda t: [variables.get(t[0], None)]
-    )
-
     # Forward declarations for recursive grammar elements.
     expr: Forward = Forward()
-    operand: Forward = Forward()
 
-    # Atomic operands: numbers, strings, booleans, null/None or identifiers.
-    atom = number | string | true_literal | false_literal | null_literal | ident
+    # Identifiers: variable names consisting of letters, digits and
+    # underscores.  When encountered, look up the value in ``variables``.
+    ident_name = Word(alphas + "_", alphanums + "_")
+
+    # Simple identifier lookup (returns the value from variables)
+    ident = ident_name.copy().setParseAction(lambda t: [variables.get(t[0], None)])
+
+    # Function arguments: simple values only (idents or strings) to avoid recursion
+    func_arg = ident | string
+    func_args = Group(func_arg + ZeroOrMore(Suppress(",") + func_arg))
+
+    # Function call: funcName(arg1, arg2, ...)
+    # We support sumLengths(array, "property") built-in
+    func_call = ident_name + Suppress("(") + func_args + Suppress(")")
+
+    def func_call_action(tokens):
+        func_name = tokens[0]
+        args = list(tokens[1]) if len(tokens) > 1 else []
+        if func_name == "sumLengths":
+            if len(args) != 2:
+                raise ValueError(
+                    f"sumLengths requires 2 arguments: array and property, got {len(args)}: {args}"
+                )
+            return _sum_lengths(args[0], args[1])
+        raise ValueError(f"Unknown function: {func_name}")
+
+    func_call.setParseAction(func_call_action)
+
+    # Atomic operands: numbers, strings, booleans, null/None, function calls, or identifiers.
+    atom = (
+        number
+        | string
+        | true_literal
+        | false_literal
+        | null_literal
+        | func_call
+        | ident
+    )
 
     # Parenthesised expressions.  Suppress the parentheses so they do not
     # clutter the parse result.  The enclosed expression is parsed
     # recursively by referencing ``expr``.
     _base_operand = atom | (Suppress("(") + expr + Suppress(")"))
 
-    # Support JavaScript‑style ".length" postfix on any operand.
+    # Support postfix accessors: .property, [index], and .length
+    # These can be chained: segments[0].text.length
+    dot_access = Suppress(".") + ident_name
+    bracket_access = Suppress("[") + expr + Suppress("]")
     length_suffix = Suppress(".") + Keyword("length")
 
-    def length_action(tokens):
-        val = tokens[0]
-        try:
-            return len(val)
-        except TypeError as e:
-            raise ValueError(
-                f"Cannot take .length of value of type {type(val).__name__}"
-            ) from e
+    accessor = dot_access | bracket_access | length_suffix
 
-    operand <<= (_base_operand + length_suffix).setParseAction(
-        length_action
-    ) | _base_operand
+    def postfix_action(tokens):
+        val = tokens[0]
+        for i in range(1, len(tokens)):
+            accessor_token = tokens[i]
+            if accessor_token == "length":
+                try:
+                    val = len(val)
+                except TypeError as e:
+                    raise ValueError(
+                        f"Cannot take .length of value of type {type(val).__name__}"
+                    ) from e
+            elif isinstance(accessor_token, int):
+                # Array index access
+                try:
+                    val = val[accessor_token]
+                except (IndexError, KeyError, TypeError) as e:
+                    raise ValueError(
+                        f"Cannot access index {accessor_token}: {e}"
+                    ) from e
+            else:
+                # Property access
+                prop = str(accessor_token)
+                if isinstance(val, dict):
+                    val = val.get(prop)
+                else:
+                    val = getattr(val, prop, None)
+        return val
+
+    operand = (_base_operand + ZeroOrMore(accessor)).setParseAction(postfix_action)
 
     # Define evaluation functions for unary and binary operators.  The
     # parse actions receive a nested list structure representing the

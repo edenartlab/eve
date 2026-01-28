@@ -74,8 +74,7 @@ ALL_TOOLS = [
     "texture_flow",
     # audio
     # "ace_step_musicgen",
-    "elevenlabs",
-    "elevenlabs_dialogue",
+    "elevenlabs_speech",
     "vibevoice",
     # "mmaudio",
     # "thinksound",
@@ -177,10 +176,10 @@ TOOL_SETS = {
     "create_image": ["create", "media_editor", "reel"],  #  "magic_8_ball"
     "create_video": [],  # deprecated
     "create_audio": [
-        "elevenlabs",
-        "elevenlabs_dialogue",
+        "elevenlabs_speech",
         "elevenlabs_music",
         "elevenlabs_fx",
+        "elevenlabs_search_voices",
     ],
     "vj_tools": ["texture_flow", "video_FX", "reel"],
     "news": [],  # deprecated

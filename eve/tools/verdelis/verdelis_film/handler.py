@@ -1,7 +1,8 @@
 from jinja2 import Template
 
 from eve.agent import Agent
-from eve.tool import Tool, ToolContext
+from eve.tool import ToolContext
+from eve.tools.session_post.handler import handler as session_post_handler
 
 init_message = """
 <Intro>
@@ -165,8 +166,6 @@ async def handler(context: ToolContext):
     if agent.username != "verdelis":
         raise Exception("Agent is not Verdelis")
 
-    session_post = Tool.load("session_post")
-
     title = context.args.get("title")
     description = context.args.get("description")
     reference_images = context.args.get("reference_images")
@@ -177,22 +176,31 @@ async def handler(context: ToolContext):
         reference_images=reference_images,
     )
 
-    result = await session_post.async_run(
-        {
-            "role": "user",
-            "user_id": str(context.user),
-            "agent_id": str(agent.id),
-            "session_id": str(context.session),
-            "title": title,
-            "content": user_message,
-            "attachments": [],
-            "pin": True,
-            "prompt": True,
-            "async": True,
-            "extra_tools": ["discord_post", "add_to_collection"],
-            "visible": True,
-        }
+    args = {
+        "role": "user",
+        "user_id": str(context.user),
+        "agent_id": str(agent.id),
+        "session_id": str(context.session),
+        "title": title,
+        "content": user_message,
+        "attachments": [],
+        "pin": True,
+        "prompt": True,
+        "async": True,
+        "extra_tools": ["discord_post", "add_to_collection"],
+        "visible": True,
+    }
+
+    # Call session_post handler directly to avoid nested Modal timeout
+    session_post_context = ToolContext(
+        args=args,
+        user=context.user,
+        agent=context.agent,
+        session=context.session,
+        message=context.message,
+        tool_call_id=context.tool_call_id,
     )
+    result = await session_post_handler(session_post_context)
 
     session_id = result["output"][0]["session_id"]
 

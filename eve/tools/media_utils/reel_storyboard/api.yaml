@@ -1,0 +1,39 @@
+name: Reel Storyboard Artist
+description: Create keyframe images with timing for video production. Produces storyboard from audio and transcript.
+tip: |-
+  Storyboard artist for reel pipeline. Creates keyframe images synced to audio timing.
+  Output format: KEYFRAMES block with timing and image URLs.
+  Keyframe count = ceil(duration / 5). Generate sequentially with reference chaining.
+cost_estimate: 100
+output_type: image
+active: true
+visible: false
+handler: modal
+parameters:
+  audio_url:
+    type: string
+    label: Audio URL
+    description: URL to the audio file from reel_audio.
+    required: true
+
+  transcript:
+    type: string
+    label: Transcript
+    description: 'Timestamped transcript from reel_audio in format "Speaker 0.0-3.2 : text"'
+    required: true
+
+  style_references:
+    type: array
+    items:
+      anyOf:
+        - type: image
+    label: Style references
+    description: Style or character reference images for visual consistency.
+    tip: Use 1-2 references max. More causes confusion.
+    required: false
+
+  instructions:
+    type: string
+    label: Visual direction
+    description: Additional instructions for visual style, shot composition, or specific imagery.
+    required: false

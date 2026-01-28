@@ -409,6 +409,15 @@ class PromptSessionInstrumentation:
         self._bind_logger()
         self._refresh_langfuse_metadata()
 
+    def add_metadata(self, **metadata: Any) -> None:
+        if not metadata:
+            return
+        cleaned = {k: v for k, v in metadata.items() if v is not None}
+        if not cleaned:
+            return
+        self.extra_metadata.update(cleaned)
+        self._refresh_langfuse_metadata()
+
     def _start_stage(
         self,
         name: str,

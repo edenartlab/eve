@@ -309,12 +309,29 @@ class LLMUsage(BaseModel):
     cost_usd: Optional[float] = None
 
 
+class DiscordPlatformObservability(BaseModel):
+    message_id: Optional[str] = None
+    channel_id: Optional[str] = None
+    guild_id: Optional[str] = None
+    url: Optional[str] = None
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
+
+class PlatformObservability(BaseModel):
+    discord: Optional[DiscordPlatformObservability] = None
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
+
 class ChatMessageObservability(BaseModel):
     provider: Literal["langfuse"] = "langfuse"
     session_id: Optional[str] = None
     session_run_id: Optional[str] = None
     trace_id: Optional[str] = None  # Langfuse trace ID
     generation_id: Optional[str] = None  # Langfuse generation ID
+    langfuse_url: Optional[str] = None
+    sentry_url: Optional[str] = None
+    input_tokens: Optional[int] = None
+    input_tokens_breakdown: Optional[Dict[str, int]] = None
     tokens_spent: Optional[int] = None
     prompt_tokens: Optional[int] = None
     completion_tokens: Optional[int] = None
@@ -323,6 +340,7 @@ class ChatMessageObservability(BaseModel):
     cost_usd: Optional[float] = None
     sentry_trace_id: Optional[str] = None  # Sentry distributed trace ID for correlation
     usage: Optional[LLMUsage] = None
+    platforms: Optional[PlatformObservability] = None
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
 
@@ -818,6 +836,14 @@ class ChatMessage(Document):
         collection.create_index(
             [("channel.type", 1), ("channel.key", 1)],
             name="channel_lookup_idx",
+            background=True,
+            sparse=True,
+        )
+
+        # Index for fast lookup by Discord message id in observability
+        collection.create_index(
+            [("observability.platforms.discord.message_id", 1)],
+            name="discord_message_id_idx",
             background=True,
             sparse=True,
         )

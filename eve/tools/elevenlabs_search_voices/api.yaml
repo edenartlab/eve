@@ -1,0 +1,25 @@
+name: Search ElevenLabs Voices
+description: Search for the best matching ElevenLabs voice based on description and filters to use in TTS tools.
+cost_estimate: 0
+output_type: string
+active: true
+visible: true
+parameters:
+  description:
+    type: string
+    label: Description
+    description: Character or voice description to match against (e.g. "wise old wizard", "young cheerful woman"). If blank, use random selection.
+    required: false
+  gender:
+    type: string
+    label: Gender
+    description: Filter by gender
+    choices: [male, female]
+    required: false
+  exclude:
+    type: array
+    items:
+      type: string
+    label: Exclude
+    description: Voice names to exclude from selection (case-insensitive)
+    required: false
