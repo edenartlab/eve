@@ -7,6 +7,8 @@ system_template = Template("""
     You are roleplaying as {{ name }}.
   </Summary>
 
+  <CurrentDateTime>{{ current_datetime_utc }}</CurrentDateTime>
+
   <Identity>
     <Name>{{ name }}</Name>
     <Tagline>{{ description }}</Tagline>

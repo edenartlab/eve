@@ -303,8 +303,9 @@ def convert_message_roles(messages: List[ChatMessage], actor_id: ObjectId):
                     pass
 
             # Wrap in SystemMessage tags - use message's createdAt, not current time
+            # Note: createdAt is stored in UTC
             message_dt = message.createdAt or datetime.now(timezone.utc)
-            current_dt = message_dt.strftime("%Y %b %-d, %-I:%M%p")
+            current_dt = message_dt.strftime("%Y %b %-d, %-I:%M%p UTC")
             wrapped_content = f'<SystemMessage current_date_time="{current_dt}">{content}</SystemMessage>'
 
             eden_as_user = message.model_copy(
@@ -599,7 +600,8 @@ async def build_system_message(
             f"[build_system_message] Telegram social_instructions generated: {len(social_instructions) if social_instructions else 0} chars"
         )
 
-    current_date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    # Current datetime with timezone - this stays in the system message (never ages out)
+    current_datetime_utc = datetime.now(timezone.utc).strftime("%Y %b %-d, %-I:%M%p UTC")
 
     # Build system prompt with memory context (each component is tracked for token analysis)
     content = render_template_with_token_tracking(
@@ -607,7 +609,7 @@ async def build_system_message(
         session_run_id=session_run_id,
         prefix="system",
         name=actor.name,
-        current_date=current_date,
+        current_datetime_utc=current_datetime_utc,
         description=actor.description,
         persona=actor.persona,
         tools=tools,
