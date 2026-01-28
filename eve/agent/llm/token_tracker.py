@@ -103,8 +103,9 @@ def render_template_with_token_tracking(
     Render a Jinja template while tracking each component's tokens.
 
     This function wraps template.render() and automatically tracks each
-    kwarg as a separate token category. This allows granular token analysis
-    without polluting the calling code with tracking logic.
+    kwarg as a separate token category, plus the static template structure.
+    This allows granular token analysis without polluting the calling code
+    with tracking logic.
 
     Args:
         template: Jinja2 Template object
@@ -124,14 +125,24 @@ def render_template_with_token_tracking(
             memory=memory,
             persona=actor.persona,
         )
-        # Tracks: system/name, system/memory, system/persona, etc.
+        # Tracks: system/name, system/memory, system/persona, system/template_structure, etc.
     """
     import json
+
+    # Always render the template first
+    rendered = template.render(**kwargs)
 
     # Track each component if session_run_id is provided
     if session_run_id:
         try:
+            total_tracked_chars = 0
+
             for key, value in kwargs.items():
+                # Skip 'tools' - it's only used for conditional checks in templates,
+                # not rendered into the prompt. Tool schemas are tracked separately
+                # via track_context() as "tool_schemas/{tool_name}".
+                if key == "tools":
+                    continue
                 if value is not None:
                     # Convert to string for tracking
                     if isinstance(value, str):
@@ -145,12 +156,24 @@ def render_template_with_token_tracking(
                         token_tracker._add_chunk(
                             session_run_id, f"{prefix}/{key}", content
                         )
+                        total_tracked_chars += len(content)
+
+            # Track the static template structure (XML tags, labels, etc.)
+            # This is the difference between rendered length and tracked variable content
+            static_chars = len(rendered) - total_tracked_chars
+            if static_chars > 50:  # Only track if meaningful (> ~10 tokens)
+                # Create a placeholder string of the right length for token estimation
+                # We don't need the actual content, just accurate token counting
+                token_tracker._add_chunk(
+                    session_run_id,
+                    f"{prefix}/template_structure",
+                    " " * static_chars,  # Placeholder for token counting
+                )
         except Exception:
             # Never let tracking errors affect the render
             pass
 
-    # Always render the template
-    return template.render(**kwargs)
+    return rendered
 
 
 def normalize_for_comparison(text: str) -> str:
@@ -364,18 +387,18 @@ class TrackerHandle:
 
         Tracks:
         - tool_schemas/*: Each tool's schema (sent as separate API param)
-        - messages: Combined conversation history (excluding tool results)
-        - messages/tool_results: Tool call results from conversation history
 
-        Note: System message components (memory, persona, etc.) are tracked
-        separately via render_template_with_token_tracking() in build_system_message.
+        Note: Messages are tracked separately in runtime.py with formatted role
+        prefixes to match the actual full_prompt structure. System message
+        components (memory, persona, etc.) are tracked via
+        render_template_with_token_tracking() in build_system_message.
 
         Args:
             agent: Agent object (for future use)
             session: Session object (for future use)
             user: User object (for future use)
             tools: Dict of Tool objects (extracts schemas)
-            messages: List of ChatMessage objects (tracks by role)
+            messages: List of ChatMessage objects (kept for API compatibility)
             trigger_context: Dict with trigger info (for future use)
             prefix: Category prefix ("system" or "agent_session")
             **extras: Any additional string values to track
@@ -398,47 +421,9 @@ class TrackerHandle:
                     except Exception:
                         pass
 
-            # Conversation history (skip system message at index 0)
-            # Aggregate all messages into a single blob, with tool results separated
-            if messages:
-                messages_content = []
-                tool_results_content = []
-
-                for msg in messages[1:] if len(messages) > 1 else []:
-                    role = getattr(msg, "role", "unknown")
-                    content = getattr(msg, "content", "") or ""
-
-                    # Check if this is a tool result message
-                    if role == "tool":
-                        if content:
-                            tool_results_content.append(content)
-                    else:
-                        # Regular message content
-                        if content:
-                            messages_content.append(content)
-
-                        # Also extract tool call results from assistant messages
-                        tool_calls = getattr(msg, "tool_calls", None) or []
-                        for tc in tool_calls:
-                            result = getattr(tc, "result", None)
-                            if result:
-                                try:
-                                    result_str = json.dumps(result, default=str)
-                                    tool_results_content.append(result_str)
-                                except Exception:
-                                    pass
-
-                # Track combined messages content
-                if messages_content:
-                    combined_messages = "\n---\n".join(messages_content)
-                    self.add_chunk(f"{prefix}/messages", combined_messages)
-
-                # Track combined tool results
-                if tool_results_content:
-                    combined_tool_results = "\n---\n".join(tool_results_content)
-                    self.add_chunk(
-                        f"{prefix}/messages/tool_results", combined_tool_results
-                    )
+            # Note: Message tracking has been moved to runtime.py where the full_prompt
+            # is assembled. This ensures tracked content matches the actual formatted
+            # messages (with [ROLE]\n prefixes) sent to the LLM.
 
             # Any extra string values
             for key, value in extras.items():
@@ -847,11 +832,21 @@ class TokenTracker:
                     }
                 )
 
-                tracked_chunks = [
-                    c for c in call_data["chunks"] if not c["category"].startswith("_")
-                ]
-                untracked = self._find_untracked_content(full_prompt, tracked_chunks)
-                call_data["chunks"].extend(untracked)
+                # Skip untracked detection if template_structure is present.
+                # template_structure uses a space placeholder for token counting (not actual
+                # content), so untracked detection would flag the real XML as "untracked".
+                # Since template_structure already accounts for this overhead with accurate
+                # char counts, untracked detection is redundant.
+                has_template_structure = any(
+                    c.get("category", "").endswith("/template_structure")
+                    for c in call_data["chunks"]
+                )
+                if not has_template_structure:
+                    tracked_chunks = [
+                        c for c in call_data["chunks"] if not c["category"].startswith("_")
+                    ]
+                    untracked = self._find_untracked_content(full_prompt, tracked_chunks)
+                    call_data["chunks"].extend(untracked)
 
             summary: Dict[str, int] = {}
             for chunk in call_data["chunks"]:
@@ -972,8 +967,9 @@ class TokenTracker:
         This is a convenience method that doesn't require passing a handle.
         Use after register_call() with the same session_run_id.
 
-        Note: System message components (memory, persona, etc.) are tracked
-        separately via render_template_with_token_tracking() in build_system_message.
+        Tracks tool_schemas only. Messages are tracked separately in runtime.py
+        with formatted role prefixes. System message components are tracked via
+        render_template_with_token_tracking() in build_system_message.
         """
         try:
             with self._lock:

@@ -280,16 +280,29 @@ class PromptSessionRuntime:
                 # Serialize the full LLM input for token tracking comparison
                 # Includes both messages and tool definitions (both count as input tokens)
                 full_prompt = None
+                token_run_id = (
+                    self.context.session_run_id
+                    if self.context and self.context.session_run_id
+                    else self.session_run_id
+                )
                 try:
                     if self.llm_context:
                         parts = []
-                        # Serialize messages
+                        # Serialize messages and track each with formatted role prefix
                         if self.llm_context.messages:
                             for msg in self.llm_context.messages:
                                 role = getattr(msg, "role", "unknown")
                                 content = getattr(msg, "content", "") or ""
-                                parts.append(f"[{role.upper()}]\n{content}")
+                                formatted = f"[{role.upper()}]\n{content}"
+                                parts.append(formatted)
+                                # Track each message with its formatted content
+                                # Skip system messages - they're already tracked via template rendering
+                                if token_run_id and content and role != "system":
+                                    token_tracker._add_chunk(
+                                        token_run_id, f"messages/{role}", formatted
+                                    )
                         # Serialize tool schemas (they count as input tokens too)
+                        # Note: tool schemas are tracked separately in track_context()
                         if self.llm_context.tools:
                             for tool_name, tool in self.llm_context.tools.items():
                                 if hasattr(tool, "anthropic_schema"):
@@ -302,11 +315,6 @@ class PromptSessionRuntime:
                     pass
 
                 # Flush token tracking before LLM call
-                token_run_id = (
-                    self.context.session_run_id
-                    if self.context and self.context.session_run_id
-                    else self.session_run_id
-                )
                 if token_run_id:
                     try:
                         summary = token_tracker.finish_with_summary(

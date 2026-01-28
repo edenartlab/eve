@@ -1472,12 +1472,15 @@ async def eden_agents(ctx: discord.ApplicationContext):
             "This command must be used in a server channel.", ephemeral=True
         )
         return
+    await ctx.defer(ephemeral=True)
 
     try:
         channel_id = str(ctx.channel.id)
         deployments = await find_all_following_deployments(channel_id)
         if not deployments:
-            await ctx.respond("No Eden agents found for this channel.", ephemeral=True)
+            await ctx.followup.send(
+                "No Eden agents found for this channel.", ephemeral=True
+            )
             return
 
         lines = []
@@ -1489,10 +1492,12 @@ async def eden_agents(ctx: discord.ApplicationContext):
             profile_url = construct_agent_profile_url(agent)
             can_write = deployment_can_write_to_channel(deployment, channel_id)
             suffix = "" if can_write else " (read-only)"
-            lines.append(f"- {display_name}: <{profile_url}>{suffix}")
+            lines.append(f"- [{display_name}]({profile_url}){suffix}")
 
         if not lines:
-            await ctx.respond("No Eden agents found for this channel.", ephemeral=True)
+            await ctx.followup.send(
+                "No Eden agents found for this channel.", ephemeral=True
+            )
             return
 
         channel_name = getattr(ctx.channel, "name", None)
@@ -1501,10 +1506,10 @@ async def eden_agents(ctx: discord.ApplicationContext):
             if channel_name
             else "Agents with access to this channel:"
         )
-        await ctx.respond(f"{header}\n" + "\n".join(lines), ephemeral=True)
+        await ctx.followup.send(f"{header}\n" + "\n".join(lines), ephemeral=True)
     except Exception:
         logger.exception("Failed to list channel agents")
-        await ctx.respond(
+        await ctx.followup.send(
             "Failed to list channel agents. Please try again later.",
             ephemeral=True,
         )
@@ -1526,12 +1531,15 @@ async def eden_server_agents(ctx: discord.ApplicationContext):
     if not ctx.guild:
         await ctx.respond("This command must be used in a server.", ephemeral=True)
         return
+    await ctx.defer(ephemeral=True)
 
     try:
         guild_id = str(ctx.guild.id)
         deployments = find_all_deployments_for_guild(guild_id)
         if not deployments:
-            await ctx.respond("No Eden agents found for this server.", ephemeral=True)
+            await ctx.followup.send(
+                "No Eden agents found for this server.", ephemeral=True
+            )
             return
 
         lines = []
@@ -1563,13 +1571,13 @@ async def eden_server_agents(ctx: discord.ApplicationContext):
             )
             lines.append(f"- {display_name}: <{profile_url}> — {channels_display}")
 
-        await ctx.respond(
+        await ctx.followup.send(
             f"Eden agents in **{ctx.guild.name}**:\n" + "\n".join(lines),
             ephemeral=True,
         )
     except Exception:
         logger.exception("Failed to list server agents")
-        await ctx.respond(
+        await ctx.followup.send(
             "Failed to list server agents. Please try again later.",
             ephemeral=True,
         )
