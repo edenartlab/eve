@@ -57,7 +57,6 @@ HANDLER_PATHS = {
     "elevenlabs": "elevenlabs.handler",
     "elevenlabs_dialogue": "elevenlabs_dialogue.handler",
     "elevenlabs_music": "elevenlabs_music.handler",
-    "elevenlabs_music2": "elevenlabs_music2.handler",
     "elevenlabs_fx": "elevenlabs_fx.handler",
     "elevenlabs_search_voices": "elevenlabs_search_voices.handler",
     "elevenlabs_speech": "elevenlabs_speech.handler",
