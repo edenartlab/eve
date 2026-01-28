@@ -23,22 +23,36 @@ tip: |-
 
   ```json
   {
-    "positive_global_styles": ["uplifting", "cinematic", "orchestral"],
-    "negative_global_styles": ["aggressive", "distorted"],
+    "positive_global_styles": ["cinematic orchestral", "hybrid trailer", "wide stereo", "big drums"],
+    "negative_global_styles": ["lo-fi", "small room", "cheap synth", "comedy"],
     "sections": [
       {
-        "section_name": "Intro",
-        "positive_local_styles": ["ambient", "slow-building"],
-        "negative_local_styles": ["loud"],
-        "duration_ms": 15000,
+        "section_name": "Intro (mystery)",
+        "positive_local_styles": ["soft strings", "low drones", "subtle pulses", "tension bed"],
+        "negative_local_styles": ["main theme fully stated", "big choir", "busy drums"],
+        "duration_ms": 10000,
         "lines": []
       },
       {
-        "section_name": "Chorus",
-        "positive_local_styles": ["energetic", "harmonic"],
-        "negative_local_styles": [],
+        "section_name": "Build",
+        "positive_local_styles": ["rising ostinato", "snare build", "risers", "more percussion"],
+        "negative_local_styles": ["drop too early", "overly melodic"],
         "duration_ms": 20000,
-        "lines": ["Optional lyrics for this section"]
+        "lines": []
+      },
+      {
+        "section_name": "Drop / Climax",
+        "positive_local_styles": ["huge drums", "brass hits", "string runs", "anthemic motif"],
+        "negative_local_styles": ["quiet", "ambient wash", "thin bass"],
+        "duration_ms": 10000,
+        "lines": []
+      },
+      {
+        "section_name": "Cliffhanger",
+        "positive_local_styles": ["anxious", "quiet", "eerie", "fearful"],
+        "negative_local_styles": ["loud", "percussive"],
+        "duration_ms": 8000,
+        "lines": []
       }
     ]
   }
@@ -55,8 +69,7 @@ tip: |-
   - Use English for style parameters
   - Total duration = sum of all section duration_ms values
   - For instrumental, leave `lines` as empty arrays
-  - Don't reference copyrighted artist/song names
-  - Common progression: Intro → Verse → Chorus → Verse → Chorus → Bridge → Chorus → Outro
+  - Use respect_sections_durations=True to enforce the duration_ms of each section for more precise choreography
 cost_estimate: 0.5 * duration
 thumbnail: app/elevenlabs58.webp
 output_type: audio
