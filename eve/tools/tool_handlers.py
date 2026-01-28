@@ -58,6 +58,8 @@ HANDLER_PATHS = {
     "elevenlabs_dialogue": "elevenlabs_dialogue.handler",
     "elevenlabs_music": "elevenlabs_music.handler",
     "elevenlabs_fx": "elevenlabs_fx.handler",
+    "elevenlabs_search_voices": "elevenlabs_search_voices.handler",
+    "elevenlabs_speech": "elevenlabs_speech.handler",
     "transcription": "transcription.handler",
     "send_eth": "wallet.send_eth.handler",
     "vibevoice": "voice_cloning.vibevoice.handler",

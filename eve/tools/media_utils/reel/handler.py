@@ -1,6 +1,7 @@
 from jinja2 import Template
 
-from eve.tool import Tool, ToolContext
+from eve.tool import ToolContext
+from eve.tools.session_post.handler import handler as session_post_handler
 
 init_message = """
 <Reel>
@@ -130,8 +131,6 @@ async def handler(context: ToolContext):
     if not context.agent:
         raise Exception("Agent is required")
 
-    session_post = Tool.load("session_post")
-
     context_text = context.args.get("context")
     producer_instructions = context.args.get("producer_instructions")
     media_files = context.args.get("media_files") or []
@@ -162,9 +161,15 @@ async def handler(context: ToolContext):
     if context.args.get("resume_session"):
         args["session"] = context.args.get("resume_session")
 
-    result = await session_post.async_run(args)
-
-    # if "error" in result:
-    #     raise Exception(result["error"])
+    # Call session_post handler directly to avoid nested Modal timeout
+    session_post_context = ToolContext(
+        args=args,
+        user=context.user,
+        agent=context.agent,
+        session=context.session,
+        message=context.message,
+        tool_call_id=context.tool_call_id,
+    )
+    result = await session_post_handler(session_post_context)
 
     return result

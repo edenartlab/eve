@@ -3,8 +3,9 @@ import math
 
 from eve.agent import Agent
 from eve.agent.session.models import Session
-from eve.tool import Tool, ToolContext
+from eve.tool import ToolContext
 from eve.tools.abraham.abraham_seed.handler import AbrahamSeed
+from eve.tools.session_post.handler import handler as session_post_handler
 
 
 def user_score(msg_count: int) -> float:
@@ -66,8 +67,6 @@ Finally, call the **`abraham_covenant`** tool to publish the blog post, poster i
 
 
 async def commit_daily_work(agent: Agent, session: str):
-    session_post = Tool.load("session_post")
-
     abraham_seeds = AbrahamSeed.find({"status": "seed"})
 
     # print("seeds", abraham_seeds)
@@ -129,22 +128,31 @@ async def commit_daily_work(agent: Agent, session: str):
     if str(winner["session"].id) != "68fb4cba2f028d6d992bfac2":
         raise Exception("Stop here, it's", str(winner["session"].id))
 
-    await session_post.async_run(
-        {
-            "role": "user",
-            # "user_id": str(context.user),
-            "agent_id": str(agent.id),
-            "session_id": str(session),
-            "session": str(winner["session"].id),
-            "content": daily_message,
-            "attachments": [],
-            # "pin": True,
-            "prompt": True,
-            "async": True,
-            "visible": True,
-            "extra_tools": ["abraham_covenant"],
-        }
+    args = {
+        "role": "user",
+        # "user_id": str(context.user),
+        "agent_id": str(agent.id),
+        "session_id": str(session),
+        "session": str(winner["session"].id),
+        "content": daily_message,
+        "attachments": [],
+        # "pin": True,
+        "prompt": True,
+        "async": True,
+        "visible": True,
+        "extra_tools": ["abraham_covenant"],
+    }
+
+    # Call session_post handler directly to avoid nested Modal timeout
+    session_post_context = ToolContext(
+        args=args,
+        user=str(agent.owner),
+        agent=str(agent.id),
+        session=None,
+        message=None,
+        tool_call_id=None,
     )
+    await session_post_handler(session_post_context)
 
     return {"output": [{"session": str(winner["session"].id)}]}
 

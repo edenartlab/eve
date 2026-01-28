@@ -10,7 +10,8 @@ import logging
 from jinja2 import Template
 
 from eve.agent import Agent
-from eve.tool import Tool, ToolContext
+from eve.tool import ToolContext
+from eve.tools.session_post.handler import handler as session_post_handler
 from eve.tools.verdelis.verdelis_seed.handler import VerdelisSeed
 
 logger = logging.getLogger(__name__)
@@ -73,8 +74,6 @@ async def handler(context: ToolContext):
     if not seed:
         raise Exception(f"Seed not found: {seed_id}")
 
-    session_post = Tool.load("session_post")
-
     instructions = context.args.get("instructions", "")
 
     user_message = Template(init_message).render(
@@ -104,7 +103,16 @@ async def handler(context: ToolContext):
     if context.args.get("resume_session"):
         args["session"] = context.args.get("resume_session")
 
-    result = await session_post.async_run(args)
+    # Call session_post handler directly to avoid nested Modal timeout
+    session_post_context = ToolContext(
+        args=args,
+        user=context.user,
+        agent=context.agent,
+        session=context.session,
+        message=context.message,
+        tool_call_id=context.tool_call_id,
+    )
+    result = await session_post_handler(session_post_context)
 
     logger.info(f"Draft storyboard session result: {result}")
 
@@ -121,5 +129,3 @@ async def handler(context: ToolContext):
             "session": session_id,
         }
     }
-
-    return result

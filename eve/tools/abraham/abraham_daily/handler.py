@@ -5,9 +5,10 @@ from jinja2 import Template
 
 from eve.agent import Agent
 from eve.agent.session.models import Session
-from eve.tool import Tool, ToolContext
+from eve.tool import ToolContext
 from eve.tools.abraham.abraham_rest.handler import rest
 from eve.tools.abraham.abraham_seed.handler import AbrahamSeed
+from eve.tools.session_post.handler import handler as session_post_handler
 from eve.user import User
 
 
@@ -152,8 +153,6 @@ The tweet should strictly have only the following content: "{title} {link}" wher
 
 
 async def commit_daily_work(agent: Agent, session: str):
-    session_post = Tool.load("session_post")
-
     abraham_seeds = AbrahamSeed.find({"status": "seed"})
     sessions = Session.find({"_id": {"$in": [a.session_id for a in abraham_seeds]}})
 
@@ -211,22 +210,31 @@ async def commit_daily_work(agent: Agent, session: str):
         usernames=[user["username"] for user in winner["users"][:3]],
     )
 
-    await session_post.async_run(
-        {
-            "role": "user",
-            "user_id": str(agent.owner),
-            "agent_id": str(agent.id),
-            "session_id": str(session),
-            "session": str(winner["session"].id),
-            "content": daily_message,
-            "attachments": [],
-            "prompt": True,
-            "async": True,
-            "extra_tools": ["abraham_covenant", "reel", "tweet"],
-            "selection_limit": 75,  # Need more context for daily summary
-            "visible": True,
-        }
+    args = {
+        "role": "user",
+        "user_id": str(agent.owner),
+        "agent_id": str(agent.id),
+        "session_id": str(session),
+        "session": str(winner["session"].id),
+        "content": daily_message,
+        "attachments": [],
+        "prompt": True,
+        "async": True,
+        "extra_tools": ["abraham_covenant", "reel", "tweet"],
+        "selection_limit": 75,  # Need more context for daily summary
+        "visible": True,
+    }
+
+    # Call session_post handler directly to avoid nested Modal timeout
+    session_post_context = ToolContext(
+        args=args,
+        user=str(agent.owner),
+        agent=str(agent.id),
+        session=None,
+        message=None,
+        tool_call_id=None,
     )
+    await session_post_handler(session_post_context)
 
     return {"output": [{"session": str(winner["session"].id)}]}
 

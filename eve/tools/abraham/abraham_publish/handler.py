@@ -2,7 +2,8 @@ from jinja2 import Template
 
 from eve.agent import Agent
 from eve.agent.deployments import Deployment
-from eve.tool import Tool, ToolContext
+from eve.tool import ToolContext
+from eve.tools.session_post.handler import handler as session_post_handler
 
 init_message = """
 <Intro>
@@ -98,8 +99,6 @@ async def handler(context: ToolContext):
     if not deployment:
         raise Exception("No valid Farcaster deployments found")
 
-    session_post = Tool.load("session_post")
-
     title = context.args.get("title")
     proposal = context.args.get("proposal")
     reference_images = context.args.get("reference_images")
@@ -110,23 +109,32 @@ async def handler(context: ToolContext):
         reference_images=reference_images,
     )
 
-    result = await session_post.async_run(
-        {
-            "role": "user",
-            "user_id": str(context.user),
-            "agent_id": str(agent.id),
-            "session_id": str(context.session),
-            "title": title,
-            "content": user_message,
-            "attachments": [],
-            "pin": True,
-            "prompt": True,
-            "async": True,
-            "extra_tools": ["farcaster_cast", "abraham_seed"],
-            "public": True,
-            "visible": True,
-        }
+    args = {
+        "role": "user",
+        "user_id": str(context.user),
+        "agent_id": str(agent.id),
+        "session_id": str(context.session),
+        "title": title,
+        "content": user_message,
+        "attachments": [],
+        "pin": True,
+        "prompt": True,
+        "async": True,
+        "extra_tools": ["farcaster_cast", "abraham_seed"],
+        "public": True,
+        "visible": True,
+    }
+
+    # Call session_post handler directly to avoid nested Modal timeout
+    session_post_context = ToolContext(
+        args=args,
+        user=context.user,
+        agent=context.agent,
+        session=context.session,
+        message=context.message,
+        tool_call_id=context.tool_call_id,
     )
+    result = await session_post_handler(session_post_context)
 
     session_id = result["output"][0]["session_id"]
 
