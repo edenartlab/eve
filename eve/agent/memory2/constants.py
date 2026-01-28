@@ -255,15 +255,17 @@ These FACTS however, won't be in context by default. Sometimes important REFLECT
 
 ### {session_hierarchy_num}.SESSION REFLECTIONS (The "Thread")
 *Important context relevant to the CURRENT session that will disappear when the current conversation_segment disappears from context.*
-* **High level goals:** "We are generating a short AI movie about Mars College with 5 scenes."
-* **Assets to pin:** "Jmill provided the main character image at https://d14i3advvh2bvd.cloudfront.net/..."
-* **Corrections:** "Xander does not like impressionistic styles and wants the character to always be centered."
-* **Game rules & state:** "Playing Werewolf with 8 players. Alice and Bob are werewolves (secret). Day phase: villagers are voting."
-* **Session-specific knowledge:** "The group established that 'blue team' refers to Alice, Charlie, and Eve. Current score: Blue 3, Red 2."
-* **Strategic context:** "The group is pursuing a defensive strategy after losing two rounds. Key constraint: must preserve the crystal."
+* **High level goals:** "This session is creating a 5-scene AI-generated short film about Mars College, an off-grid desert community focused on AI and art. Current phase: scene 3 of 5."
+* **Assets to pin (MUST include URLs):** "Main character reference image (desert wanderer in Byzantine mosaic style): https://d14i3advvh2bvd.cloudfront.net/abc123.png" / "Project brief document: https://docs.google.com/doc/d/xyz789"
+* **Corrections & preferences:** "Gene (session owner) rejected impressionistic styles for this project; prefers bold, graphic aesthetics. All characters must be centered in frame."
+* **Game rules & state:** "Playing Werewolf with 8 players: Alice, Bob, Charlie, David, Eve, Frank, Grace, Henry. Secret roles: Alice and Bob are werewolves. Current phase: Day 2 voting. Villagers suspect Charlie."
+* **Session-specific knowledge:** "The group established naming conventions: 'blue team' = Alice, Charlie, Eve; 'red team' = Bob, David, Frank. Current score: Blue 3, Red 2."
+* **Strategic context:** "After losing rounds 1 and 2, the group adopted a defensive strategy focused on protecting the crystal artifact. Key constraint: crystal cannot be moved until round 5."
 {# END:session #}
 
 ## EXTRACTION RULES
+- **SELF-CONTAINED CONTEXT:** Each reflection must be fully understandable on its own. The LLM reading these memories is stateless and sees them for the first time with no prior context. Never use shorthand like "the project" or "the image" - always specify "the 'Inheritance and Rights' project" or "the Byzantine mosaic reference image at [URL]". A reflection that says "Shifted to aesthetic chaos" is useless without explaining what shifted, from what, and what "aesthetic chaos" means in this context. Write as if briefing someone who knows nothing about this session.
+- **PINNED ASSETS MUST INCLUDE URLs:** When pinning assets (images, documents, videos, links), ALWAYS include the full URL. "Main character image" is useless; "Main character image: https://cdn.example.com/char.png" is actionable. URLs are the whole point of pinning assets.
 - Avoid extracting ephemeral statements that won't be true for longer than a few hours.
 - Any information you do not extract as a reflection here (and is not already in CURRENT MEMORY STATE) is permanently lost from the agents memory.
 - Extracting too much information will bloat the memory context. Make thoughtful decisions, extract only salient information and be concise.
@@ -435,6 +437,8 @@ Focus on the "Narrative Thread" of the current interaction:
 - Game state, rules, and strategic context (for games or interactive sessions)
 
 - **Structure:** Use headers like [CURRENT GOAL(S)], [GAME STATE], [RULES & CONSTRAINTS], [KEY CONTEXT], [RECENT ACTIONS], [OPEN LOOPS], [PINNED ASSETS], ... to create dedicated sections in your memory.
+- **SELF-CONTAINED CONTEXT:** Write as if briefing someone who knows nothing about this session. The LLM reading this memory is stateless—it has no prior context. Never use shorthand like "the project" without first establishing what the project is, its purpose, and key details. Every section should be understandable without reference to anything outside this memory blob.
+- **PINNED ASSETS MUST INCLUDE URLs:** The [PINNED ASSETS] section exists specifically to preserve actionable links. Every pinned asset MUST include its full URL. "Reference image for main character" is useless; "Reference image for main character (Byzantine mosaic style): https://cdn.example.com/byzantine-char.png" is actionable. If an asset doesn't have a URL, it probably shouldn't be pinned.
 - **Retention & pruning:** Keep information that provides understanding of the current state. Preserve rules, constraints, and context that remain relevant. History of past events should be retained insofar as it helps understand why things are the way they are now. Completed sub-tasks can be pruned, but significant decisions or turning points should be summarized if they affect current context.
 - **Tone:** Be thorough for complex sessions. This memory can grow large (up to 2000 words) for sessions with rich state like games, multi-step projects, or ongoing collaborations. Start concise and accumulate detail as the session develops complexity.
 """,
