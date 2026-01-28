@@ -1,45 +1,33 @@
 name: Speech
 description: Text-to-speech with ElevenLabs - supports single or multi-speaker dialogue
 tip: |-
-  Generate speech audio from text. For single speaker, provide text and voice.
-  For multi-speaker dialogue, provide segments array with text and voice for each.
+  Generate speech audio from text. For single speaker, provide one segment.
+  For multi-speaker dialogue, provide multiple segments.
   Use elevenlabs_search_voices to discover voice names.
-cost_estimate: 0.05 * text.length
+cost_estimate: 0.05 * segments[0].text.length
 thumbnail: app/elevenlabs58.webp
 output_type: audio
 active: true
 visible: true
 parameters:
-  text:
-    type: string
-    label: Text
-    description: The text to be spoken (for single speaker mode)
-    required: false
-  voice:
-    type: string
-    label: Voice
-    description: The voice name to use (for single speaker mode)
-    tip: |-
-      Use elevenlabs_search_voices to discover voice names.
-      Can also use @agent_username to use an agent's configured voice.
-    required: false
   segments:
     type: array
-    label: Dialogue Segments
-    description: Array of dialogue segments for multi-speaker mode (overrides text/voice)
-    required: false
+    label: Segments
+    description: Array of speech segments. For single speaker, use one segment. For dialogue, use multiple.
+    required: true
     items:
       type: object
       properties:
         text:
           type: string
           label: Text
-          description: The text to be spoken by this speaker
+          description: The text to be spoken
           required: true
         voice:
           type: string
           label: Voice
-          description: Voice name or @agent_username for this segment
+          description: Voice name, description, or @agent_username
+          tip: Use elevenlabs_search_voices to discover voice names.
           required: true
   stability:
     type: float

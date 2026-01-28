@@ -254,20 +254,11 @@ async def handler(context: ToolContext):
     style = args.get("style", 0.0)
     speed = args.get("speed", 1.0)
 
-    # Determine mode: multi-speaker (segments) or single-speaker (text/voice)
     segments_input = args.get("segments")
-    text = args.get("text")
-    voice = args.get("voice", DEFAULT_VOICE)
+    if not segments_input:
+        raise ValueError("Must provide 'segments' array")
 
-    if segments_input:
-        # Multi-speaker dialogue mode
-        is_dialogue = len(segments_input) > 1
-    elif text:
-        # Single speaker mode - convert to segments format
-        segments_input = [{"text": text, "voice": voice}]
-        is_dialogue = False
-    else:
-        raise ValueError("Must provide either 'text' or 'segments'")
+    is_dialogue = len(segments_input) > 1
 
     async def generate_speech():
         def _generate():
