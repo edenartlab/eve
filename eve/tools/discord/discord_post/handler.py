@@ -341,6 +341,8 @@ async def send_dm(
             "output": [
                 {
                     "url": f"https://discord.com/channels/@me/{user.dm_channel.id}/{msg.id}",
+                    "message_id": str(msg.id),
+                    "channel_id": str(user.dm_channel.id),
                 }
                 for msg in messages[
                     :1
@@ -485,6 +487,9 @@ async def send_channel_message(
 
     # Build URLs - handle both guild channels and DM channels
     output = []
+    guild_id = (
+        str(channel.guild.id) if hasattr(channel, "guild") and channel.guild else None
+    )
     for msg in messages:
         if hasattr(channel, "guild") and channel.guild:
             url = (
@@ -493,7 +498,14 @@ async def send_channel_message(
         else:
             # DM channel
             url = f"https://discord.com/channels/@me/{channel.id}/{msg.id}"
-        output.append({"url": url})
+        output.append(
+            {
+                "url": url,
+                "message_id": str(msg.id),
+                "channel_id": str(channel.id),
+                "guild_id": guild_id,
+            }
+        )
 
     # return just the first url if messages are split
     output = output[:1]
@@ -534,7 +546,7 @@ async def send_webhook_message(
         raise Exception(f"No webhook configured for channel {channel_id}")
 
     # Build webhook payload
-    webhook_url = f"https://discord.com/api/v10/webhooks/{channel_config.webhook_id}/{channel_config.webhook_token}"
+    webhook_url = f"https://discord.com/api/v10/webhooks/{channel_config.webhook_id}/{channel_config.webhook_token}?wait=true"
 
     # Get full URL for avatar (may be just a filename)
     avatar_url = (
@@ -629,6 +641,13 @@ async def send_webhook_message(
     output = []
     for msg in messages[:1]:  # Return just first URL if split
         url = f"https://discord.com/channels/{guild_id}/{channel_id}/{msg['id']}"
-        output.append({"url": url})
+        output.append(
+            {
+                "url": url,
+                "message_id": str(msg.get("id")),
+                "channel_id": str(channel_id),
+                "guild_id": str(guild_id) if guild_id else None,
+            }
+        )
 
     return {"output": output}
