@@ -1571,8 +1571,12 @@ async def handle_extract_agent_prompts(request):
     )
 
     # Make single LLM call with structured output using LLMContext with tracing
+    # Note: Anthropic beta API requires a system message when using structured outputs
     context = LLMContext(
-        messages=[ChatMessage(role="user", content=prompt)],
+        messages=[
+            ChatMessage(role="system", content="You are a helpful assistant that extracts agent prompts from conversations."),
+            ChatMessage(role="user", content=prompt),
+        ],
         config=LLMConfig(
             model=model,
             response_format=AgentPromptsResponse,

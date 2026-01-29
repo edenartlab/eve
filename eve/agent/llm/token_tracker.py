@@ -97,17 +97,15 @@ def estimate_tokens(text: str) -> int:
 
 
 def render_template_with_token_tracking(
-    template,
-    session_run_id: Optional[str] = None,
-    prefix: str = "system",
-    **kwargs
+    template, session_run_id: Optional[str] = None, prefix: str = "system", **kwargs
 ) -> str:
     """
     Render a Jinja template while tracking each component's tokens.
 
     This function wraps template.render() and automatically tracks each
-    kwarg as a separate token category. This allows granular token analysis
-    without polluting the calling code with tracking logic.
+    kwarg as a separate token category, plus the static template structure.
+    This allows granular token analysis without polluting the calling code
+    with tracking logic.
 
     Args:
         template: Jinja2 Template object
@@ -127,14 +125,24 @@ def render_template_with_token_tracking(
             memory=memory,
             persona=actor.persona,
         )
-        # Tracks: system/name, system/memory, system/persona, etc.
+        # Tracks: system/name, system/memory, system/persona, system/template_structure, etc.
     """
     import json
+
+    # Always render the template first
+    rendered = template.render(**kwargs)
 
     # Track each component if session_run_id is provided
     if session_run_id:
         try:
+            total_tracked_chars = 0
+
             for key, value in kwargs.items():
+                # Skip 'tools' - it's only used for conditional checks in templates,
+                # not rendered into the prompt. Tool schemas are tracked separately
+                # via track_context() as "tool_schemas/{tool_name}".
+                if key == "tools":
+                    continue
                 if value is not None:
                     # Convert to string for tracking
                     if isinstance(value, str):
@@ -145,13 +153,27 @@ def render_template_with_token_tracking(
                         content = str(value)
 
                     if content:  # Only track non-empty content
-                        token_tracker._add_chunk(session_run_id, f"{prefix}/{key}", content)
+                        token_tracker._add_chunk(
+                            session_run_id, f"{prefix}/{key}", content
+                        )
+                        total_tracked_chars += len(content)
+
+            # Track the static template structure (XML tags, labels, etc.)
+            # This is the difference between rendered length and tracked variable content
+            static_chars = len(rendered) - total_tracked_chars
+            if static_chars > 50:  # Only track if meaningful (> ~10 tokens)
+                # Create a placeholder string of the right length for token estimation
+                # We don't need the actual content, just accurate token counting
+                token_tracker._add_chunk(
+                    session_run_id,
+                    f"{prefix}/template_structure",
+                    " " * static_chars,  # Placeholder for token counting
+                )
         except Exception:
             # Never let tracking errors affect the render
             pass
 
-    # Always render the template
-    return template.render(**kwargs)
+    return rendered
 
 
 def normalize_for_comparison(text: str) -> str:
@@ -159,7 +181,7 @@ def normalize_for_comparison(text: str) -> str:
     try:
         if not text:
             return ""
-        return re.sub(r'\s+', ' ', text.strip().lower())
+        return re.sub(r"\s+", " ", text.strip().lower())
     except Exception:
         return ""
 
@@ -184,37 +206,37 @@ def generate_content_fingerprint(text: str, max_length: int = 40) -> str:
             return "empty"
 
         # Normalize: collapse whitespace, lowercase
-        normalized = re.sub(r'\s+', ' ', text.strip().lower())
+        normalized = re.sub(r"\s+", " ", text.strip().lower())
 
         # Extract meaningful content by removing common XML/markup patterns
         # This helps get to the "meat" of the content for fingerprinting
         # Remove XML tags but keep their names as they're often descriptive
-        tag_names = re.findall(r'</?([a-z_]+)', normalized)
+        tag_names = re.findall(r"</?([a-z_]+)", normalized)
 
         # Remove XML tags, keeping content
-        cleaned = re.sub(r'<[^>]+>', ' ', normalized)
-        cleaned = re.sub(r'\s+', ' ', cleaned).strip()
+        cleaned = re.sub(r"<[^>]+>", " ", normalized)
+        cleaned = re.sub(r"\s+", " ", cleaned).strip()
 
         # Build fingerprint from either tag names or content
         if tag_names and len(tag_names) >= 2:
             # Use first few tag names if XML-heavy
-            fingerprint = '_'.join(tag_names[:3])
+            fingerprint = "_".join(tag_names[:3])
         elif cleaned:
             # Use first N characters of cleaned content
             # Keep only alphanumeric and spaces, then convert to identifier
-            alpha_only = re.sub(r'[^a-z0-9\s]', '', cleaned)
+            alpha_only = re.sub(r"[^a-z0-9\s]", "", cleaned)
             words = alpha_only.split()[:5]  # First 5 words
-            fingerprint = '_'.join(words)
+            fingerprint = "_".join(words)
         else:
             fingerprint = "unknown"
 
         # Ensure valid identifier: starts with letter, only alphanumeric and underscore
-        fingerprint = re.sub(r'[^a-z0-9_]', '_', fingerprint)
-        fingerprint = re.sub(r'_+', '_', fingerprint).strip('_')
+        fingerprint = re.sub(r"[^a-z0-9_]", "_", fingerprint)
+        fingerprint = re.sub(r"_+", "_", fingerprint).strip("_")
 
         # Truncate to max length
         if len(fingerprint) > max_length:
-            fingerprint = fingerprint[:max_length].rstrip('_')
+            fingerprint = fingerprint[:max_length].rstrip("_")
 
         # Ensure non-empty
         if not fingerprint:
@@ -227,9 +249,7 @@ def generate_content_fingerprint(text: str, max_length: int = 40) -> str:
 
 
 def extract_untracked_segments(
-    full_prompt: str,
-    tracked_chunks: List[str],
-    min_segment_length: int = 50
+    full_prompt: str, tracked_chunks: List[str], min_segment_length: int = 50
 ) -> List[Tuple[str, int]]:
     """
     Find segments in the full prompt that weren't tracked.
@@ -367,18 +387,18 @@ class TrackerHandle:
 
         Tracks:
         - tool_schemas/*: Each tool's schema (sent as separate API param)
-        - messages: Combined conversation history (excluding tool results)
-        - messages/tool_results: Tool call results from conversation history
 
-        Note: System message components (memory, persona, etc.) are tracked
-        separately via render_template_with_token_tracking() in build_system_message.
+        Note: Messages are tracked separately in runtime.py with formatted role
+        prefixes to match the actual full_prompt structure. System message
+        components (memory, persona, etc.) are tracked via
+        render_template_with_token_tracking() in build_system_message.
 
         Args:
             agent: Agent object (for future use)
             session: Session object (for future use)
             user: User object (for future use)
             tools: Dict of Tool objects (extracts schemas)
-            messages: List of ChatMessage objects (tracks by role)
+            messages: List of ChatMessage objects (kept for API compatibility)
             trigger_context: Dict with trigger info (for future use)
             prefix: Category prefix ("system" or "agent_session")
             **extras: Any additional string values to track
@@ -391,51 +411,19 @@ class TrackerHandle:
             if tools:
                 for tool_name, tool in tools.items():
                     try:
-                        schema = tool.anthropic_schema() if hasattr(tool, "anthropic_schema") else {}
+                        schema = (
+                            tool.anthropic_schema()
+                            if hasattr(tool, "anthropic_schema")
+                            else {}
+                        )
                         schema_str = json.dumps(schema, default=str)
                         self.add_chunk(f"{prefix}/tool_schemas/{tool_name}", schema_str)
                     except Exception:
                         pass
 
-            # Conversation history (skip system message at index 0)
-            # Aggregate all messages into a single blob, with tool results separated
-            if messages:
-                messages_content = []
-                tool_results_content = []
-
-                for msg in messages[1:] if len(messages) > 1 else []:
-                    role = getattr(msg, 'role', 'unknown')
-                    content = getattr(msg, 'content', '') or ''
-
-                    # Check if this is a tool result message
-                    if role == 'tool':
-                        if content:
-                            tool_results_content.append(content)
-                    else:
-                        # Regular message content
-                        if content:
-                            messages_content.append(content)
-
-                        # Also extract tool call results from assistant messages
-                        tool_calls = getattr(msg, 'tool_calls', None) or []
-                        for tc in tool_calls:
-                            result = getattr(tc, 'result', None)
-                            if result:
-                                try:
-                                    result_str = json.dumps(result, default=str)
-                                    tool_results_content.append(result_str)
-                                except Exception:
-                                    pass
-
-                # Track combined messages content
-                if messages_content:
-                    combined_messages = "\n---\n".join(messages_content)
-                    self.add_chunk(f"{prefix}/messages", combined_messages)
-
-                # Track combined tool results
-                if tool_results_content:
-                    combined_tool_results = "\n---\n".join(tool_results_content)
-                    self.add_chunk(f"{prefix}/messages/tool_results", combined_tool_results)
+            # Note: Message tracking has been moved to runtime.py where the full_prompt
+            # is assembled. This ensures tracked content matches the actual formatted
+            # messages (with [ROLE]\n prefixes) sent to the LLM.
 
             # Any extra string values
             for key, value in extras.items():
@@ -485,6 +473,19 @@ class TrackerHandle:
             self._finished = True
             return False
 
+    def finish_with_summary(
+        self, full_prompt: Optional[str] = None
+    ) -> Optional[Dict[str, Any]]:
+        """Finish and return summary data for this call."""
+        try:
+            if self._finished:
+                return None
+            self._finished = True
+            return self._tracker._finish_with_summary(self._session_run_id, full_prompt)
+        except Exception:
+            self._finished = True
+            return None
+
     def cancel(self) -> None:
         """Cancel tracking without writing to log."""
         try:
@@ -517,6 +518,11 @@ class _NullHandle(TrackerHandle):
 
     def finish(self, full_prompt: Optional[str] = None) -> bool:
         return False
+
+    def finish_with_summary(
+        self, full_prompt: Optional[str] = None
+    ) -> Optional[Dict[str, Any]]:
+        return None
 
     def cancel(self) -> None:
         pass
@@ -555,7 +561,9 @@ class TokenTracker:
         self._flush_fn: Optional[Callable[[Dict[str, Any]], bool]] = None
         self._last_cleanup = time.time()
         # Background thread pool for file I/O - max 2 workers to avoid too many open files
-        self._executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="token_tracker")
+        self._executor = ThreadPoolExecutor(
+            max_workers=2, thread_name_prefix="token_tracker"
+        )
 
     def _cleanup_expired(self) -> None:
         """Remove expired tracking entries to prevent memory leaks."""
@@ -590,6 +598,10 @@ class TokenTracker:
             # On Modal, use the mounted volume path
             if os.environ.get("MODAL_ENVIRONMENT"):
                 self._log_dir = Path(TOKEN_TRACKER_MODAL_DIR)
+                # Check if the mount point exists before trying to create subdirs
+                if not self._log_dir.parent.exists():
+                    logger.warning(f"[TokenTracker] Modal volume mount not available: {self._log_dir.parent}")
+                    return False
             else:
                 # Locally, use eve/data/token-tracker/
                 self._log_dir = TOKEN_TRACKER_LOCAL_DIR
@@ -597,7 +609,8 @@ class TokenTracker:
             self._log_dir.mkdir(parents=True, exist_ok=True)
             self._initialized = True
             return True
-        except Exception:
+        except Exception as e:
+            logger.warning(f"[TokenTracker] Failed to initialize log directory: {e}")
             return False
 
     def set_flush_function(self, fn: Callable[[Dict[str, Any]], bool]) -> None:
@@ -665,12 +678,14 @@ class TokenTracker:
                     return 0
 
                 tokens = estimate_tokens(text)
-                self._calls[session_run_id]["chunks"].append({
-                    "category": category,
-                    "tokens": tokens,
-                    "char_count": len(text),
-                    "content": text,
-                })
+                self._calls[session_run_id]["chunks"].append(
+                    {
+                        "category": category,
+                        "tokens": tokens,
+                        "char_count": len(text),
+                        "content": text,
+                    }
+                )
                 return tokens
         except Exception:
             return 0
@@ -710,9 +725,7 @@ class TokenTracker:
             return 0
 
     def _find_untracked_content(
-        self,
-        full_prompt: str,
-        chunks: List[Dict[str, Any]]
+        self, full_prompt: str, chunks: List[Dict[str, Any]]
     ) -> List[Dict[str, Any]]:
         """Compare full prompt with tracked chunks to find untracked content.
 
@@ -723,9 +736,7 @@ class TokenTracker:
         try:
             tracked_contents = [c.get("content", "") for c in chunks]
             untracked_segments = extract_untracked_segments(
-                full_prompt,
-                tracked_contents,
-                min_segment_length=50
+                full_prompt, tracked_contents, min_segment_length=50
             )
 
             untracked_chunks = []
@@ -738,17 +749,21 @@ class TokenTracker:
                 # Handle collisions by appending a counter
                 if fingerprint in fingerprint_counts:
                     fingerprint_counts[fingerprint] += 1
-                    category = f"untracked/{fingerprint}_{fingerprint_counts[fingerprint]}"
+                    category = (
+                        f"untracked/{fingerprint}_{fingerprint_counts[fingerprint]}"
+                    )
                 else:
                     fingerprint_counts[fingerprint] = 1
                     category = f"untracked/{fingerprint}"
 
-                untracked_chunks.append({
-                    "category": category,
-                    "tokens": tokens,
-                    "char_count": len(segment),
-                    "content": segment,
-                })
+                untracked_chunks.append(
+                    {
+                        "category": category,
+                        "tokens": tokens,
+                        "char_count": len(segment),
+                        "content": segment,
+                    }
+                )
             return untracked_chunks
         except Exception:
             return []
@@ -765,71 +780,99 @@ class TokenTracker:
             with open(usage_file, "a", newline="") as f:
                 writer = csv.writer(f)
                 if not usage_exists:
-                    writer.writerow([
-                        "session_run_id", "timestamp", "agent_id", "agent_name",
-                        "session_id", "user_id", "model", "category", "tokens",
-                        "char_count", "content",
-                    ])
+                    writer.writerow(
+                        [
+                            "session_run_id",
+                            "timestamp",
+                            "agent_id",
+                            "agent_name",
+                            "session_id",
+                            "user_id",
+                            "model",
+                            "category",
+                            "tokens",
+                            "char_count",
+                            "content",
+                        ]
+                    )
 
                 for chunk in call_data["chunks"]:
-                    writer.writerow([
-                        call_data["session_run_id"],
-                        call_data["timestamp"],
-                        call_data["agent_id"],
-                        call_data.get("agent_name", ""),
-                        call_data["session_id"],
-                        call_data["user_id"],
-                        call_data["model"],
-                        chunk["category"],
-                        chunk["tokens"],
-                        chunk["char_count"],
-                        chunk.get("content", ""),
-                    ])
+                    writer.writerow(
+                        [
+                            call_data["session_run_id"],
+                            call_data["timestamp"],
+                            call_data["agent_id"],
+                            call_data.get("agent_name", ""),
+                            call_data["session_id"],
+                            call_data["user_id"],
+                            call_data["model"],
+                            chunk["category"],
+                            chunk["tokens"],
+                            chunk["char_count"],
+                            chunk.get("content", ""),
+                        ]
+                    )
 
             return True
         except Exception:
             return False
 
-    def _finish(self, session_run_id: str, full_prompt: Optional[str] = None) -> bool:
-        """Internal: Flush a specific tracking session to storage.
-
-        File I/O is performed in a background thread to avoid blocking the main loop.
-        """
+    def _finalize_call_data(
+        self, session_run_id: str, full_prompt: Optional[str] = None
+    ) -> Optional[Dict[str, Any]]:
         try:
             with self._lock:
                 if session_run_id not in self._calls:
-                    return False
-
+                    return None
                 call_data = self._calls.pop(session_run_id)
 
             # Process data preparation synchronously (fast, in-memory operations)
             if full_prompt:
-                call_data["chunks"].append({
-                    "category": "_full_prompt",
-                    "tokens": estimate_tokens(full_prompt),
-                    "char_count": len(full_prompt),
-                    "content": full_prompt,
-                })
+                call_data["chunks"].append(
+                    {
+                        "category": "_full_prompt",
+                        "tokens": estimate_tokens(full_prompt),
+                        "char_count": len(full_prompt),
+                        "content": full_prompt,
+                    }
+                )
 
-                tracked_chunks = [
-                    c for c in call_data["chunks"]
-                    if not c["category"].startswith("_")
-                ]
-                untracked = self._find_untracked_content(full_prompt, tracked_chunks)
-                call_data["chunks"].extend(untracked)
+                # Skip untracked detection if template_structure is present.
+                # template_structure uses a space placeholder for token counting (not actual
+                # content), so untracked detection would flag the real XML as "untracked".
+                # Since template_structure already accounts for this overhead with accurate
+                # char counts, untracked detection is redundant.
+                has_template_structure = any(
+                    c.get("category", "").endswith("/template_structure")
+                    for c in call_data["chunks"]
+                )
+                if not has_template_structure:
+                    tracked_chunks = [
+                        c for c in call_data["chunks"] if not c["category"].startswith("_")
+                    ]
+                    untracked = self._find_untracked_content(full_prompt, tracked_chunks)
+                    call_data["chunks"].extend(untracked)
 
-            total_tokens = sum(
-                c["tokens"] for c in call_data["chunks"]
-                if not c["category"].startswith("_")
-            )
+            summary: Dict[str, int] = {}
+            for chunk in call_data["chunks"]:
+                category = chunk.get("category") or ""
+                if category.startswith("_"):
+                    continue
+                summary[category] = summary.get(category, 0) + chunk.get("tokens", 0)
+
+            total_tokens = sum(summary.values())
+            call_data["_summary"] = summary
+            call_data["_total_tokens"] = total_tokens
 
             untracked_count = sum(
-                1 for c in call_data["chunks"]
-                if c["category"].startswith("untracked_")
+                1
+                for c in call_data["chunks"]
+                if (c.get("category") or "").startswith("untracked_")
             )
             untracked_tokens = sum(
-                c["tokens"] for c in call_data["chunks"]
-                if c["category"].startswith("untracked_")
+                c.get("tokens", 0)
+                for c in call_data["chunks"]
+                if (c.get("category") or "").startswith("untracked_")
             )
 
             log_msg = (
@@ -845,34 +888,61 @@ class TokenTracker:
             except Exception:
                 pass
 
-            # Submit file I/O to background thread pool to avoid blocking main loop
-            def background_flush():
-                try:
-                    if self._flush_fn:
-                        self._flush_fn(call_data)
-                    else:
-                        self._flush_to_csv(call_data)
-                except Exception as e:
-                    try:
-                        logger.warning(f"[TokenTracker] Background flush failed: {e}")
-                    except Exception:
-                        pass
-
-            self._executor.submit(background_flush)
-            return True
-
+            return call_data
         except Exception as e:
             try:
-                logger.warning(f"[TokenTracker] Failed to write log: {e}")
+                logger.warning(f"[TokenTracker] Failed to finalize call data: {e}")
             except Exception:
                 pass
-            # Ensure cleanup even on error
             try:
                 with self._lock:
                     self._calls.pop(session_run_id, None)
             except Exception:
                 pass
+            return None
+
+    def _flush_call_data(self, call_data: Dict[str, Any]) -> None:
+        # Submit file I/O to background thread pool to avoid blocking main loop
+        def background_flush():
+            try:
+                if self._flush_fn:
+                    self._flush_fn(call_data)
+                else:
+                    self._flush_to_csv(call_data)
+            except Exception as e:
+                try:
+                    logger.warning(f"[TokenTracker] Background flush failed: {e}")
+                except Exception:
+                    pass
+
+        try:
+            self._executor.submit(background_flush)
+        except Exception as e:
+            logger.warning(f"[TokenTracker] Failed to submit flush task: {e}")
+
+    def _finish(self, session_run_id: str, full_prompt: Optional[str] = None) -> bool:
+        """Internal: Flush a specific tracking session to storage.
+
+        File I/O is performed in a background thread to avoid blocking the main loop.
+        """
+        call_data = self._finalize_call_data(session_run_id, full_prompt)
+        if not call_data:
             return False
+        self._flush_call_data(call_data)
+        return True
+
+    def _finish_with_summary(
+        self, session_run_id: str, full_prompt: Optional[str] = None
+    ) -> Optional[Dict[str, Any]]:
+        """Internal: Finish and return summary data for this tracking session."""
+        call_data = self._finalize_call_data(session_run_id, full_prompt)
+        if not call_data:
+            return None
+        self._flush_call_data(call_data)
+        return {
+            "total_tokens": call_data.get("_total_tokens"),
+            "breakdown": call_data.get("_summary"),
+        }
 
     def _cancel(self, session_run_id: str) -> None:
         """Internal: Cancel tracking for a specific session."""
@@ -905,8 +975,9 @@ class TokenTracker:
         This is a convenience method that doesn't require passing a handle.
         Use after register_call() with the same session_run_id.
 
-        Note: System message components (memory, persona, etc.) are tracked
-        separately via render_template_with_token_tracking() in build_system_message.
+        Tracks tool_schemas only. Messages are tracked separately in runtime.py
+        with formatted role prefixes. System message components are tracked via
+        render_template_with_token_tracking() in build_system_message.
         """
         try:
             with self._lock:
@@ -955,6 +1026,17 @@ class TokenTracker:
             return self._finish(session_run_id, full_prompt)
         except Exception:
             return False
+
+    def finish_with_summary(
+        self,
+        session_run_id: str,
+        full_prompt: Optional[str] = None,
+    ) -> Optional[Dict[str, Any]]:
+        """Finish tracking and return summary data."""
+        try:
+            return self._finish_with_summary(session_run_id, full_prompt)
+        except Exception:
+            return None
 
     def cancel(self, session_run_id: str) -> None:
         """Cancel tracking for a specific session_run_id."""

@@ -14,7 +14,7 @@ from eve.agent.agent import Agent
 from eve.agent.llm.llm import async_prompt as provider_async_prompt
 from eve.agent.llm.llm import async_prompt_stream as provider_async_prompt_stream
 from eve.agent.llm.llm import get_provider
-from eve.agent.llm.token_tracker import token_tracker
+from eve.agent.llm.token_tracker import estimate_tokens, token_tracker
 from eve.agent.memory2.backend import memory2_backend
 from eve.agent.memory2.utils import select_messages
 from eve.agent.session.debug_logger import SessionDebugger
@@ -52,7 +52,7 @@ from .notifications import (
     check_if_session_active,
     create_session_message_notification,
 )
-from .tools import process_tool_calls
+from .tools import extract_tool_observability_metadata, process_tool_calls
 from .util import validate_prompt_session
 
 # Platform configuration for social media post reminders/forcing
@@ -144,7 +144,10 @@ class PromptSessionRuntime:
         self.actor = actor
         self.stream = stream
         self.is_client_platform = is_client_platform
-        self.session_run_id = session_run_id or str(uuid.uuid4())
+        resolved_run_id = session_run_id
+        if not resolved_run_id and context and context.session_run_id:
+            resolved_run_id = context.session_run_id
+        self.session_run_id = resolved_run_id or str(uuid.uuid4())
         self.api_key_id = api_key_id
         self.instrumentation = instrumentation
         self.context = context
@@ -158,6 +161,16 @@ class PromptSessionRuntime:
         self.transaction = None
         self.active_request_registered = False
         self._last_stream_result: Optional[Dict[str, Any]] = None
+        self._token_tracker_total: Optional[int] = None
+        self._token_tracker_breakdown: Optional[Dict[str, int]] = None
+
+        if self.context and not self.context.session_run_id:
+            self.context.session_run_id = self.session_run_id
+        if (
+            self.instrumentation
+            and self.instrumentation.session_run_id != self.session_run_id
+        ):
+            self.instrumentation.update_context(session_run_id=self.session_run_id)
 
         # Social platform post tracking for forced reprompt
         self.social_post_used = False
@@ -267,16 +280,29 @@ class PromptSessionRuntime:
                 # Serialize the full LLM input for token tracking comparison
                 # Includes both messages and tool definitions (both count as input tokens)
                 full_prompt = None
+                token_run_id = (
+                    self.context.session_run_id
+                    if self.context and self.context.session_run_id
+                    else self.session_run_id
+                )
                 try:
                     if self.llm_context:
                         parts = []
-                        # Serialize messages
+                        # Serialize messages and track each with formatted role prefix
                         if self.llm_context.messages:
                             for msg in self.llm_context.messages:
                                 role = getattr(msg, "role", "unknown")
                                 content = getattr(msg, "content", "") or ""
-                                parts.append(f"[{role.upper()}]\n{content}")
+                                formatted = f"[{role.upper()}]\n{content}"
+                                parts.append(formatted)
+                                # Track each message with its formatted content
+                                # Skip system messages - they're already tracked via template rendering
+                                if token_run_id and content and role != "system":
+                                    token_tracker._add_chunk(
+                                        token_run_id, f"messages/{role}", formatted
+                                    )
                         # Serialize tool schemas (they count as input tokens too)
+                        # Note: tool schemas are tracked separately in track_context()
                         if self.llm_context.tools:
                             for tool_name, tool in self.llm_context.tools.items():
                                 if hasattr(tool, "anthropic_schema"):
@@ -289,8 +315,34 @@ class PromptSessionRuntime:
                     pass
 
                 # Flush token tracking before LLM call
-                if self.session_run_id:
-                    token_tracker.finish(self.session_run_id, full_prompt=full_prompt)
+                if token_run_id:
+                    try:
+                        summary = token_tracker.finish_with_summary(
+                            token_run_id, full_prompt=full_prompt
+                        )
+                        breakdown = (
+                            summary.get("breakdown")
+                            if isinstance(summary, dict)
+                            else None
+                        )
+                        total = (
+                            summary.get("total_tokens")
+                            if isinstance(summary, dict)
+                            else None
+                        )
+                        if (not total or total <= 0) and full_prompt:
+                            total = estimate_tokens(full_prompt)
+                        if (not breakdown) and full_prompt and total:
+                            breakdown = {"full_prompt": total}
+                        self._token_tracker_breakdown = breakdown or None
+                        self._token_tracker_total = total or None
+                        if self.instrumentation:
+                            self.instrumentation.add_metadata(
+                                token_tracker_total=self._token_tracker_total,
+                                token_tracker_by_category=self._token_tracker_breakdown,
+                            )
+                    except Exception:
+                        pass
 
                 if self.stream:
                     self._last_stream_result = None
@@ -780,6 +832,13 @@ class PromptSessionRuntime:
                 trace_id=self.llm_context.metadata.trace_id,
                 generation_id=self.llm_context.metadata.generation_id,
                 session_run_id=self.session_run_id,
+                langfuse_url=(
+                    f"{os.getenv('LANGFUSE_PROJECT_URL').rstrip('/')}/traces?peek={self.session_run_id}"
+                    if os.getenv("LANGFUSE_PROJECT_URL") and self.session_run_id
+                    else None
+                ),
+                input_tokens=self._token_tracker_total,
+                input_tokens_breakdown=self._token_tracker_breakdown,
                 tokens_spent=llm_result.get("tokens_spent"),
                 prompt_tokens=(
                     usage_obj.prompt_tokens
@@ -798,6 +857,17 @@ class PromptSessionRuntime:
                     usage_obj.cached_completion_tokens if usage_obj else None
                 ),
                 cost_usd=usage_obj.cost_usd if usage_obj else None,
+                sentry_trace_id=(
+                    getattr(self.transaction, "trace_id", None)
+                    if self.transaction
+                    else None
+                ),
+                sentry_url=(
+                    f"{os.getenv('SENTRY_TRACE_BASE_URL').rstrip('/')}/{getattr(self.transaction, 'trace_id', None)}"
+                    if os.getenv("SENTRY_TRACE_BASE_URL")
+                    and getattr(self.transaction, "trace_id", None)
+                    else None
+                ),
                 usage=usage_obj,
             ),
             apiKey=ObjectId(self.api_key_id) if self.api_key_id else None,
@@ -961,6 +1031,24 @@ class PromptSessionRuntime:
                 self._ensure_not_cancelled()
                 if update.type == UpdateType.TOOL_CANCELLED:
                     self.tool_was_cancelled = True
+                if (
+                    self.instrumentation
+                    and update.type == UpdateType.TOOL_COMPLETE
+                    and update.tool_name
+                ):
+                    tool_results = (
+                        update.result.get("result") if update.result else None
+                    )
+                    metadata = extract_tool_observability_metadata(
+                        update.tool_name, tool_results
+                    )
+                    if metadata:
+                        try:
+                            self.instrumentation.add_metadata(**metadata)
+                        except Exception as exc:
+                            logger.warning(
+                                f"Failed to update observability metadata for tool {update.tool_name}: {exc}"
+                            )
                 yield update
 
     def _register_active_request(self):

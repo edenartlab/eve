@@ -2,9 +2,9 @@
 Memory System v2 - Facts Management (Deduplication & Conflict Resolution)
 
 This module implements the mem0-inspired fact management pipeline that:
-1. Embeds new facts
-2. Searches for similar existing facts (vector similarity)
-3. Uses LLM to decide: ADD, UPDATE, DELETE, or NONE
+1. Embeds new facts (batch operation)
+2. Searches for similar existing facts in parallel (vector similarity)
+3. Uses LLM to decide: ADD, UPDATE, DELETE, or NONE (single batched call)
 4. Executes the decided operations
 
 This ensures semantic deduplication and handles:
@@ -14,6 +14,7 @@ This ensures semantic deduplication and handles:
 - Updates (new info that supersedes old)
 """
 
+import asyncio
 import json
 import os
 import traceback
@@ -25,6 +26,7 @@ from loguru import logger
 
 from eve.agent.llm.llm import async_prompt
 from eve.agent.memory2.constants import (
+    FACTS_DEDUP_SIMILARITY_LIMIT,
     LOCAL_DEV,
     MEMORY_LLM_MODEL_FAST,
     MEMORY_UPDATE_DECISION_PROMPT,
@@ -61,10 +63,10 @@ async def process_extracted_facts(
     """
     Process extracted facts through the deduplication pipeline.
 
-    This is the main entry point for fact processing. It:
-    1. Embeds all new facts
-    2. Searches for similar existing facts
-    3. Calls LLM to decide ADD/UPDATE/DELETE/NONE
+    This is the main entry point for fact processing with deduplication. It:
+    1. Embeds all new facts (batch operation)
+    2. Searches for similar existing facts IN PARALLEL
+    3. Calls LLM to decide ADD/UPDATE/DELETE/NONE (single batched call)
     4. Executes the operations
 
     Args:
@@ -79,33 +81,22 @@ async def process_extracted_facts(
         return [], []
 
     try:
-        # Step 1: Get embeddings for all new facts
+        # Step 1: Get embeddings for all new facts (batch operation)
         contents = [f["content"] for f in extracted_facts]
         embeddings = await get_embeddings_batch(contents)
 
-        # Step 2: For each fact, find similar existing facts
-        fact_candidates = []
-        for i, fact_data in enumerate(extracted_facts):
-            embedding = embeddings[i] if i < len(embeddings) else []
+        if LOCAL_DEV:
+            logger.debug(f"Got embeddings for {len(contents)} facts")
 
-            # scope_filter expects a list of scopes to search
-            fact_scope = fact_data.get("scope", "user")
-            similar = await search_similar_facts(
-                query_embedding=embedding,
-                agent_id=agent_id,
-                user_id=user_id,
-                scope_filter=[fact_scope],
-                threshold=SIMILARITY_THRESHOLD,
-                limit=5,
-            )
+        # Step 2: Search for similar facts IN PARALLEL
+        fact_candidates = await _search_similar_facts_parallel(
+            extracted_facts=extracted_facts,
+            embeddings=embeddings,
+            agent_id=agent_id,
+            user_id=user_id,
+        )
 
-            fact_candidates.append({
-                "new_fact": fact_data,
-                "embedding": embedding,
-                "similar_existing": similar,
-            })
-
-        # Step 3: Decide operations (skip LLM if no similar facts found)
+        # Step 3: Decide operations (skip LLM if no similar facts found for any)
         facts_needing_decision = [
             fc for fc in fact_candidates if fc["similar_existing"]
         ]
@@ -113,10 +104,16 @@ async def process_extracted_facts(
             fc for fc in fact_candidates if not fc["similar_existing"]
         ]
 
+        if LOCAL_DEV:
+            logger.debug(
+                f"Dedup: {len(facts_direct_add)} direct adds, "
+                f"{len(facts_needing_decision)} need LLM decision"
+            )
+
         # Get LLM decisions for facts with similar existing ones
         decisions = []
         if facts_needing_decision:
-            decisions = await llm_memory_update_decision(
+            decisions = await _llm_memory_update_decision(
                 fact_candidates=facts_needing_decision,
                 agent_id=agent_id,
             )
@@ -136,7 +133,7 @@ async def process_extracted_facts(
         fact_contents = []
 
         for decision in decisions:
-            result = await execute_decision(
+            result = await _execute_decision(
                 decision=decision,
                 agent_id=agent_id,
                 user_id=user_id,
@@ -147,7 +144,10 @@ async def process_extracted_facts(
                 fact_contents.append(result.content)
 
         if LOCAL_DEV:
-            logger.debug(f"Processed {len(extracted_facts)} facts: {len(saved_facts)} stored")
+            logger.debug(
+                f"Dedup complete: {len(extracted_facts)} extracted -> "
+                f"{len(saved_facts)} stored"
+            )
 
         return saved_facts, fact_contents
 
@@ -157,24 +157,80 @@ async def process_extracted_facts(
         return [], []
 
 
-async def search_similar_facts(
+async def _search_similar_facts_parallel(
+    extracted_facts: List[Dict],
+    embeddings: List[List[float]],
+    agent_id: ObjectId,
+    user_id: Optional[ObjectId],
+) -> List[Dict]:
+    """
+    Search for similar existing facts for all new facts IN PARALLEL.
+
+    Args:
+        extracted_facts: List of fact dicts
+        embeddings: List of embedding vectors (same order as extracted_facts)
+        agent_id: Agent ID
+        user_id: User ID
+
+    Returns:
+        List of fact candidate dicts with similar_existing populated
+    """
+    # Create search tasks for all facts
+    search_tasks = []
+    for i, fact_data in enumerate(extracted_facts):
+        embedding = embeddings[i] if i < len(embeddings) else []
+        fact_scope = fact_data.get("scope", "user")
+
+        # Create coroutine for this search
+        task = _search_similar_for_single_fact(
+            query_embedding=embedding,
+            agent_id=agent_id,
+            user_id=user_id,
+            scope=fact_scope,
+        )
+        search_tasks.append(task)
+
+    # Run all searches in parallel
+    search_results = await asyncio.gather(*search_tasks, return_exceptions=True)
+
+    # Build fact candidates with results
+    fact_candidates = []
+    for i, fact_data in enumerate(extracted_facts):
+        embedding = embeddings[i] if i < len(embeddings) else []
+        similar = search_results[i] if i < len(search_results) else []
+
+        # Handle exceptions from gather
+        if isinstance(similar, Exception):
+            logger.error(f"Error searching for similar facts: {similar}")
+            similar = []
+
+        fact_candidates.append({
+            "new_fact": fact_data,
+            "embedding": embedding,
+            "similar_existing": similar,
+        })
+
+    return fact_candidates
+
+
+async def _search_similar_for_single_fact(
     query_embedding: List[float],
     agent_id: ObjectId,
     user_id: Optional[ObjectId],
-    scope_filter: List[str],
-    threshold: float = 0.7,
-    limit: int = 5,
+    scope: str,
 ) -> List[Dict]:
     """
-    Search for semantically similar existing facts using vector search.
+    Search for similar existing facts for a single new fact.
+
+    Facts are ONLY compared within their own scope:
+    - "agent" scoped facts are compared with other agent-scoped facts for the same agent
+    - "user" scoped facts are compared with other user-scoped facts for the same user
 
     Args:
         query_embedding: Embedding vector for the query
         agent_id: Agent ID
-        user_id: User ID
-        scope_filter: List of scopes to search
-        threshold: Minimum similarity threshold
-        limit: Maximum results
+        user_id: User ID (required for user-scoped facts)
+        scope: Scope of the new fact ("user" or "agent")
 
     Returns:
         List of similar facts with scores
@@ -183,8 +239,17 @@ async def search_similar_facts(
         if not query_embedding:
             return []
 
-        # Build scope filter
-        pre_filter = _build_scope_filter(agent_id, user_id, scope_filter)
+        # For user-scoped facts, we MUST have a user_id to search correctly
+        # Without it, we can't filter to the correct user's facts
+        if scope == "user" and not user_id:
+            logger.warning(
+                "Cannot search for similar user-scoped facts without user_id. "
+                "Fact will be added without deduplication."
+            )
+            return []
+
+        # Build scope filter - searches ONLY within the same scope
+        pre_filter = _build_scope_filter(agent_id, user_id, [scope])
 
         # Run vector search
         collection = Fact.get_collection()
@@ -196,8 +261,8 @@ async def search_similar_facts(
                     "index": "fact_vector_index",
                     "path": "embedding",
                     "queryVector": query_embedding,
-                    "numCandidates": limit * 10,
-                    "limit": limit,
+                    "numCandidates": FACTS_DEDUP_SIMILARITY_LIMIT * 10,
+                    "limit": FACTS_DEDUP_SIMILARITY_LIMIT,
                     "filter": pre_filter,
                 }
             },
@@ -208,7 +273,7 @@ async def search_similar_facts(
             },
             {
                 "$match": {
-                    "score": {"$gte": threshold}
+                    "score": {"$gte": SIMILARITY_THRESHOLD}
                 }
             },
             {
@@ -227,12 +292,14 @@ async def search_similar_facts(
         except Exception as e:
             # Fallback for environments without vector search
             if "no such index" in str(e).lower() or "vectorSearch" in str(e):
-                logger.warning("Vector search not available, using hash-based dedup only")
+                logger.warning(
+                    "Vector search not available, using hash-based dedup only"
+                )
                 return []
             raise
 
     except Exception as e:
-        logger.error(f"Error in search_similar_facts: {e}")
+        logger.error(f"Error in _search_similar_for_single_fact: {e}")
         traceback.print_exc()
         return []
 
@@ -242,7 +309,21 @@ def _build_scope_filter(
     user_id: Optional[ObjectId],
     scope_filter: List[str],
 ) -> Dict:
-    """Build MongoDB filter for pre-filtering in vector search."""
+    """
+    Build MongoDB filter for pre-filtering in vector search.
+
+    This ensures facts are ONLY compared within their own scope:
+    - "agent" facts match: scope="agent" AND agent_id matches
+    - "user" facts match: scope="user" AND user_id matches
+
+    Args:
+        agent_id: Agent ID (required)
+        user_id: User ID (required for user scope)
+        scope_filter: List of scopes to search (typically single scope)
+
+    Returns:
+        MongoDB filter dict for vector search pre-filtering
+    """
     conditions = []
 
     if "agent" in scope_filter:
@@ -251,23 +332,38 @@ def _build_scope_filter(
             "agent_id": agent_id,
         })
 
-    if "user" in scope_filter and user_id:
-        conditions.append({
-            "scope": "user",
-            "user_id": user_id,
-        })
+    if "user" in scope_filter:
+        if user_id:
+            conditions.append({
+                "scope": "user",
+                "user_id": user_id,
+            })
+        else:
+            # This should not happen - caller should check user_id first
+            # Return impossible filter to match nothing
+            logger.warning("_build_scope_filter called for user scope without user_id")
+            return {"_id": None}  # Matches nothing
 
-    if conditions:
-        return {"$or": conditions}
-    return {"agent_id": agent_id}
+    if not conditions:
+        # No valid conditions - return impossible filter to match nothing
+        logger.warning(f"_build_scope_filter: no valid conditions for scopes {scope_filter}")
+        return {"_id": None}  # Matches nothing
+
+    if len(conditions) == 1:
+        # Single scope - no need for $or wrapper
+        return conditions[0]
+
+    return {"$or": conditions}
 
 
-async def llm_memory_update_decision(
+async def _llm_memory_update_decision(
     fact_candidates: List[Dict],
     agent_id: ObjectId,
 ) -> List[Dict]:
     """
     Call LLM to decide what to do with new facts vs existing memories.
+
+    This processes ALL facts in a SINGLE batched LLM call for efficiency.
 
     Args:
         fact_candidates: List of {new_fact, embedding, similar_existing}
@@ -290,7 +386,11 @@ async def llm_memory_update_decision(
         for fc in fact_candidates:
             if fc["similar_existing"]:
                 for mem in fc["similar_existing"]:
-                    existing_memories_text += f"- ID: {mem['_id']}, Content: {mem['content']}, Score: {mem['score']:.2f}\n"
+                    existing_memories_text += (
+                        f"- ID: {mem['_id']}, "
+                        f"Content: {mem['content']}, "
+                        f"Score: {mem['score']:.2f}\n"
+                    )
 
         if not existing_memories_text:
             existing_memories_text = "None found"
@@ -321,7 +421,9 @@ async def llm_memory_update_decision(
         )
 
         if LOCAL_DEV:
-            logger.debug("Running fact decision LLM call...")
+            logger.debug(
+                f"Running fact decision LLM call for {len(fact_candidates)} facts..."
+            )
 
         # LLM call with automatic retry (3 attempts with exponential backoff)
         response = await async_exponential_backoff(
@@ -363,7 +465,7 @@ async def llm_memory_update_decision(
         return decisions
 
     except Exception as e:
-        logger.error(f"Error in llm_memory_update_decision: {e}")
+        logger.error(f"Error in _llm_memory_update_decision: {e}")
         traceback.print_exc()
         # Fallback: ADD all facts
         return [
@@ -378,7 +480,7 @@ async def llm_memory_update_decision(
         ]
 
 
-async def execute_decision(
+async def _execute_decision(
     decision: Dict,
     agent_id: ObjectId,
     user_id: Optional[ObjectId] = None,
@@ -470,6 +572,11 @@ async def execute_decision(
         return None
 
 
+# =============================================================================
+# Maintenance Functions
+# =============================================================================
+
+
 async def deduplicate_facts(
     agent_id: ObjectId,
     user_id: Optional[ObjectId] = None,
@@ -538,3 +645,13 @@ async def deduplicate_facts(
         logger.error(f"Error in deduplicate_facts: {e}")
         traceback.print_exc()
         return {"error": str(e)}
+
+
+# =============================================================================
+# Legacy function aliases (for backwards compatibility)
+# =============================================================================
+
+# These are kept for any external code that might reference them
+search_similar_facts = _search_similar_for_single_fact
+llm_memory_update_decision = _llm_memory_update_decision
+execute_decision = _execute_decision
