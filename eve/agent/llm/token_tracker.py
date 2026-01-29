@@ -598,6 +598,10 @@ class TokenTracker:
             # On Modal, use the mounted volume path
             if os.environ.get("MODAL_ENVIRONMENT"):
                 self._log_dir = Path(TOKEN_TRACKER_MODAL_DIR)
+                # Check if the mount point exists before trying to create subdirs
+                if not self._log_dir.parent.exists():
+                    logger.warning(f"[TokenTracker] Modal volume mount not available: {self._log_dir.parent}")
+                    return False
             else:
                 # Locally, use eve/data/token-tracker/
                 self._log_dir = TOKEN_TRACKER_LOCAL_DIR
@@ -605,7 +609,8 @@ class TokenTracker:
             self._log_dir.mkdir(parents=True, exist_ok=True)
             self._initialized = True
             return True
-        except Exception:
+        except Exception as e:
+            logger.warning(f"[TokenTracker] Failed to initialize log directory: {e}")
             return False
 
     def set_flush_function(self, fn: Callable[[Dict[str, Any]], bool]) -> None:
@@ -910,7 +915,10 @@ class TokenTracker:
                 except Exception:
                     pass
 
-        self._executor.submit(background_flush)
+        try:
+            self._executor.submit(background_flush)
+        except Exception as e:
+            logger.warning(f"[TokenTracker] Failed to submit flush task: {e}")
 
     def _finish(self, session_run_id: str, full_prompt: Optional[str] = None) -> bool:
         """Internal: Flush a specific tracking session to storage.

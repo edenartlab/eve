@@ -59,6 +59,8 @@ from eve.agent.memory2.constants import (
     EMBEDDING_DIMENSIONS,
     EMBEDDING_MODEL,
     FACT_MAX_WORDS,
+    FACTS_DEDUP_ENABLED,
+    FACTS_DEDUP_SIMILARITY_LIMIT,
     FACTS_FIFO_ENABLED,
     FACTS_FIFO_LIMIT,
     FACTS_FIFO_MAX_AGE_HOURS,
@@ -177,6 +179,8 @@ __all__ = [
     "FACTS_FIFO_ENABLED",
     "FACTS_FIFO_LIMIT",
     "FACTS_FIFO_MAX_AGE_HOURS",
+    "FACTS_DEDUP_ENABLED",
+    "FACTS_DEDUP_SIMILARITY_LIMIT",
     # Formation
     "maybe_form_memories",
     "form_memories",

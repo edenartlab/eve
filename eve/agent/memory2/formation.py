@@ -35,6 +35,7 @@ from eve.agent.memory2.constants import (
     MEMORY_FORMATION_TOKEN_INTERVAL,
     NEVER_FORM_MEMORIES_LESS_THAN_N_MESSAGES,
     FACTS_FIFO_ENABLED,
+    FACTS_DEDUP_ENABLED,
     Memory2Config,
 )
 from eve.agent.memory2.context_assembly import get_memory_context_for_session
@@ -307,25 +308,38 @@ async def form_memories(
             )
 
             if prepared_facts:
-                # FIFO mode - store facts with embeddings, skip dedup LLM
-                from eve.agent.memory2.fact_storage import store_facts_batch
+                if FACTS_DEDUP_ENABLED:
+                    # Deduplication mode - compare against existing facts,
+                    # LLM decides ADD/UPDATE/DELETE/NONE
+                    from eve.agent.memory2.fact_management import process_extracted_facts
 
-                saved_facts = await store_facts_batch(prepared_facts)
-                newly_formed_facts = [
-                    f.content if hasattr(f, 'content') else f.get('content', '')
-                    for f in saved_facts
-                ]
-                fact_count = len(saved_facts)
+                    saved_facts, newly_formed_facts = await process_extracted_facts(
+                        extracted_facts=prepared_facts,
+                        agent_id=agent_id,
+                        user_id=user_id,
+                    )
+                    fact_count = len(saved_facts)
+                else:
+                    # Direct storage mode - store facts without deduplication
+                    from eve.agent.memory2.fact_storage import store_facts_batch
+
+                    saved_facts = await store_facts_batch(prepared_facts)
+                    newly_formed_facts = [
+                        f.content if hasattr(f, 'content') else f.get('content', '')
+                        for f in saved_facts
+                    ]
+                    fact_count = len(saved_facts)
 
             if LOCAL_DEV:
+                mode = "dedup" if FACTS_DEDUP_ENABLED else "direct"
                 if fact_count > 0:
-                    print(f"\n✓ Formed {fact_count} new facts (FIFO mode, scopes: {config.fact_scopes}):")
+                    print(f"\n✓ Formed {fact_count} new facts ({mode} mode, scopes: {config.fact_scopes}):")
                     for fact in saved_facts:
                         scope = fact.scope if hasattr(fact, 'scope') else fact.get('scope', '')
                         content = fact.content if hasattr(fact, 'content') else fact.get('content', '')
                         print(f"    - [{scope}] {content[:80]}...")
                 else:
-                    print(f"No new facts generated. (FIFO mode, scopes: {config.fact_scopes})")
+                    print(f"No new facts generated. ({mode} mode, scopes: {config.fact_scopes})")
 
         # --- LLM CALL 2: Reflection Extraction (with fact awareness) ---
         reflections_by_scope, reflection_count = await extract_and_save_reflections(

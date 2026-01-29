@@ -123,7 +123,20 @@ ALWAYS_IN_CONTEXT_ENABLED = True  # Can be toggled independently
 # =============================================================================
 FACTS_FIFO_ENABLED = True  # Enable FIFO facts in context
 FACTS_FIFO_LIMIT = 40  # Max number of recent facts to include
-FACTS_FIFO_MAX_AGE_HOURS = 24 * 7  # Only include facts from last 48 hours
+FACTS_FIFO_MAX_AGE_HOURS = 24 * 7  # Only include facts from last 7 days
+
+# =============================================================================
+# Facts Deduplication
+# =============================================================================
+# When enabled, new facts are compared against existing facts using vector
+# similarity search. An LLM then decides whether to ADD, UPDATE, DELETE, or
+# skip (NONE) each new fact based on semantic similarity to existing facts.
+#
+# This prevents duplicate facts and handles contradictions (e.g., preference
+# changes like "likes pizza" -> "dislikes pizza").
+# =============================================================================
+FACTS_DEDUP_ENABLED = False  # Enable semantic deduplication pipeline
+FACTS_DEDUP_SIMILARITY_LIMIT = 5  # Max similar facts to retrieve per new fact
 
 # =============================================================================
 # FACT EXTRACTION PROMPT TEMPLATE
