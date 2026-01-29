@@ -650,6 +650,49 @@ rotate_agent_metadata_modal = app.function(
 #     image=image, max_containers=1, schedule=modal.Period(minutes=1), timeout=300
 # )(run_scheduled_triggers_fn)
 
+
+async def run(
+    tool_key: str,
+    args: dict,
+    user: str = None,
+    agent: str = None,
+    session: str = None,
+    message: str = None,
+    tool_call_id: str = None,
+):
+    # Wrapper to ensure a unique Modal function name.
+    return await _run(
+        tool_key=tool_key,
+        args=args,
+        user=user,
+        agent=agent,
+        session=session,
+        message=message,
+        tool_call_id=tool_call_id,
+    )
+
+
+async def run_3h(
+    tool_key: str,
+    args: dict,
+    user: str = None,
+    agent: str = None,
+    session: str = None,
+    message: str = None,
+    tool_call_id: str = None,
+):
+    # Separate wrapper so Modal registers "run_3h" distinctly from "run".
+    return await _run(
+        tool_key=tool_key,
+        args=args,
+        user=user,
+        agent=agent,
+        session=session,
+        message=message,
+        tool_call_id=tool_call_id,
+    )
+
+
 run = app.function(
     image=image,
     max_containers=10,
@@ -658,7 +701,7 @@ run = app.function(
         "/data/media-cache": media_cache_vol,
         "/data/token-tracker": token_tracker_vol,
     },
-)(modal.concurrent(max_inputs=4)(_run))
+)(modal.concurrent(max_inputs=4)(run))
 
 run_3h = app.function(
     image=image,
@@ -668,7 +711,7 @@ run_3h = app.function(
         "/data/media-cache": media_cache_vol,
         "/data/token-tracker": token_tracker_vol,
     },
-)(modal.concurrent(max_inputs=2)(_run))
+)(modal.concurrent(max_inputs=2)(run_3h))
 
 
 run_task = app.function(
