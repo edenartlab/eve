@@ -110,6 +110,10 @@ def get_agent_specific_tools(
                 "lights",
                 "eden_search",
                 *HOME_ASSISTANT_TOOLS,
+                "reel2",
+                "reel_audio",
+                "reel_storyboard",
+                "reel_video",
             ]
         )
     elif username == "wzrd":

@@ -7,7 +7,6 @@ Two modes are available:
 """
 
 import json
-import os
 from datetime import datetime, timezone
 from typing import List, Optional
 
@@ -26,56 +25,9 @@ from eve.agent.session.models import (
     LLMContext,
     Session,
 )
-from eve.user import User
 
 # Number of recent messages to consider for conductor decisions
 CONDUCTOR_MESSAGE_LOOKBACK = 10
-
-
-def _should_log_conductor_llm_call(session: Session) -> bool:
-    """Check if we should log this conductor LLM call.
-
-    Logs are created if:
-    - DB is STAGE (all calls logged on staging)
-    - OR the session owner has eden_admin feature flag
-    """
-    db = os.getenv("DB", "STAGE").upper()
-    logger.info(
-        f"[CONDUCTOR_LLMCALL] Checking if should log: DB={db}, session.owner={session.owner}"
-    )
-
-    if db == "STAGE":
-        logger.info("[CONDUCTOR_LLMCALL] DB is STAGE - will log LLMCall")
-        return True
-
-    # Check if session owner has eden_admin feature flag
-    if session.owner:
-        try:
-            user = User.from_mongo(session.owner)
-            if user:
-                is_admin = user.is_admin()
-                logger.info(
-                    f"[CONDUCTOR_LLMCALL] User {user.username}: is_admin={is_admin}, "
-                    f"featureFlags={user.featureFlags}"
-                )
-                if is_admin:
-                    logger.info(
-                        "[CONDUCTOR_LLMCALL] User is eden_admin - will log LLMCall"
-                    )
-                    return True
-            else:
-                logger.info(
-                    f"[CONDUCTOR_LLMCALL] User not found for owner {session.owner}"
-                )
-        except (ValueError, Exception) as e:
-            logger.warning(
-                f"[CONDUCTOR_LLMCALL] Error loading user {session.owner}: {e}"
-            )
-
-    logger.info(
-        "[CONDUCTOR_LLMCALL] Not logging LLMCall (not STAGE and not eden_admin)"
-    )
-    return False
 
 
 def _create_conductor_llm_call(
@@ -84,16 +36,7 @@ def _create_conductor_llm_call(
     request_payload: dict,
     role: str,  # "conductor_turn", "conductor_init", "conductor_finish"
 ) -> Optional[LLMCall]:
-    """Create an LLMCall record for a conductor operation if logging is enabled."""
-    should_log = _should_log_conductor_llm_call(session)
-    logger.info(
-        f"[CONDUCTOR_LLMCALL] _create_conductor_llm_call called, should_log={should_log}, role={role}"
-    )
-
-    if not should_log:
-        logger.info("[CONDUCTOR_LLMCALL] Skipping LLMCall creation")
-        return None
-
+    """Create an LLMCall record for a conductor operation."""
     try:
         logger.info(
             f"[CONDUCTOR_LLMCALL] Creating LLMCall object for session {session.id}"
@@ -107,9 +50,7 @@ def _create_conductor_llm_call(
             session=session.id,
             session_run_id=role,  # Use this to identify conductor calls
         )
-        logger.info("[CONDUCTOR_LLMCALL] LLMCall object created, calling save()...")
         llm_call.save()
-        logger.info(f"[CONDUCTOR_LLMCALL] save() completed, id={llm_call.id}")
         logger.info(f"[CONDUCTOR_LLMCALL] Created LLMCall id={llm_call.id} for {role}")
         return llm_call
     except Exception as e:

@@ -15,7 +15,6 @@ import httpx
 from bson import ObjectId as ObjectId
 from google.genai import types as genai_types
 
-from eve import db
 from eve.agent.llm.formatting import construct_gemini_tools
 from eve.agent.llm.providers import LLMProvider
 from eve.agent.llm.util import (
@@ -31,7 +30,6 @@ from eve.agent.session.models import (
     LLMUsage,
     ToolCall,
 )
-from eve.user import User
 
 # Map eve reasoning_effort values to Gemini thinking_level values
 # Note: Gemini only supports LOW and HIGH (no medium)
@@ -196,7 +194,9 @@ class GoogleProvider(LLMProvider):
         thinking_config = self._build_thinking_config(context)
 
         # Build response format configuration (for JSON mode with schema)
-        response_mime_type, response_schema = self._build_response_format_config(context)
+        response_mime_type, response_schema = self._build_response_format_config(
+            context
+        )
 
         # Build the generation config
         config_kwargs = {
@@ -273,15 +273,9 @@ class GoogleProvider(LLMProvider):
                         request_payload["response_schema"] = response_schema
 
                     # Create LLMCall record before API call
-                    should_log_llm_call = db == "STAGE"
-                    if not should_log_llm_call and llm_call_metadata.get("user"):
-                        try:
-                            user = User.from_mongo(llm_call_metadata.get("user"))
-                            should_log_llm_call = user.is_admin()
-                        except ValueError:
-                            pass  # User not found in current DB environment
-                    if should_log_llm_call:
-                        truncated_payload = truncate_base64_in_payload(request_payload)
+                    llm_call = None
+                    truncated_payload = truncate_base64_in_payload(request_payload)
+                    try:
                         llm_call = LLMCall(
                             provider=self.provider_name,
                             model=canonical_name,
@@ -299,6 +293,8 @@ class GoogleProvider(LLMProvider):
                             else None,
                         )
                         llm_call.save()
+                    except Exception as e:
+                        logger.error(f"[GOOGLE_LLMCALL] Failed to create LLMCall: {e}")
 
                     response = await self.async_models.generate_content(
                         model=canonical_name,
@@ -323,7 +319,7 @@ class GoogleProvider(LLMProvider):
                     )
 
                     # Update LLMCall with response data
-                    if should_log_llm_call:
+                    if llm_call:
                         llm_call.update(
                             status="completed",
                             end_time=end_time,
@@ -501,9 +497,14 @@ class GoogleProvider(LLMProvider):
                     # Ensure all values are JSON-serializable (handles ObjectId, datetime, etc.)
                     # by round-tripping through JSON with default=str
                     try:
-                        response_dict = json.loads(json.dumps(response_dict, default=str))
+                        response_dict = json.loads(
+                            json.dumps(response_dict, default=str)
+                        )
                     except (TypeError, ValueError):
-                        response_dict = {"status": tc.status or "pending", "error": "Failed to serialize result"}
+                        response_dict = {
+                            "status": tc.status or "pending",
+                            "error": "Failed to serialize result",
+                        }
 
                     response_parts.append(
                         genai_types.Part(
@@ -514,7 +515,9 @@ class GoogleProvider(LLMProvider):
                         )
                     )
                 if response_parts:
-                    contents.append(genai_types.Content(role="user", parts=response_parts))
+                    contents.append(
+                        genai_types.Content(role="user", parts=response_parts)
+                    )
 
         system_instruction = "\n\n".join(system_parts) if system_parts else None
         return system_instruction, contents
@@ -532,21 +535,27 @@ class GoogleProvider(LLMProvider):
                 # Serialize function calls
                 func_call = getattr(part, "function_call", None)
                 if func_call:
-                    parts.append({
-                        "function_call": {
-                            "name": getattr(func_call, "name", ""),
-                            "args": dict(getattr(func_call, "args", {})),
+                    parts.append(
+                        {
+                            "function_call": {
+                                "name": getattr(func_call, "name", ""),
+                                "args": dict(getattr(func_call, "args", {})),
+                            }
                         }
-                    })
+                    )
                 # Serialize function responses
                 func_response = getattr(part, "function_response", None)
                 if func_response:
-                    parts.append({
-                        "function_response": {
-                            "name": getattr(func_response, "name", ""),
-                            "response": dict(getattr(func_response, "response", {})),
+                    parts.append(
+                        {
+                            "function_response": {
+                                "name": getattr(func_response, "name", ""),
+                                "response": dict(
+                                    getattr(func_response, "response", {})
+                                ),
+                            }
                         }
-                    })
+                    )
             serialized.append(
                 {
                     "role": getattr(content, "role", None),
@@ -555,20 +564,20 @@ class GoogleProvider(LLMProvider):
             )
         return serialized
 
-    def _serialize_tools(
-        self, tools: List[genai_types.Tool]
-    ) -> List[Dict[str, Any]]:
+    def _serialize_tools(self, tools: List[genai_types.Tool]) -> List[Dict[str, Any]]:
         """Serialize tools for logging."""
         serialized = []
         for tool in tools:
             func_decls = getattr(tool, "function_declarations", []) or []
             declarations = []
             for decl in func_decls:
-                declarations.append({
-                    "name": getattr(decl, "name", ""),
-                    "description": getattr(decl, "description", ""),
-                    "parameters": getattr(decl, "parameters", {}),
-                })
+                declarations.append(
+                    {
+                        "name": getattr(decl, "name", ""),
+                        "description": getattr(decl, "description", ""),
+                        "parameters": getattr(decl, "parameters", {}),
+                    }
+                )
             serialized.append({"function_declarations": declarations})
         return serialized
 
@@ -681,9 +690,7 @@ class GoogleProvider(LLMProvider):
             getattr(usage, "thinking_token_count", None) if usage else None
         )
         total_tokens = (
-            (prompt_tokens or 0)
-            + (completion_tokens or 0)
-            + (thinking_tokens or 0)
+            (prompt_tokens or 0) + (completion_tokens or 0) + (thinking_tokens or 0)
             if usage
             else None
         )

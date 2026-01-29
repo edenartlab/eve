@@ -237,7 +237,7 @@ async def handler(context: ToolContext):
         "role": "user",
         "user_id": str(context.user),
         "agent_id": str(context.agent),
-        "agent": "eve",
+        "agent": "chiba",
         "title": context.args.get("title") or "Reel Storyboard Artist",
         "content": user_message,
         "attachments": image_references,
