@@ -145,6 +145,7 @@ async def consolidate_reflections(
         )
 
         # Build consolidation prompt
+        current_utc = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
         prompt = CONSOLIDATION_PROMPT.format(
             scope=scope,
             agent_persona=agent_persona or "No agent persona available.",
@@ -154,6 +155,7 @@ async def consolidate_reflections(
             scope_specific_instructions=scope_instructions,
             word_limit=consolidated.word_limit,
             current_word_count=current_word_count,
+            current_utc_timestamp=current_utc,
         )
 
         # LLM call

@@ -89,7 +89,17 @@ Conversation Messages
 │  - Output: atomic factual statements│
 └─────────────────────────────────────┘
         │
-        │  extracted_facts (passed to next call + stored with embeddings)
+        │  extracted_facts
+        ▼
+┌─────────────────────────────────────┐
+│  DEDUPLICATION (if enabled)         │  (parallel vector search + LLM)
+│  - Batch embed all new facts        │
+│  - Vector search for similar (||)   │  ← Parallelized
+│  - LLM decides: ADD/UPDATE/DELETE   │  ← Single batched call
+│  - Execute decisions                │
+└─────────────────────────────────────┘
+        │
+        │  deduplicated_facts (passed to next call + stored)
         ▼
 ┌─────────────────────────────────────┐
 │  LLM CALL 2: Reflection Extraction  │  (gemini-3-flash/pro based on tier)
@@ -103,6 +113,21 @@ Conversation Messages
    Vector Store          Reflection Buffer     Consolidation
    (facts w/ embeddings)  (unabsorbed)         (if threshold met)
 ```
+
+### Fact Deduplication
+
+When `FACTS_DEDUP_ENABLED=True` (default), new facts go through a deduplication pipeline:
+
+1. **Batch Embedding**: All new facts are embedded in a single API call
+2. **Parallel Vector Search**: Each fact's embedding is searched against existing facts concurrently using `asyncio.gather`
+3. **Batched LLM Decision**: Facts with similar matches are sent to an LLM in a single call to decide:
+   - `ADD`: Store as new fact (no similar facts found, or genuinely new info)
+   - `UPDATE`: Merge with existing fact (enhances/corrects existing)
+   - `DELETE`: Remove contradicting fact and add new (preference reversal)
+   - `NONE`: Skip (semantic duplicate already exists)
+4. **Execute**: Decisions are applied to the database
+
+This prevents duplicate facts ("John's email is john@example.com" stored multiple times) and handles contradictions ("John likes pizza" → "John dislikes pizza").
 
 ### Context Assembly
 
@@ -267,8 +292,13 @@ FACTS_FIFO_ENABLED = True          # Enable FIFO facts in context
 FACTS_FIFO_LIMIT = 40              # Max recent facts to include
 FACTS_FIFO_MAX_AGE_HOURS = 24 * 7  # Only facts from last 7 days
 
+# Facts Deduplication
+FACTS_DEDUP_ENABLED = True         # Enable semantic deduplication pipeline
+FACTS_DEDUP_SIMILARITY_LIMIT = 5   # Max similar facts to retrieve per new fact
+SIMILARITY_THRESHOLD = 0.7         # Min cosine similarity for dedup match
+
 # Models
-MEMORY_LLM_MODEL_FAST = "gemini-3-flash-preview"  # Fact extraction
+MEMORY_LLM_MODEL_FAST = "gemini-3-flash-preview"  # Fact extraction + dedup decisions
 # Reflection extraction/consolidation: tier-based (flash for free, pro for premium)
 
 # Formation Triggers
