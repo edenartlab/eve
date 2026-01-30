@@ -882,6 +882,8 @@ class TokenTracker:
                 if trace_metadata:
                     if not agent_id:
                         agent_id = getattr(trace_metadata, "agent_id", None)
+                    if not agent_name:
+                        agent_name = getattr(trace_metadata, "agent_name", None)
                     if not user_id:
                         user_id = getattr(trace_metadata, "user_id", None)
                     if not session_id:

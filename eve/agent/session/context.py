@@ -994,6 +994,7 @@ async def build_llm_context(
                 if context.initiating_user_id
                 else None,
                 agent_id=str(actor.id),
+                agent_name=actor.username,
                 session_id=str(context.session.id),
             ),
         ),
@@ -1299,6 +1300,7 @@ async def build_agent_session_llm_context(
                 if context.initiating_user_id
                 else None,
                 agent_id=str(actor.id),
+                agent_name=actor.username,
                 session_id=str(agent_session.id),
             ),
         ),
