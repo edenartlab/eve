@@ -192,6 +192,9 @@ class PromptSessionRuntime:
         self.billed_user_doc = None
         self.billing_user_doc = None
         self.rate_limiter = None
+        self.trigger_id = (
+            ObjectId(str(context.trigger)) if context and context.trigger else None
+        )
 
     async def run(self):
         """Async generator that yields SessionUpdates."""
@@ -821,6 +824,7 @@ class PromptSessionRuntime:
             sender=ObjectId(self.llm_context.metadata.trace_metadata.agent_id),
             role="assistant",
             content=llm_result["content"],
+            trigger=self.trigger_id,
             tool_calls=llm_result.get("tool_calls"),
             finish_reason=llm_result.get("stop_reason"),
             thought=llm_result.get("thought"),
@@ -909,6 +913,7 @@ class PromptSessionRuntime:
             eden_message_data=EdenMessageData(
                 message_type=EdenMessageType.RATE_LIMIT, error=error_text
             ),
+            trigger=self.trigger_id,
             triggering_user=self.triggering_user_id,
             billed_user=self.billing_user_id,
             agent_owner=self.actor.owner,
@@ -924,6 +929,7 @@ class PromptSessionRuntime:
             sender=ObjectId("000000000000000000000000"),
             role="eden",
             content=error_text,
+            trigger=self.trigger_id,
             triggering_user=self.triggering_user_id,
             billed_user=self.billing_user_id,
             agent_owner=self.actor.owner,
@@ -1233,6 +1239,7 @@ class PromptSessionRuntime:
                 sender=ObjectId("000000000000000000000000"),
                 role="system",
                 content="Response cancelled by user",
+                trigger=self.trigger_id,
             )
             cancel_message.save()
 
