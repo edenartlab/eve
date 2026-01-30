@@ -920,6 +920,7 @@ class LLMTraceMetadata(BaseModel):
     session_id: Optional[str] = None
     user_id: Optional[str] = None
     agent_id: Optional[str] = None
+    agent_name: Optional[str] = None
     additional_metadata: Optional[Dict[str, Any]] = None
     model_config = ConfigDict(arbitrary_types_allowed=True)
 

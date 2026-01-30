@@ -188,6 +188,7 @@ async def run_agent_session_turn(
         session_id=str(agent_session.id),
         session_run_id=session_run_id,
         agent_id=str(actor.id),
+        agent_name=actor.username,
         user_id=str(parent_session.owner),
         trace_name=f"agent_session_{actor.username}",
     )
@@ -312,6 +313,7 @@ async def run_agent_session_turn_streaming(
         session_id=str(agent_session.id),
         session_run_id=session_run_id,
         agent_id=str(actor.id),
+        agent_name=actor.username,
         user_id=str(parent_session.owner),
         trace_name=f"agent_session_{actor.username}",
     )
@@ -438,6 +440,7 @@ async def run_agent_vote_turn(
         session_id=str(agent_session.id),
         session_run_id=session_run_id,
         agent_id=str(actor.id),
+        agent_name=actor.username,
         user_id=str(parent_session.owner),
         trace_name=f"agent_vote_{actor.username}",
     )

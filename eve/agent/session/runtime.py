@@ -14,7 +14,6 @@ from eve.agent.agent import Agent
 from eve.agent.llm.llm import async_prompt as provider_async_prompt
 from eve.agent.llm.llm import async_prompt_stream as provider_async_prompt_stream
 from eve.agent.llm.llm import get_provider
-from eve.agent.llm.token_tracker import estimate_tokens, token_tracker
 from eve.agent.memory2.backend import memory2_backend
 from eve.agent.memory2.utils import select_messages
 from eve.agent.session.debug_logger import SessionDebugger
@@ -192,6 +191,9 @@ class PromptSessionRuntime:
         self.billed_user_doc = None
         self.billing_user_doc = None
         self.rate_limiter = None
+        self.trigger_id = (
+            ObjectId(str(context.trigger)) if context and context.trigger else None
+        )
 
     async def run(self):
         """Async generator that yields SessionUpdates."""
@@ -276,73 +278,6 @@ class PromptSessionRuntime:
 
                 provider = self._select_provider()
                 llm_result: Dict[str, Any]
-
-                # Serialize the full LLM input for token tracking comparison
-                # Includes both messages and tool definitions (both count as input tokens)
-                full_prompt = None
-                token_run_id = (
-                    self.context.session_run_id
-                    if self.context and self.context.session_run_id
-                    else self.session_run_id
-                )
-                try:
-                    if self.llm_context:
-                        parts = []
-                        # Serialize messages and track each with formatted role prefix
-                        if self.llm_context.messages:
-                            for msg in self.llm_context.messages:
-                                role = getattr(msg, "role", "unknown")
-                                content = getattr(msg, "content", "") or ""
-                                formatted = f"[{role.upper()}]\n{content}"
-                                parts.append(formatted)
-                                # Track each message with its formatted content
-                                # Skip system messages - they're already tracked via template rendering
-                                if token_run_id and content and role != "system":
-                                    token_tracker._add_chunk(
-                                        token_run_id, f"messages/{role}", formatted
-                                    )
-                        # Serialize tool schemas (they count as input tokens too)
-                        # Note: tool schemas are tracked separately in track_context()
-                        if self.llm_context.tools:
-                            for tool_name, tool in self.llm_context.tools.items():
-                                if hasattr(tool, "anthropic_schema"):
-                                    schema = tool.anthropic_schema()
-                                    parts.append(
-                                        f"[TOOL:{tool_name}]\n{json.dumps(schema)}"
-                                    )
-                        full_prompt = "\n\n".join(parts)
-                except Exception:
-                    pass
-
-                # Flush token tracking before LLM call
-                if token_run_id:
-                    try:
-                        summary = token_tracker.finish_with_summary(
-                            token_run_id, full_prompt=full_prompt
-                        )
-                        breakdown = (
-                            summary.get("breakdown")
-                            if isinstance(summary, dict)
-                            else None
-                        )
-                        total = (
-                            summary.get("total_tokens")
-                            if isinstance(summary, dict)
-                            else None
-                        )
-                        if (not total or total <= 0) and full_prompt:
-                            total = estimate_tokens(full_prompt)
-                        if (not breakdown) and full_prompt and total:
-                            breakdown = {"full_prompt": total}
-                        self._token_tracker_breakdown = breakdown or None
-                        self._token_tracker_total = total or None
-                        if self.instrumentation:
-                            self.instrumentation.add_metadata(
-                                token_tracker_total=self._token_tracker_total,
-                                token_tracker_by_category=self._token_tracker_breakdown,
-                            )
-                    except Exception:
-                        pass
 
                 if self.stream:
                     self._last_stream_result = None
@@ -821,6 +756,7 @@ class PromptSessionRuntime:
             sender=ObjectId(self.llm_context.metadata.trace_metadata.agent_id),
             role="assistant",
             content=llm_result["content"],
+            trigger=self.trigger_id,
             tool_calls=llm_result.get("tool_calls"),
             finish_reason=llm_result.get("stop_reason"),
             thought=llm_result.get("thought"),
@@ -909,6 +845,7 @@ class PromptSessionRuntime:
             eden_message_data=EdenMessageData(
                 message_type=EdenMessageType.RATE_LIMIT, error=error_text
             ),
+            trigger=self.trigger_id,
             triggering_user=self.triggering_user_id,
             billed_user=self.billing_user_id,
             agent_owner=self.actor.owner,
@@ -924,6 +861,7 @@ class PromptSessionRuntime:
             sender=ObjectId("000000000000000000000000"),
             role="eden",
             content=error_text,
+            trigger=self.trigger_id,
             triggering_user=self.triggering_user_id,
             billed_user=self.billing_user_id,
             agent_owner=self.actor.owner,
@@ -1233,6 +1171,7 @@ class PromptSessionRuntime:
                 sender=ObjectId("000000000000000000000000"),
                 role="system",
                 content="Response cancelled by user",
+                trigger=self.trigger_id,
             )
             cancel_message.save()
 

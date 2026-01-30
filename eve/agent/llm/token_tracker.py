@@ -15,38 +15,17 @@ The session_run_id is also stored in the database in ChatMessage.observability.s
 for the assistant message output. Files are suffixed with DB env (STAGE/PROD).
 
 Usage:
-    from eve.agent.llm.token_tracker import render_template_with_token_tracking, token_tracker
+    from eve.agent.llm.token_tracker import token_tracker
 
-    # Register a new LLM call - returns a tracker handle
-    tracker = token_tracker.register_call(
-        agent_id=agent.id,
-        agent_name=agent.username,
-        session_id=session.id,
-        user_id=user.id,
-        session_run_id=context.session_run_id,
+    # Track an LLM request - single entry point
+    await token_tracker.track_request(
+        model=context.config.model,
+        system=system_message,
+        messages=context.messages,
+        tools=context.tools,
+        instrumentation=context.instrumentation,
+        metadata=context.metadata,
     )
-
-    # Track system message components via template rendering
-    content = render_template_with_token_tracking(
-        system_template,
-        session_run_id=context.session_run_id,
-        prefix="system",
-        name=actor.name,
-        memory=memory,
-        persona=actor.persona,
-        # ... all template variables are tracked as system/{key}
-    )
-
-    # Track tools and messages separately
-    tracker.track_context(
-        agent=actor,
-        session=session,
-        tools=tools,
-        messages=messages,
-    )
-
-    # Finish tracking
-    tracker.finish(full_prompt=final_prompt_string)
 """
 
 import csv
@@ -60,7 +39,11 @@ import uuid
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Set, Tuple, Union, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from eve.agent.session.models import ChatMessage
+    from eve.tool import Tool
 
 logger = logging.getLogger(__name__)
 
@@ -94,86 +77,6 @@ def estimate_tokens(text: str) -> int:
         return int(len(text) / 4.5)
     except Exception:
         return 0
-
-
-def render_template_with_token_tracking(
-    template, session_run_id: Optional[str] = None, prefix: str = "system", **kwargs
-) -> str:
-    """
-    Render a Jinja template while tracking each component's tokens.
-
-    This function wraps template.render() and automatically tracks each
-    kwarg as a separate token category, plus the static template structure.
-    This allows granular token analysis without polluting the calling code
-    with tracking logic.
-
-    Args:
-        template: Jinja2 Template object
-        session_run_id: The session run ID for token tracking (optional)
-        prefix: Category prefix for tracking (e.g., "system" or "agent_session")
-        **kwargs: All arguments to pass to template.render()
-
-    Returns:
-        The rendered template string
-
-    Example:
-        content = render_template_with_token_tracking(
-            system_template,
-            session_run_id=context.session_run_id,
-            prefix="system",
-            name=actor.name,
-            memory=memory,
-            persona=actor.persona,
-        )
-        # Tracks: system/name, system/memory, system/persona, system/template_structure, etc.
-    """
-    import json
-
-    # Always render the template first
-    rendered = template.render(**kwargs)
-
-    # Track each component if session_run_id is provided
-    if session_run_id:
-        try:
-            total_tracked_chars = 0
-
-            for key, value in kwargs.items():
-                # Skip 'tools' - it's only used for conditional checks in templates,
-                # not rendered into the prompt. Tool schemas are tracked separately
-                # via track_context() as "tool_schemas/{tool_name}".
-                if key == "tools":
-                    continue
-                if value is not None:
-                    # Convert to string for tracking
-                    if isinstance(value, str):
-                        content = value
-                    elif isinstance(value, (list, dict)):
-                        content = json.dumps(value, default=str)
-                    else:
-                        content = str(value)
-
-                    if content:  # Only track non-empty content
-                        token_tracker._add_chunk(
-                            session_run_id, f"{prefix}/{key}", content
-                        )
-                        total_tracked_chars += len(content)
-
-            # Track the static template structure (XML tags, labels, etc.)
-            # This is the difference between rendered length and tracked variable content
-            static_chars = len(rendered) - total_tracked_chars
-            if static_chars > 50:  # Only track if meaningful (> ~10 tokens)
-                # Create a placeholder string of the right length for token estimation
-                # We don't need the actual content, just accurate token counting
-                token_tracker._add_chunk(
-                    session_run_id,
-                    f"{prefix}/template_structure",
-                    " " * static_chars,  # Placeholder for token counting
-                )
-        except Exception:
-            # Never let tracking errors affect the render
-            pass
-
-    return rendered
 
 
 def normalize_for_comparison(text: str) -> str:
@@ -308,228 +211,211 @@ def extract_untracked_segments(
         return []
 
 
-class TrackerHandle:
+def parse_xml_sections(
+    text: str,
+    terminal_tags: Optional[Set[str]] = None,
+    prefix: str = "system",
+    max_depth: int = 5,
+) -> List[Dict[str, Any]]:
     """
-    A handle for tracking a single LLM call.
+    Parse XML tags from text and create hierarchical token categories.
 
-    This handle is returned by TokenTracker.register_call() and should be
-    used for all subsequent tracking operations for that specific call.
+    This function dynamically extracts XML tags from the input text and creates
+    a nested hierarchy of categories for token tracking. It handles nested tags,
+    self-closing tags, and text outside of tags.
 
-    All methods are safe and will never raise exceptions.
+    Args:
+        text: The text to parse (e.g., rendered system message)
+        terminal_tags: Tag names that should not be further parsed (their content
+                      is treated as a single chunk, including any nested XML)
+        prefix: Category prefix (e.g., "system")
+        max_depth: Maximum number of levels to descend into the XML hierarchy.
+                   Default is 5, meaning paths like "system/AGENT_SPEC/Tools/CreateTool/UseCases"
+                   (5 levels after prefix) are allowed, but deeper paths are truncated.
+                   Tags at max_depth become terminal (their content is captured without
+                   further parsing).
+
+    Returns:
+        List of {category: str, tokens: int, char_count: int, content: str}
+
+    Example:
+        >>> text = "<AGENT_SPEC><Summary>Hello</Summary><Persona>Be nice</Persona></AGENT_SPEC>"
+        >>> sections = parse_xml_sections(text, terminal_tags={"Persona"}, prefix="system")
+        >>> # Returns:
+        >>> # [
+        >>> #   {"category": "system/AGENT_SPEC/Summary", "tokens": 1, "char_count": 5, "content": "Hello"},
+        >>> #   {"category": "system/AGENT_SPEC/Persona", "tokens": 2, "char_count": 7, "content": "Be nice"},
+        >>> # ]
     """
+    try:
+        if not text:
+            return []
 
-    def __init__(
-        self,
-        tracker: "TokenTracker",
-        session_run_id: str,
-        agent_id: Optional[str],
-        session_id: Optional[str],
-    ):
-        self._tracker = tracker
-        self._session_run_id = session_run_id
-        self._agent_id = agent_id
-        self._session_id = session_id
-        self._finished = False
+        terminal_tags = terminal_tags or set()
+        results: List[Dict[str, Any]] = []
 
-    def _verify_identity(self, agent_id: Any = None, session_id: Any = None) -> bool:
-        """Verify that provided IDs match this handle's IDs."""
+        # Regex patterns for XML tags
+        # Opening tag: <TagName attr="value">
+        opening_tag_pattern = re.compile(r"<([A-Za-z_][A-Za-z0-9_]*)\s*[^>]*(?<!/)>")
+        # Closing tag: </TagName>
+        closing_tag_pattern = re.compile(r"</([A-Za-z_][A-Za-z0-9_]*)>")
+        # Self-closing tag: <TagName attr="value"/>
+        self_closing_pattern = re.compile(r"<([A-Za-z_][A-Za-z0-9_]*)\s*[^>]*/\s*>")
+
+        # Stack to track current path in the XML hierarchy
+        path_stack: List[str] = []
+        # Track positions of tag openings for content extraction
+        tag_start_positions: List[int] = []
+        # Track which tags are terminal (their content should not be further parsed)
+        terminal_depth: Optional[int] = None
+        # Track whether terminal mode was triggered by max_depth (vs explicit terminal_tags)
+        terminal_due_to_depth: bool = False
+
+        # Find all tag positions and types
+        events: List[Tuple[int, str, str, int]] = []  # (position, type, tag_name, end_position)
+
+        for match in opening_tag_pattern.finditer(text):
+            # Check if this is actually a self-closing tag (avoid double-counting)
+            full_match = text[match.start() : match.end() + 10]  # Look ahead for />
+            if "/>" not in text[match.start() : match.end() + 2]:
+                events.append((match.start(), "open", match.group(1), match.end()))
+
+        for match in closing_tag_pattern.finditer(text):
+            events.append((match.start(), "close", match.group(1), match.end()))
+
+        for match in self_closing_pattern.finditer(text):
+            events.append((match.start(), "self_close", match.group(1), match.end()))
+
+        # Sort events by position
+        events.sort(key=lambda x: x[0])
+
+        # Track text content between tags at each level
+        last_end_position = 0
+        pending_text_content: Dict[int, str] = {}  # depth -> accumulated text
+
+        for pos, event_type, tag_name, end_pos in events:
+            current_depth = len(path_stack)
+
+            # Capture text content before this tag (if not inside a terminal tag)
+            if terminal_depth is None and pos > last_end_position:
+                text_before = text[last_end_position:pos].strip()
+                if text_before and current_depth > 0:
+                    # Accumulate text at current depth
+                    if current_depth not in pending_text_content:
+                        pending_text_content[current_depth] = ""
+                    pending_text_content[current_depth] += text_before + " "
+
+            if event_type == "open":
+                # Check if we're entering a terminal tag or exceeding max_depth
+                # When path_stack has max_depth-1 elements, the next tag would exceed max_depth
+                if terminal_depth is None and tag_name in terminal_tags:
+                    terminal_depth = current_depth
+                    terminal_due_to_depth = False
+                    # Store the start position for terminal tag content extraction
+                    tag_start_positions.append(end_pos)
+                elif terminal_depth is None and len(path_stack) >= max_depth - 1:
+                    # Max depth exceeded - content will be attributed to parent tag
+                    terminal_depth = current_depth
+                    terminal_due_to_depth = True
+                    tag_start_positions.append(end_pos)
+                elif terminal_depth is None:
+                    tag_start_positions.append(end_pos)
+
+                path_stack.append(tag_name)
+                last_end_position = end_pos
+
+            elif event_type == "close":
+                if path_stack and path_stack[-1] == tag_name:
+                    # Build the category path
+                    # When terminal due to max_depth, exclude the terminal tag from category
+                    if terminal_due_to_depth and terminal_depth is not None and len(path_stack) - 1 == terminal_depth:
+                        category = f"{prefix}/{'/'.join(path_stack[:-1])}"
+                    else:
+                        category = f"{prefix}/{'/'.join(path_stack)}"
+
+                    # Check if we're closing a terminal tag
+                    if terminal_depth is not None and len(path_stack) - 1 == terminal_depth:
+                        # Extract all content from the terminal tag (including nested XML)
+                        start_pos = tag_start_positions.pop() if tag_start_positions else last_end_position
+                        content = text[start_pos:pos].strip()
+                        if content:
+                            results.append(
+                                {
+                                    "category": category,
+                                    "tokens": estimate_tokens(content),
+                                    "char_count": len(content),
+                                    "content": content,
+                                }
+                            )
+                        terminal_depth = None
+                        terminal_due_to_depth = False
+                    elif terminal_depth is None:
+                        # Normal tag - check for accumulated text content
+                        if tag_start_positions:
+                            tag_start_positions.pop()
+
+                        depth = len(path_stack)
+                        if depth in pending_text_content:
+                            content = pending_text_content.pop(depth).strip()
+                            if content:
+                                results.append(
+                                    {
+                                        "category": category,
+                                        "tokens": estimate_tokens(content),
+                                        "char_count": len(content),
+                                        "content": content,
+                                    }
+                                )
+
+                    path_stack.pop()
+                    last_end_position = end_pos
+
+            elif event_type == "self_close":
+                # Self-closing tags have no content, but we still track them
+                if terminal_depth is None:
+                    category = f"{prefix}/{'/'.join(path_stack + [tag_name])}"
+                    # Extract any attributes as content
+                    tag_text = text[pos:end_pos]
+                    results.append(
+                        {
+                            "category": category,
+                            "tokens": estimate_tokens(tag_text),
+                            "char_count": len(tag_text),
+                            "content": tag_text,
+                        }
+                    )
+                last_end_position = end_pos
+
+        # Handle any remaining text after all tags
+        if terminal_depth is None and last_end_position < len(text):
+            remaining_text = text[last_end_position:].strip()
+            if remaining_text:
+                category = prefix if not path_stack else f"{prefix}/{'/'.join(path_stack)}"
+                results.append(
+                    {
+                        "category": category,
+                        "tokens": estimate_tokens(remaining_text),
+                        "char_count": len(remaining_text),
+                        "content": remaining_text,
+                    }
+                )
+
+        return results
+
+    except Exception as e:
+        logger.debug(f"[TokenTracker] parse_xml_sections failed: {e}")
+        # Fallback: return the entire text as a single chunk
         try:
-            if agent_id is not None:
-                if _safe_str(agent_id) != self._agent_id:
-                    return False
-            if session_id is not None:
-                if _safe_str(session_id) != self._session_id:
-                    return False
-            return True
+            return [
+                {
+                    "category": f"{prefix}/_unparsed",
+                    "tokens": estimate_tokens(text),
+                    "char_count": len(text),
+                    "content": text,
+                }
+            ]
         except Exception:
-            return True  # On error, allow operation to proceed
-
-    def add_chunk(self, category: str, text: str) -> int:
-        """
-        Add a prompt chunk with its category.
-
-        Args:
-            category: Hierarchical category name (e.g., "system/persona")
-            text: The actual text content
-
-        Returns:
-            Estimated token count for this chunk (0 on error)
-        """
-        try:
-            if self._finished:
-                return 0
-            return self._tracker._add_chunk(self._session_run_id, category, text)
-        except Exception:
-            return 0
-
-    def set_model(self, model: str) -> None:
-        """Update the model name for this call."""
-        try:
-            if self._finished:
-                return
-            self._tracker._set_model(self._session_run_id, model)
-        except Exception:
-            pass
-
-    def track_context(
-        self,
-        agent: Any = None,
-        session: Any = None,
-        user: Any = None,
-        tools: Dict = None,
-        messages: List = None,
-        trigger_context: Dict = None,
-        prefix: str = "system",
-        **extras,
-    ) -> None:
-        """
-        Extract and track token usage from context objects.
-
-        Tracks:
-        - tool_schemas/*: Each tool's schema (sent as separate API param)
-
-        Note: Messages are tracked separately in runtime.py with formatted role
-        prefixes to match the actual full_prompt structure. System message
-        components (memory, persona, etc.) are tracked via
-        render_template_with_token_tracking() in build_system_message.
-
-        Args:
-            agent: Agent object (for future use)
-            session: Session object (for future use)
-            user: User object (for future use)
-            tools: Dict of Tool objects (extracts schemas)
-            messages: List of ChatMessage objects (kept for API compatibility)
-            trigger_context: Dict with trigger info (for future use)
-            prefix: Category prefix ("system" or "agent_session")
-            **extras: Any additional string values to track
-        """
-        try:
-            if self._finished:
-                return
-
-            # Tool schemas (sent as separate API parameter, but counts as input tokens)
-            if tools:
-                for tool_name, tool in tools.items():
-                    try:
-                        schema = (
-                            tool.anthropic_schema()
-                            if hasattr(tool, "anthropic_schema")
-                            else {}
-                        )
-                        schema_str = json.dumps(schema, default=str)
-                        self.add_chunk(f"{prefix}/tool_schemas/{tool_name}", schema_str)
-                    except Exception:
-                        pass
-
-            # Note: Message tracking has been moved to runtime.py where the full_prompt
-            # is assembled. This ensures tracked content matches the actual formatted
-            # messages (with [ROLE]\n prefixes) sent to the LLM.
-
-            # Any extra string values
-            for key, value in extras.items():
-                if isinstance(value, str) and value:
-                    self.add_chunk(f"{prefix}/{key}", value)
-
-        except Exception as e:
-            try:
-                logger.debug(f"[TokenTracker] track_context failed: {e}")
-            except Exception:
-                pass
-
-    def get_summary(self) -> Dict[str, int]:
-        """Get a summary of tokens by category."""
-        try:
-            if self._finished:
-                return {}
-            return self._tracker._get_summary(self._session_run_id)
-        except Exception:
-            return {}
-
-    def get_total_tokens(self) -> int:
-        """Get total estimated tokens."""
-        try:
-            if self._finished:
-                return 0
-            return self._tracker._get_total_tokens(self._session_run_id)
-        except Exception:
-            return 0
-
-    def finish(self, full_prompt: Optional[str] = None) -> bool:
-        """
-        Flush this call's data to storage.
-
-        Args:
-            full_prompt: The complete prompt string sent to the LLM API.
-
-        Returns:
-            True if successfully written, False otherwise
-        """
-        try:
-            if self._finished:
-                return False
-            self._finished = True
-            return self._tracker._finish(self._session_run_id, full_prompt)
-        except Exception:
-            self._finished = True
-            return False
-
-    def finish_with_summary(
-        self, full_prompt: Optional[str] = None
-    ) -> Optional[Dict[str, Any]]:
-        """Finish and return summary data for this call."""
-        try:
-            if self._finished:
-                return None
-            self._finished = True
-            return self._tracker._finish_with_summary(self._session_run_id, full_prompt)
-        except Exception:
-            self._finished = True
-            return None
-
-    def cancel(self) -> None:
-        """Cancel tracking without writing to log."""
-        try:
-            self._finished = True
-            self._tracker._cancel(self._session_run_id)
-        except Exception:
-            pass
-
-
-class _NullHandle(TrackerHandle):
-    """A null handle that does nothing - used when tracking is disabled."""
-
-    def __init__(self):
-        self._finished = True
-
-    def add_chunk(self, category: str, text: str) -> int:
-        return 0
-
-    def set_model(self, model: str) -> None:
-        pass
-
-    def track_context(self, **kwargs) -> None:
-        pass
-
-    def get_summary(self) -> Dict[str, int]:
-        return {}
-
-    def get_total_tokens(self) -> int:
-        return 0
-
-    def finish(self, full_prompt: Optional[str] = None) -> bool:
-        return False
-
-    def finish_with_summary(
-        self, full_prompt: Optional[str] = None
-    ) -> Optional[Dict[str, Any]]:
-        return None
-
-    def cancel(self) -> None:
-        pass
-
-
-# Singleton null handle
-_NULL_HANDLE = _NullHandle()
+            return []
 
 
 class TokenTracker:
@@ -548,9 +434,14 @@ class TokenTracker:
        model, category, tokens, char_count, content
 
     Usage:
-        tracker = token_tracker.register_call(agent_id=..., session_id=..., ...)
-        tracker.track_context(agent=actor, session=session, ...)
-        tracker.finish(full_prompt=...)
+        await token_tracker.track_request(
+            model=context.config.model,
+            system=system_message,
+            messages=context.messages,
+            tools=context.tools,
+            instrumentation=context.instrumentation,
+            metadata=context.metadata,
+        )
     """
 
     def __init__(self):
@@ -619,53 +510,6 @@ class TokenTracker:
             self._flush_fn = fn
         except Exception:
             pass
-
-    def register_call(
-        self,
-        agent_id: Any,
-        session_id: Any,
-        user_id: Optional[Any] = None,
-        session_run_id: Optional[str] = None,
-        model: Optional[str] = None,
-        agent_name: Optional[str] = None,
-    ) -> TrackerHandle:
-        """
-        Register a new LLM call to track.
-
-        Args:
-            agent_id: The agent making this call
-            session_id: The session this call belongs to
-            user_id: Optional user who triggered this call
-            session_run_id: Unique ID for this prompt session run
-            model: Optional model name being used
-            agent_name: Optional human-readable agent name (username)
-
-        Returns:
-            TrackerHandle for this call (use for all subsequent operations)
-        """
-        try:
-            with self._lock:
-                self._cleanup_expired()
-
-                run_id = session_run_id or str(uuid.uuid4())
-                agent_id_str = _safe_str(agent_id)
-                session_id_str = _safe_str(session_id)
-
-                self._calls[run_id] = {
-                    "session_run_id": run_id,
-                    "timestamp": datetime.now(timezone.utc).isoformat(),
-                    "agent_id": agent_id_str,
-                    "agent_name": _safe_str(agent_name),
-                    "session_id": session_id_str,
-                    "user_id": _safe_str(user_id),
-                    "model": model,
-                    "chunks": [],
-                    "_created_at": time.time(),
-                }
-
-                return TrackerHandle(self, run_id, agent_id_str, session_id_str)
-        except Exception:
-            return _NULL_HANDLE
 
     def _add_chunk(self, session_run_id: str, category: str, text: str) -> int:
         """Internal: Add a chunk to a specific tracking session."""
@@ -952,98 +796,238 @@ class TokenTracker:
         except Exception:
             pass
 
-    # =========================================================================
-    # Public convenience methods for direct session_run_id access
-    # These allow simpler integration without needing to pass handles around
-    # =========================================================================
-
-    def track_context(
+    async def track_request(
         self,
-        session_run_id: str,
-        agent: Any = None,
-        session: Any = None,
-        user: Any = None,
-        tools: Dict = None,
-        messages: List = None,
-        trigger_context: Dict = None,
-        prefix: str = "system",
-        **extras,
-    ) -> None:
-        """
-        Track context for a specific session_run_id.
-
-        This is a convenience method that doesn't require passing a handle.
-        Use after register_call() with the same session_run_id.
-
-        Tracks tool_schemas only. Messages are tracked separately in runtime.py
-        with formatted role prefixes. System message components are tracked via
-        render_template_with_token_tracking() in build_system_message.
-        """
-        try:
-            with self._lock:
-                if session_run_id not in self._calls:
-                    return
-
-            # Create a temporary handle for tracking
-            handle = TrackerHandle(
-                self,
-                session_run_id,
-                self._calls.get(session_run_id, {}).get("agent_id"),
-                self._calls.get(session_run_id, {}).get("session_id"),
-            )
-            handle.track_context(
-                agent=agent,
-                session=session,
-                user=user,
-                tools=tools,
-                messages=messages,
-                trigger_context=trigger_context,
-                prefix=prefix,
-                **extras,
-            )
-        except Exception:
-            pass
-
-    def set_model(self, session_run_id: str, model: str) -> None:
-        """Set model for a specific session_run_id."""
-        try:
-            self._set_model(session_run_id, model)
-        except Exception:
-            pass
-
-    def finish(
-        self,
-        session_run_id: str,
-        full_prompt: Optional[str] = None,
-    ) -> bool:
-        """
-        Finish tracking for a specific session_run_id.
-
-        This is a convenience method that doesn't require passing a handle.
-        Use after register_call() and track_context() with the same session_run_id.
-        """
-        try:
-            return self._finish(session_run_id, full_prompt)
-        except Exception:
-            return False
-
-    def finish_with_summary(
-        self,
-        session_run_id: str,
-        full_prompt: Optional[str] = None,
+        model: str,
+        system: str,
+        messages: List["ChatMessage"],
+        tools: Optional[Union[Dict[str, "Tool"], List["Tool"]]] = None,
+        terminal_tags: Optional[List[str]] = None,
+        # Optional - will be extracted from instrumentation/metadata if not provided
+        session_run_id: Optional[str] = None,
+        agent_id: Any = None,
+        agent_name: Optional[str] = None,
+        session_id: Any = None,
+        user_id: Optional[Any] = None,
+        # Pass these to let track_request extract metadata automatically
+        instrumentation: Any = None,
+        metadata: Any = None,
     ) -> Optional[Dict[str, Any]]:
-        """Finish tracking and return summary data."""
+        """
+        Track an LLM API request with automatic XML parsing for system messages.
+
+        This is the primary entry point for token tracking. Call this method once,
+        right before the actual LLM API call, with the exact data being sent.
+
+        The method:
+        1. Extracts metadata from instrumentation/metadata objects if not provided directly
+        2. Parses the system message to extract XML hierarchy (system/*)
+        3. Tracks each message by role (messages/user, messages/assistant)
+        4. Tracks tool results from assistant messages (messages/tool_result/{tool_name})
+        5. Tracks each tool schema (tools/{tool_name})
+        6. Flushes to storage asynchronously
+
+        Args:
+            model: Model name being used
+            system: The fully rendered system message string
+            messages: List of ChatMessage objects (the conversation)
+            tools: Dict or List of Tool objects
+            terminal_tags: XML tag names that should not be further parsed
+                          (e.g., ["Persona", "SessionContext", "Instructions"])
+            session_run_id: Unique ID for this prompt session run (auto-generated if not provided)
+            agent_id: The agent making this call (extracted from instrumentation/metadata if not provided)
+            agent_name: Human-readable agent name
+            session_id: The session this call belongs to
+            user_id: User who triggered this call
+            instrumentation: PromptSessionInstrumentation object (for extracting metadata)
+            metadata: LLMContextMetadata object (for extracting metadata)
+
+        Returns:
+            Summary dict with "total_tokens" and "breakdown" (or None on error)
+
+        Example:
+            await token_tracker.track_request(
+                model="claude-opus-4-20250514",
+                system=rendered_system_message,
+                messages=context.messages,
+                tools=context.tools,
+                instrumentation=context.instrumentation,
+                metadata=context.metadata,
+            )
+        """
         try:
-            return self._finish_with_summary(session_run_id, full_prompt)
-        except Exception:
+            # Default terminal tags if not provided
+            if terminal_tags is None:
+                terminal_tags = []
+
+            # Extract metadata from instrumentation if available
+            if instrumentation:
+                if not session_run_id:
+                    session_run_id = getattr(instrumentation, "session_run_id", None)
+                if not agent_id:
+                    agent_id = getattr(instrumentation, "agent_id", None)
+                if not agent_name:
+                    agent_name = getattr(instrumentation, "agent_name", None)
+                if not user_id:
+                    user_id = getattr(instrumentation, "user_id", None)
+                if not session_id:
+                    session_id = getattr(instrumentation, "session_id", None)
+
+            # Extract metadata from metadata object if available
+            if metadata:
+                if not session_id:
+                    session_id = getattr(metadata, "session_id", None)
+                # Check trace_metadata for additional info
+                trace_metadata = getattr(metadata, "trace_metadata", None)
+                if trace_metadata:
+                    if not agent_id:
+                        agent_id = getattr(trace_metadata, "agent_id", None)
+                    if not agent_name:
+                        agent_name = getattr(trace_metadata, "agent_name", None)
+                    if not user_id:
+                        user_id = getattr(trace_metadata, "user_id", None)
+                    if not session_id:
+                        session_id = getattr(trace_metadata, "session_id", None)
+
+            # Generate session_run_id if still not available
+            if not session_run_id:
+                session_run_id = str(uuid.uuid4())
+
+            # Register the call
+            with self._lock:
+                self._cleanup_expired()
+
+                agent_id_str = _safe_str(agent_id)
+                session_id_str = _safe_str(session_id)
+
+                self._calls[session_run_id] = {
+                    "session_run_id": session_run_id,
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                    "agent_id": agent_id_str,
+                    "agent_name": _safe_str(agent_name),
+                    "session_id": session_id_str,
+                    "user_id": _safe_str(user_id),
+                    "model": model,
+                    "chunks": [],
+                    "_created_at": time.time(),
+                }
+
+            # Convert terminal_tags to a set for efficient lookup
+            terminal_tag_set = set(terminal_tags) if terminal_tags else set()
+
+            # 1. Parse system message with XML hierarchy
+            if system:
+                system_sections = parse_xml_sections(
+                    system,
+                    terminal_tags=terminal_tag_set,
+                    prefix="system",
+                )
+                for section in system_sections:
+                    self._add_chunk(
+                        session_run_id,
+                        section["category"],
+                        section["content"],
+                    )
+
+            # 2. Track messages by role
+            if messages:
+                for msg in messages:
+                    try:
+                        # Skip system messages - they're tracked via system parameter
+                        if msg.role == "system":
+                            continue
+
+                        # Determine the category based on role
+                        role = msg.role
+                        if role == "tool":
+                            role = "tool_result"
+
+                        # Serialize message content
+                        content = msg.content or ""
+
+                        # Include tool_calls in assistant messages if present
+                        if hasattr(msg, "tool_calls") and msg.tool_calls:
+                            tool_calls_str = json.dumps(
+                                [
+                                    {"name": tc.name, "args": tc.args}
+                                    for tc in msg.tool_calls
+                                ],
+                                default=str,
+                            )
+                            content = f"{content}\n[Tool Calls: {tool_calls_str}]"
+
+                        if content:
+                            self._add_chunk(
+                                session_run_id,
+                                f"messages/{role}",
+                                content,
+                            )
+
+                        # Track tool results separately (these consume significant tokens)
+                        # Tool results are stored in the tool_calls of assistant messages
+                        if hasattr(msg, "tool_calls") and msg.tool_calls:
+                            for tc in msg.tool_calls:
+                                try:
+                                    tool_name = getattr(tc, "tool", None) or getattr(tc, "name", "unknown")
+
+                                    # Build result data matching what gets sent to the API
+                                    result_data = {"status": getattr(tc, "status", None)}
+                                    if getattr(tc, "error", None):
+                                        result_data["error"] = tc.error
+                                    if getattr(tc, "result", None) is not None:
+                                        result_data["result"] = tc.result
+
+                                    result_content = json.dumps(result_data, default=str)
+                                    self._add_chunk(
+                                        session_run_id,
+                                        f"messages/tool_result/{tool_name}",
+                                        result_content,
+                                    )
+                                except Exception:
+                                    pass
+                    except Exception:
+                        pass
+
+            # 3. Track tools by name
+            if tools:
+                tools_iter = tools.items() if isinstance(tools, dict) else [(t.key if hasattr(t, "key") else t.name, t) for t in tools]
+                for tool_name, tool in tools_iter:
+                    try:
+                        # Get the tool schema
+                        schema = (
+                            tool.anthropic_schema()
+                            if hasattr(tool, "anthropic_schema")
+                            else {}
+                        )
+                        schema_str = json.dumps(schema, default=str)
+                        self._add_chunk(
+                            session_run_id,
+                            f"tools/{tool_name}",
+                            schema_str,
+                        )
+                    except Exception:
+                        pass
+
+            # 4. Finalize and flush asynchronously
+            call_data = self._finalize_call_data(session_run_id, full_prompt=None)
+            if call_data:
+                self._flush_call_data(call_data)
+                return {
+                    "total_tokens": call_data.get("_total_tokens"),
+                    "breakdown": call_data.get("_summary"),
+                }
+
             return None
 
-    def cancel(self, session_run_id: str) -> None:
-        """Cancel tracking for a specific session_run_id."""
-        try:
-            self._cancel(session_run_id)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning(f"[TokenTracker] track_request failed: {e}")
+            # Clean up on error
+            try:
+                with self._lock:
+                    self._calls.pop(session_run_id, None)
+            except Exception:
+                pass
+            return None
 
 
 # Global singleton instance
