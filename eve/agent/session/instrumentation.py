@@ -134,6 +134,7 @@ class PromptSessionInstrumentation:
         session_run_id: Optional[str] = None,
         user_id: Optional[str] = None,
         agent_id: Optional[str] = None,
+        agent_name: Optional[str] = None,
         trace_name: str = "prompt_session",
         debug_enabled: Optional[bool] = None,
         sentry_enabled: Optional[bool] = None,
@@ -145,6 +146,7 @@ class PromptSessionInstrumentation:
         self.session_run_id = session_run_id or str(uuid.uuid4())
         self.user_id = user_id
         self.agent_id = agent_id
+        self.agent_name = agent_name
         self.trace_name = trace_name
         self.extra_metadata = metadata or {}
         self.debugger = SessionDebugger(session_id=session_id, enabled=debug_enabled)

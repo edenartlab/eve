@@ -123,7 +123,20 @@ ALWAYS_IN_CONTEXT_ENABLED = True  # Can be toggled independently
 # =============================================================================
 FACTS_FIFO_ENABLED = True  # Enable FIFO facts in context
 FACTS_FIFO_LIMIT = 40  # Max number of recent facts to include
-FACTS_FIFO_MAX_AGE_HOURS = 24 * 7  # Only include facts from last 48 hours
+FACTS_FIFO_MAX_AGE_HOURS = 24 * 7  # Only include facts from last 7 days
+
+# =============================================================================
+# Facts Deduplication
+# =============================================================================
+# When enabled, new facts are compared against existing facts using vector
+# similarity search. An LLM then decides whether to ADD, UPDATE, DELETE, or
+# skip (NONE) each new fact based on semantic similarity to existing facts.
+#
+# This prevents duplicate facts and handles contradictions (e.g., preference
+# changes like "likes pizza" -> "dislikes pizza").
+# =============================================================================
+FACTS_DEDUP_ENABLED = False  # Enable semantic deduplication pipeline
+FACTS_DEDUP_SIMILARITY_LIMIT = 5  # Max similar facts to retrieve per new fact
 
 # =============================================================================
 # FACT EXTRACTION PROMPT TEMPLATE
@@ -189,7 +202,8 @@ All of the above will be captured as REFLECTIONS and are thus not FACTS.
 
 ## INSTRUCTIONS
 - Facts must be self-contained statements that make sense without any additional context.
-- ALWAYS assign specific usernames (NEVER "User", "the user", or "they") and absolute dates (NEVER use "tomorrow")
+- **CRITICAL - ABSOLUTE TIMESTAMPS:** NEVER store relative time references like "tomorrow", "next week", "in 3 days", "this Friday". ALWAYS convert to absolute dates/times (e.g., "January 30th 2025 at 2pm UTC"). Use the UTC timestamps from the conversation to calculate exact dates. If a user says "the event is tomorrow at 3pm" and their message timestamp is Jan 28th 2025 14:00 UTC, store: "Event on January 29th 2025" (adjust for user's likely timezone if context suggests they're not in UTC).
+- ALWAYS assign specific usernames (NEVER "User", "the user", or "they").
 - Maximum {max_words} words per fact, always be concise!
 - Prioritize information explicitly stated by users. Agent messages may contain assumptions, suggestions, or inferences that haven't been verified—only extract agent-stated information if the user confirmed or agreed with it.
 
@@ -266,11 +280,15 @@ These FACTS however, won't be in context by default. Sometimes important REFLECT
 ## EXTRACTION RULES
 - **SELF-CONTAINED CONTEXT:** Each reflection must be fully understandable on its own. The LLM reading these memories is stateless and sees them for the first time with no prior context. Never use shorthand like "the project" or "the image" - always specify "the 'Inheritance and Rights' project" or "the Byzantine mosaic reference image at [URL]". A reflection that says "Shifted to aesthetic chaos" is useless without explaining what shifted, from what, and what "aesthetic chaos" means in this context. Write as if briefing someone who knows nothing about this session.
 - **PINNED ASSETS MUST INCLUDE URLs:** When pinning assets (images, documents, videos, links), ALWAYS include the full URL. "Main character image" is useless; "Main character image: https://cdn.example.com/char.png" is actionable. URLs are the whole point of pinning assets.
+- **CRITICAL - ABSOLUTE TIMESTAMPS:** NEVER store relative time references. Convert ALL temporal references to absolute dates/times:
+  - BAD: "Team BBQ tomorrow at 2pm" / "Meeting next Monday" / "Deadline in 3 days"
+  - GOOD: "Team BBQ on January 30th 2025 at 2pm" / "Meeting on February 3rd 2025" / "Deadline: February 1st 2025"
+  - Use the UTC timestamps from conversation messages to calculate exact dates. The agent's system shows current UTC time.
+  - Be aware that users may reference times in their local timezone while the system operates in UTC. If a user in California says "3pm tomorrow", that's likely 3pm PST, not UTC. When timezone is unclear, note the time as stated and add "(user's local time)" or convert to UTC if you can infer their timezone.
 - Avoid extracting ephemeral statements that won't be true for longer than a few hours.
 - Any information you do not extract as a reflection here (and is not already in CURRENT MEMORY STATE) is permanently lost from the agents memory.
 - Extracting too much information will bloat the memory context. Make thoughtful decisions, extract only salient information and be concise.
-- When statements are temporal, try to include when they were generated with an absolute timestamp / date or until when they are relevant.
-- ALWAYS assign specific usernames (NEVER "User", "the user", or "they") and absolute dates (NEVER use "tomorrow")
+- ALWAYS assign specific usernames (NEVER "User", "the user", or "they").
 - Occasionally, certain reflections may be relevant to multiple scopes. Eg "Gene is working on X" could be relevant for collective, agent scope but also useful for personal user context. In such cases, feel free to extract two reflections about the same information with different scope.
 - IMPORTANT: Maximum {max_words} words per reflection
 - Give more weight to information explicitly stated by users. Agent messages may contain assumptions, guesses, or hallucinations—only extract agent-stated information if the user confirmed or acknowledged it.
@@ -300,6 +318,9 @@ Return empty array(s) when there's nothing meaningful to extract.
 CONSOLIDATION_PROMPT = """You are consolidating {scope} memory reflections for an AI agent. Your job is to merge new reflections into the agent's long-term memory blob.
 Since memories consume context, your goal is to preserve highly salient, important and actionable information while discarding irrelevant or outdated memories.
 
+**CURRENT UTC TIMESTAMP: {current_utc_timestamp}**
+Use this timestamp to determine which events, deadlines, and temporal information are now in the past and should be removed.
+
 ## AGENT PERSONA
 The following is the persona/description of the agent whose memory you are consolidating. Use this to understand the agent's identity and purpose when consolidating memories.
 <agent_persona_context>
@@ -326,7 +347,11 @@ Merge the new reflections into the existing memory, creating an updated consolid
 1. **Incremental Versioning:** Always output "VERSION: X" as the first line (increment previous version by 1 integer).
 2. **Preserve Structure:** If the existing memory has good headers/sections, keep them. Organize new info into those sections. Copying information that is relevant and unchanged verbatim is highly encouraged.
 3. **Resolve Conflicts:** If new info contradicts old info, NEW info typically wins. If the statements are opinions, try to maintain nuance and diversity.
-4. **Garbage Collection:** Remove information that is no longer relevant (e.g., completed tasks from 3 days ago, "Team bbq on friday jan 3rd" when the current date is jan 4th).
+4. **Garbage Collection - CRITICAL:** Actively remove outdated information:
+   - **Past events:** Delete any events, meetings, deadlines, or appointments that have already occurred. Compare dates in memories against the current system time (which is in UTC). If "Team BBQ on January 15th" and current date is January 16th or later, DELETE it entirely—don't keep it as "Team BBQ happened on January 15th" unless the outcome is specifically relevant.
+   - **Stale temporal context:** Remove "upcoming" language for past events. If memory says "upcoming launch on March 1st" and it's now March 5th, either delete or update to reflect what happened.
+   - **Completed tasks:** Remove completed tasks unless their outcomes have ongoing relevance.
+   - **Expired deadlines:** Delete deadline references once the date has passed.
 5. **Deduplicate:** Do not list the same fact twice. Merge nuances.
 6. **Word Limit:** The current_consolidated_memory is ~{current_word_count} words. Keep the new version strictly under {word_limit} words.
 

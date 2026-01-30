@@ -3,8 +3,9 @@ from typing import Any, AsyncGenerator, Callable, List, Optional, Tuple
 
 from eve.agent.llm.constants import MODEL_PROVIDER_OVERRIDES, ModelProvider
 from eve.agent.llm.providers import LLMProvider
+from eve.agent.llm.token_tracker import token_tracker
 from eve.agent.llm.util import should_force_fake_response, validate_input
-from eve.agent.session.models import LLMContext, LLMResponse, ToolCall
+from eve.agent.session.models import ChatMessage, LLMContext, LLMResponse, ToolCall
 
 logger = logging.getLogger(__name__)
 
@@ -223,6 +224,11 @@ async def async_run_tool_call(
     return result
 
 
+def _extract_system_message(messages: List[ChatMessage]) -> str:
+    """Extract concatenated system message from messages list."""
+    system_parts = [m.content for m in messages if m.role == "system" and m.content]
+    return "\n\n".join(system_parts)
+
 async def async_prompt(
     context: LLMContext,
     provider: Optional[LLMProvider] = None,
@@ -239,6 +245,23 @@ async def async_prompt(
         raise RuntimeError(
             f"No LLM provider available for model {context.config.model}"
         )
+
+    # Track the request right before the API call
+    if context.enable_tracing:
+        try:
+            system_msg = _extract_system_message(context.messages)
+            await token_tracker.track_request(
+                model=context.config.model,
+                system=system_msg,
+                messages=context.messages,
+                tools=context.tools,
+                instrumentation=context.instrumentation,
+                metadata=context.metadata,
+            )
+        except Exception as e:
+            # Never let tracking errors affect the actual API call
+            logger.debug(f"Token tracking failed: {e}")
+
     return await resolved_provider.prompt(context)
 
 
