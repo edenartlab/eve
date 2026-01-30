@@ -866,6 +866,8 @@ class TokenTracker:
                     session_run_id = getattr(instrumentation, "session_run_id", None)
                 if not agent_id:
                     agent_id = getattr(instrumentation, "agent_id", None)
+                if not agent_name:
+                    agent_name = getattr(instrumentation, "agent_name", None)
                 if not user_id:
                     user_id = getattr(instrumentation, "user_id", None)
                 if not session_id:
