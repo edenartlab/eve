@@ -42,13 +42,13 @@ class MediaSessionResponse(BaseModel):
     """Response for media-producing sessions (default)"""
 
     outputs: List[str] = Field(
-        description="A list of all requested successful media outputs, given the original request. Do not include intermediate results here -- only the desired output given the task."
+        description="A list of all requested successful media outputs, given the original request. Do not include intermediate results here -- only the desired output given the task. IMPORTANT: Always extract and return whatever outputs were successfully generated, even if the count doesn't perfectly match what was requested. Prefer returning partial results over returning nothing."
     )
     intermediate_outputs: Optional[List[str]] = Field(
         description="An optional list of all important **intermediate media urls** that were generated during the session, leading up to the final result. This does not include the original attachments provided by the user, or the final output."
     )
     error: Optional[str] = Field(
-        description="A human-readable error message that explains why the session failed to produce the requested outputs. Mutually exclusive with outputs -- **ONLY** set this if there was an error or the requested output was not successfully generated."
+        description="A human-readable error message explaining any issues encountered. Can be set alongside outputs if there were partial failures. Only set this if there was a genuine error or significant issue - minor discrepancies in counts should not be treated as errors."
     )
 
 
@@ -66,11 +66,22 @@ class SeedSessionResponse(BaseModel):
 # System prompts for each response type
 
 MEDIA_SYSTEM_PROMPT = """
-You are a helpful assistant that summarizes the results of a remote session prompt.
+You are a helpful assistant that extracts results from a remote session prompt.
 
-Given the original request and the subsequent response to it, identify if the session was successful or not.
-If it was successful, list all the successful outputs. If there were any important intermediate results, list them in the intermediate_outputs field.
-If it was not successful, provide a human-readable error message that explains why the session failed to produce the requested outputs.
+Given the original request and the subsequent response, extract all successfully generated outputs.
+
+CRITICAL RULES:
+1. **Always return outputs if they exist** - If media was successfully generated, include it in outputs even if the session had issues or the count doesn't match what was requested.
+2. **Coerce to expected format** - If the session generated more items than expected, select the most relevant ones. If it generated fewer, return what exists.
+3. **Prefer partial success over failure** - Only set error WITHOUT outputs if genuinely nothing was produced. If some outputs exist alongside problems, return both the outputs AND an error note.
+4. **Extract structured data** - Look for JSON blocks (like STORYBOARD_TRANSCRIPT, VIDEO_TRANSCRIPT) and URLs in the session. These are the outputs.
+5. **Don't be pedantic about counts** - If 24 images were generated instead of 20, that's still a success. Extract what's there.
+
+Examples:
+- Session generated 24 keyframes instead of 20 requested → Return all 24 (or the final set) as outputs, no error
+- Session generated images but forgot the final JSON block → Return the image URLs as outputs, optionally note the missing JSON
+- Session had tool errors but eventually produced results → Return the results, optionally note there were retries
+- Session produced nothing at all → Return empty outputs with error explaining why
 """
 
 SEED_SYSTEM_PROMPT = """
@@ -292,7 +303,10 @@ async def _extract_media_response(session_id: str) -> dict:
         messages=[
             ChatMessage(role="system", content=MEDIA_SYSTEM_PROMPT),
             *messages,
-            ChatMessage(role="user", content="Summarize the results of the session."),
+            ChatMessage(
+                role="user",
+                content="Extract all successfully generated outputs from the session. Remember: always return outputs if any media was generated, even if there were issues or count mismatches.",
+            ),
         ],
         config=LLMConfig(
             model="claude-sonnet-4-5",
@@ -305,19 +319,19 @@ async def _extract_media_response(session_id: str) -> dict:
 
     logger.info(f"========== Media response for session {session_id}: {output}")
 
-    if output.error:
-        return {
-            "output": [],
-            "intermediate_outputs": output.intermediate_outputs,
-            "error": output.error,
-            "session_id": session_id,
-        }
-    else:
-        return {
-            "output": output.outputs,
-            "intermediate_outputs": output.intermediate_outputs,
-            "session_id": session_id,
-        }
+    # Always return outputs if they exist, even alongside errors (partial success)
+    result = {
+        "output": output.outputs if output.outputs else [],
+        "intermediate_outputs": output.intermediate_outputs,
+        "session_id": session_id,
+    }
+
+    # Only include error in result if there's an error AND no outputs
+    # (If there are outputs, the error is just informational and shouldn't block)
+    if output.error and not output.outputs:
+        result["error"] = output.error
+
+    return result
 
 
 async def _extract_seed_response(session_id: str) -> dict:

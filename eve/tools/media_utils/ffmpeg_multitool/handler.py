@@ -376,7 +376,7 @@ async def handler(context: ToolContext):
         raise TypeError("Args must be a dictionary")
 
     n_retries = max(1, int(context.args.get("n_retries", 4)))
-    timeout = max(1, int(context.args.get("timeout", 60)))
+    timeout = max(1, int(context.args.get("timeout", 600)))
 
     tmp_dir = None
     output_path = None
