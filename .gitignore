@@ -1,6 +1,10 @@
 .env
 .env.*
+.env.DUMMY
 !.env.example.*
+!.env.local.example
+!.env.DUMMY
+!.env.DUMMY.local
 __pycache__
 *.egg-info*
 .DS_Store

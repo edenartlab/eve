@@ -13,15 +13,27 @@ import boto3
 import magic
 import replicate
 import requests
+from botocore.config import Config
 from PIL import Image
 from pydub import AudioSegment
 
-s3 = boto3.client(
-    "s3",
-    aws_access_key_id=os.getenv("AWS_ACCESS_KEY_ID"),
-    aws_secret_access_key=os.getenv("AWS_SECRET_ACCESS_KEY"),
-    region_name=os.getenv("AWS_REGION_NAME"),
-)
+
+def _get_s3_client():
+    endpoint = os.getenv("AWS_S3_ENDPOINT")
+    force_path_style = os.getenv("AWS_S3_FORCE_PATH_STYLE", "false").lower() == "true"
+    config = Config(s3={"addressing_style": "path" if force_path_style else "virtual"})
+
+    return boto3.client(
+        "s3",
+        aws_access_key_id=os.getenv("AWS_ACCESS_KEY_ID"),
+        aws_secret_access_key=os.getenv("AWS_SECRET_ACCESS_KEY"),
+        region_name=os.getenv("AWS_REGION_NAME"),
+        endpoint_url=endpoint,
+        config=config,
+    )
+
+
+s3 = _get_s3_client()
 
 
 file_extensions = {
@@ -42,10 +54,22 @@ def get_root_url(s3=False):
     """Returns the root URL, CloudFront by default, or S3"""
     if s3:
         db = os.getenv("DB", "STAGE").upper()
-        AWS_BUCKET_NAME = os.getenv(f"AWS_BUCKET_NAME_{db}")
+        AWS_BUCKET_NAME = os.getenv(f"AWS_BUCKET_NAME_{db}") or os.getenv(
+            "AWS_BUCKET_NAME"
+        )
         AWS_REGION_NAME = os.getenv("AWS_REGION_NAME")
-        url = f"https://{AWS_BUCKET_NAME}.s3.{AWS_REGION_NAME}.amazonaws.com"
-        return url
+        endpoint = os.getenv("AWS_S3_ENDPOINT")
+        force_path_style = (
+            os.getenv("AWS_S3_FORCE_PATH_STYLE", "false").lower() == "true"
+        )
+
+        if endpoint:
+            if force_path_style:
+                return f"{endpoint.rstrip('/')}/{AWS_BUCKET_NAME}"
+            parsed = requests.utils.urlparse(endpoint)
+            return f"{parsed.scheme}://{AWS_BUCKET_NAME}.{parsed.netloc}"
+
+        return f"https://{AWS_BUCKET_NAME}.s3.{AWS_REGION_NAME}.amazonaws.com"
     else:
         return os.getenv("CLOUDFRONT_URL")
 
@@ -62,6 +86,11 @@ def is_eden_url(url: str) -> bool:
     # Check for S3 URL pattern
     AWS_BUCKET_NAME = os.getenv("AWS_BUCKET_NAME")
     if AWS_BUCKET_NAME and f"{AWS_BUCKET_NAME}.s3." in url and ".amazonaws.com" in url:
+        return True
+
+    # Check for custom S3 endpoint (MinIO)
+    endpoint = os.getenv("AWS_S3_ENDPOINT")
+    if endpoint and endpoint.rstrip("/") in url and AWS_BUCKET_NAME in url:
         return True
 
     # Check for CloudFront URL pattern
@@ -206,7 +235,7 @@ def upload_buffer(buffer, name=None, file_type=None):
     filename = f"{name}{file_type}"
     file_bytes = io.BytesIO(buffer)
     bucket_name = os.getenv("AWS_BUCKET_NAME")
-    file_url = f"https://{bucket_name}.s3.amazonaws.com/{filename}"
+    file_url = f"{get_root_url(s3=True)}/{filename}"
 
     # if file doesn't exist, upload it
     try:

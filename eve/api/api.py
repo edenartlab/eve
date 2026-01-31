@@ -178,6 +178,25 @@ class SentryContextMiddleware(BaseHTTPMiddleware):
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup
+    logger = logging.getLogger("eve.api")
+    raw_mongo = os.getenv("MONGO_URI", "")
+    sanitized_mongo = raw_mongo
+    if "@" in raw_mongo:
+        if "://" in raw_mongo:
+            scheme, rest = raw_mongo.split("://", 1)
+        else:
+            scheme, rest = "", raw_mongo
+        creds_and_host = rest.split("@", 1)
+        if len(creds_and_host) == 2:
+            sanitized_mongo = (
+                f"{scheme + '://' if scheme else ''}***@{creds_and_host[1]}"
+            )
+    logger.info(
+        "Eve API starting with DB=%s MONGO_DB_NAME=%s MONGO_URI=%s",
+        os.getenv("DB", "STAGE"),
+        os.getenv("MONGO_DB_NAME"),
+        sanitized_mongo or "unset",
+    )
     yield
     # Shutdown - close all SSE connections
     from eve.api.sse_manager import sse_manager
