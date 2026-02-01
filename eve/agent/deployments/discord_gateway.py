@@ -397,55 +397,68 @@ def get_or_create_discord_message(
 # ============================================================================
 
 # Regex pattern for Discord user mentions: <@123456789> or <@!123456789>
-DISCORD_MENTION_PATTERN = re.compile(r"<@!?(\d+)>")
+DISCORD_USER_MENTION_PATTERN = re.compile(r"<@!?(\d+)>")
+# Regex pattern for Discord role mentions: <@&123456789>
+DISCORD_ROLE_MENTION_PATTERN = re.compile(r"<@&(\d+)>")
 
 
 def convert_discord_mentions_to_usernames(
     content: str,
     mentions_data: Optional[List[Dict[str, Any]]] = None,
+    role_mentions_data: Optional[List[Dict[str, Any]]] = None,
     bot_discord_id: Optional[str] = None,
     bot_name: Optional[str] = None,
 ) -> str:
     """
-    Convert Discord mention format (<@discord_id>) to readable @username format.
+    Convert Discord mention format to readable @username/@role format.
 
     This makes messages readable to the LLM by replacing Discord's mention syntax
-    with human-readable usernames.
+    with human-readable usernames and role names.
 
     Args:
         content: Message content with Discord mentions
         mentions_data: List of mentioned user objects from Discord API
+        role_mentions_data: List of mentioned role objects (with 'id' and 'name' keys)
         bot_discord_id: The bot's Discord application ID (to convert self-mentions)
         bot_name: The bot/agent name to use for self-mentions
 
     Returns:
-        Content with mentions converted to @username format
+        Content with mentions converted to @username/@role format
 
     Example:
-        "hey <@1258028681138540626> say my name" -> "hey chiba say my name"
+        "hey <@1258028681138540626> and <@&987654321>" -> "hey @chiba and @admin"
     """
     if not content:
         return content
 
     # Build a mapping of discord_id -> username from mentions data
-    mention_map = {}
+    user_mention_map = {}
     if mentions_data:
         for mention in mentions_data:
             discord_id = mention.get("id")
             username = mention.get("username")
             if discord_id and username:
-                mention_map[discord_id] = username
+                user_mention_map[discord_id] = username
 
     # Add bot mapping if provided
     if bot_discord_id and bot_name:
-        mention_map[bot_discord_id] = bot_name
+        user_mention_map[bot_discord_id] = bot_name
 
-    def replace_mention(match):
+    # Build a mapping of role_id -> role_name from role mentions data
+    role_mention_map = {}
+    if role_mentions_data:
+        for role in role_mentions_data:
+            role_id = role.get("id")
+            role_name = role.get("name")
+            if role_id and role_name:
+                role_mention_map[str(role_id)] = role_name
+
+    def replace_user_mention(match):
         discord_id = match.group(1)
 
         # First check our mention map (from Discord API data)
-        if discord_id in mention_map:
-            return mention_map[discord_id]
+        if discord_id in user_mention_map:
+            return f"@{user_mention_map[discord_id]}"
 
         # Try to look up user from database
         from eve.user import User
@@ -453,17 +466,32 @@ def convert_discord_mentions_to_usernames(
         try:
             user = User.find_one({"discordId": discord_id})
             if user and user.discordUsername:
-                return user.discordUsername
+                return f"@{user.discordUsername}"
             elif user and user.username:
-                return user.username
+                return f"@{user.username}"
         except Exception:
             pass
 
         # Fallback: keep original mention but log it
-        logger.debug(f"Could not resolve Discord mention for ID: {discord_id}")
+        logger.debug(f"Could not resolve Discord user mention for ID: {discord_id}")
         return match.group(0)
 
-    return DISCORD_MENTION_PATTERN.sub(replace_mention, content)
+    def replace_role_mention(match):
+        role_id = match.group(1)
+
+        # Check our role mention map
+        if role_id in role_mention_map:
+            return f"@{role_mention_map[role_id]}"
+
+        # Fallback: keep original mention but log it
+        logger.debug(f"Could not resolve Discord role mention for ID: {role_id}")
+        return match.group(0)
+
+    # Convert user mentions first, then role mentions
+    content = DISCORD_USER_MENTION_PATTERN.sub(replace_user_mention, content)
+    content = DISCORD_ROLE_MENTION_PATTERN.sub(replace_role_mention, content)
+
+    return content
 
 
 def convert_usernames_to_discord_mentions(content: str) -> str:

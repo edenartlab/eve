@@ -102,7 +102,7 @@ def get_agent_specific_tools(
             ]
         )
     elif username == "chiba":
-        from ..tool_constants import HOME_ASSISTANT_TOOLS
+        from ..tool_constants import GODOT_NPC_TOOLS, HOME_ASSISTANT_TOOLS
 
         result.extend(
             [
@@ -110,6 +110,7 @@ def get_agent_specific_tools(
                 "lights",
                 "eden_search",
                 *HOME_ASSISTANT_TOOLS,
+                *GODOT_NPC_TOOLS,
                 "reel2",
                 "reel_audio",
                 "reel_storyboard",
@@ -121,9 +122,10 @@ def get_agent_specific_tools(
 
         result.extend(WZRD_TOOLS)
     elif username == "solar-sambot":
-        from ..tool_constants import HOME_ASSISTANT_TOOLS
+        from ..tool_constants import GODOT_NPC_TOOLS, HOME_ASSISTANT_TOOLS
 
         result.extend(HOME_ASSISTANT_TOOLS)
+        result.extend(GODOT_NPC_TOOLS)
 
     # Check for gigabrain tools via tools config toggle
     if tools_config and tools_config.get("gigabrain_tools"):

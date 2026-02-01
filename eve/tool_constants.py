@@ -108,6 +108,12 @@ CHIBA_TOOLS = _discover_tools("chiba")
 WZRD_TOOLS = _discover_tools("wzrd")
 HOME_ASSISTANT_TOOLS = _discover_tools("home_assistant")
 RETRIEVAL_TOOLS = _discover_tools("retrieval")
+GODOT_NPC_TOOLS = [
+    "godot_npc_control",
+    "godot_npc_get_state",
+    "godot_npc_navigate",
+    "godot_npc_stop",
+]
 
 DISCORD_TOOLS = ["discord_post", "discord_search", "discord_broadcast_dm"]
 TELEGRAM_TOOLS = ["telegram_post"]

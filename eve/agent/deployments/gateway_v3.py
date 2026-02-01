@@ -302,22 +302,19 @@ async def process_discord_message_for_agent(
         timestamp = message.created_at
 
         # Convert Discord mentions to readable @username format
-        if message.mentions:
-            mentions_data = [
-                {"id": str(u.id), "username": u.name} for u in message.mentions
-            ]
-            content = convert_discord_mentions_to_usernames(
-                content=content,
-                mentions_data=mentions_data,
-                bot_discord_id=deployment.secrets.discord.application_id,
-                bot_name=agent.name,
-            )
-
-        # Convert role mentions to readable @role_name format
-        if message.role_mentions:
-            for role in message.role_mentions:
-                role_mention_pattern = f"<@&{role.id}>"
-                content = content.replace(role_mention_pattern, f"@{role.name}")
+        mentions_data = [
+            {"id": str(u.id), "username": u.name} for u in message.mentions
+        ]
+        role_mentions_data = [
+            {"id": str(r.id), "name": r.name} for r in message.role_mentions
+        ]
+        content = convert_discord_mentions_to_usernames(
+            content=content,
+            mentions_data=mentions_data,
+            role_mentions_data=role_mentions_data,
+            bot_discord_id=deployment.secrets.discord.application_id,
+            bot_name=agent.name,
+        )
 
         # Skip empty messages
         if not content and not media_urls:
@@ -869,18 +866,16 @@ async def process_message_for_all_deployments(
             mentions_data = [
                 {"id": str(u.id), "username": u.name} for u in message.mentions
             ]
+            role_mentions_data = [
+                {"id": str(r.id), "name": r.name} for r in message.role_mentions
+            ]
             content = convert_discord_mentions_to_usernames(
                 content=content,
                 mentions_data=mentions_data,
+                role_mentions_data=role_mentions_data,
                 bot_discord_id=bot_discord_id,
                 bot_name=bot_name,
             )
-
-        # Convert role mentions
-        if message.role_mentions:
-            for role_obj in message.role_mentions:
-                role_mention_pattern = f"<@&{role_obj.id}>"
-                content = content.replace(role_mention_pattern, f"@{role_obj.name}")
 
         # Extract and upload media
         media_urls = []

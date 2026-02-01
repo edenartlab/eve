@@ -7,12 +7,24 @@ from eve.agent import Agent
 from eve.agent.session.models import NotificationConfig, Session
 
 
+def _is_running_on_modal() -> bool:
+    """Check if we're running inside a Modal container"""
+    return os.getenv("MODAL_SERVE") == "1" or os.getenv("MODAL_IS_REMOTE") == "1"
+
+
+def _get_fastify_api_url() -> Optional[str]:
+    """Get the Fastify API URL, using localhost when not on Modal"""
+    if _is_running_on_modal():
+        return os.getenv("EDEN_FASTIFY_API_URL")
+    return os.getenv("EDEN_LOCAL_API_URL", "http://localhost:5050")
+
+
 async def check_if_session_active(user_id: str, session_id: str) -> dict:
     """Check if user is actively viewing a session via the API"""
     import httpx
 
     try:
-        api_url = os.getenv("EDEN_FASTIFY_API_URL")
+        api_url = _get_fastify_api_url()
         if not api_url:
             return {"is_active": False, "redis_available": False}
 
@@ -71,7 +83,7 @@ async def create_session_message_notification(
     import httpx
 
     try:
-        api_url = os.getenv("EDEN_FASTIFY_API_URL")
+        api_url = _get_fastify_api_url()
         if not api_url:
             return
 
