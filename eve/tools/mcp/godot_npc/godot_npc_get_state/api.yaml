@@ -1,0 +1,27 @@
+name: Get NPC Environment State
+description: |
+  Get complete environment state including NPC positions, landmarks, distances, and game time.
+  Returns a detailed text description suitable for understanding the 3D environment.
+
+  COORDINATE SYSTEM:
+  - X axis: +X = East, -X = West
+  - Y axis: +Y = Up, -Y = Down
+  - Z axis: +Z = South, -Z = North
+
+  This should typically be called first before issuing movement commands.
+tip: Call this first to understand where the NPC is and what landmarks are nearby.
+cost_estimate: 0
+output_type: string
+active: true
+visible: true
+handler: mcp
+mcp_server_url: ${GODOT_NPC_MCP_URL}
+mcp_tool_name: npc_get_state
+mcp_timeout: 30
+parameters:
+  npc_id:
+    type: string
+    label: NPC ID
+    description: ID of the NPC to query (default 'npc_01')
+    default: npc_01
+    required: false
