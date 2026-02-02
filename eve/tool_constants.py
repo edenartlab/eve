@@ -108,6 +108,12 @@ CHIBA_TOOLS = _discover_tools("chiba")
 WZRD_TOOLS = _discover_tools("wzrd")
 HOME_ASSISTANT_TOOLS = _discover_tools("home_assistant")
 RETRIEVAL_TOOLS = _discover_tools("retrieval")
+GODOT_NPC_TOOLS = [
+    "godot_npc_control",
+    "godot_npc_get_state",
+    "godot_npc_navigate",
+    "godot_npc_stop",
+]
 
 DISCORD_TOOLS = ["discord_post", "discord_search", "discord_broadcast_dm"]
 TELEGRAM_TOOLS = ["telegram_post"]
@@ -154,9 +160,7 @@ EDEN_DB_TOOLS = [
 
 CONTEXT7_MCP_TOOLS = ["context7_resolve_library_id"]
 CALCULATOR_MCP_TOOLS = ["calculator_calculate"]
-EDEN_MCP_TOOLS = [
-    # BEGIN GENERATED EDEN MCP TOOLS
-    # auto-generated
+ARTIFACT_TOOLS = [
     "eden_artifacts_v3_create",
     "eden_artifacts_v3_delete",
     "eden_artifacts_v3_get",
@@ -166,10 +170,12 @@ EDEN_MCP_TOOLS = [
     "eden_artifacts_v3_patch_items",
     "eden_artifacts_v3_update",
     "eden_artifacts_v3_update_permissions",
+]
+EDEN_MCP_TOOLS = [
+    *ARTIFACT_TOOLS,
     "eden_ping",
     "eden_search_creations",
     "eden_v3_sessions_prompt",
-    # END GENERATED EDEN MCP TOOLS
 ]
 
 TOOL_SETS = {
@@ -188,6 +194,7 @@ TOOL_SETS = {
     "context7_mcp_tools": CONTEXT7_MCP_TOOLS,
     "calculator_mcp_tools": CALCULATOR_MCP_TOOLS,
     "eden_mcp_tools": EDEN_MCP_TOOLS,
+    "artifact_tools": ARTIFACT_TOOLS,
     "legacy_tools": [
         "legacy_create",
         "legacy_interpolate",
@@ -198,9 +205,7 @@ TOOL_SETS = {
     "all_tools": ALL_TOOLS,
 }
 
-FEATURE_FLAG_TOOL_SETS = {
-    "eden_mcp": EDEN_MCP_TOOLS,
-}
+FEATURE_FLAG_TOOL_SETS = {}
 
 BASE_TOOLS = [
     "create",

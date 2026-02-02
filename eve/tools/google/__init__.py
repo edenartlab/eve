@@ -76,9 +76,23 @@ async def veo_handler(args: dict, model: str):
 
     image = args.get("image")
     if image:
-        async with httpx.AsyncClient() as http_client:
-            response = await http_client.get(image, timeout=30.0)
-            response.raise_for_status()
+        async with httpx.AsyncClient(follow_redirects=True) as http_client:
+            # Use browser-like headers to avoid 403 errors from CloudFront/WAF
+            headers = {
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                "Accept": "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
+                "Accept-Language": "en-US,en;q=0.9",
+                "Accept-Encoding": "gzip, deflate, br",
+                "Connection": "keep-alive",
+            }
+            try:
+                response = await http_client.get(image, timeout=30.0, headers=headers)
+                response.raise_for_status()
+            except httpx.HTTPStatusError as e:
+                raise ValueError(
+                    f"Failed to fetch input image from {image}: {e.response.status_code} {e.response.reason_phrase}. "
+                    "The image URL may be expired, protected, or the server is blocking requests."
+                ) from e
             mime_type = response.headers.get("content-type")
             if not mime_type:
                 mime_type = mimetypes.guess_type(urlparse(image).path)[0]
@@ -240,15 +254,25 @@ async def _nano_banana_gcp(args: dict, model: str) -> dict:
     # Add any input images first
     if args.get("image_input"):
         for image_url in args["image_input"]:
-            async with httpx.AsyncClient() as http_client:
-                # Use User-Agent header to avoid 403 errors from CloudFront/WAF
+            async with httpx.AsyncClient(follow_redirects=True) as http_client:
+                # Use browser-like headers to avoid 403 errors from CloudFront/WAF
                 headers = {
-                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                    "Accept": "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
+                    "Accept-Language": "en-US,en;q=0.9",
+                    "Accept-Encoding": "gzip, deflate, br",
+                    "Connection": "keep-alive",
                 }
-                response = await http_client.get(
-                    image_url, timeout=30.0, headers=headers
-                )
-                response.raise_for_status()
+                try:
+                    response = await http_client.get(
+                        image_url, timeout=30.0, headers=headers
+                    )
+                    response.raise_for_status()
+                except httpx.HTTPStatusError as e:
+                    raise ValueError(
+                        f"Failed to fetch input image from {image_url}: {e.response.status_code} {e.response.reason_phrase}. "
+                        "The image URL may be expired, protected, or the server is blocking requests."
+                    ) from e
                 mime_type = response.headers.get("content-type")
                 if not mime_type:
                     mime_type = mimetypes.guess_type(urlparse(image_url).path)[0]

@@ -14,7 +14,6 @@ from bson import ObjectId
 from loguru import logger
 from pydantic import BaseModel
 
-from eve import db
 from eve.agent.llm.formatting import (
     construct_anthropic_tools,
 )
@@ -32,7 +31,6 @@ from eve.agent.session.models import (
     LLMUsage,
     ToolCall,
 )
-from eve.user import User
 
 # Anthropic web search tool configuration
 WEB_SEARCH_TOOL = {
@@ -221,74 +219,46 @@ class AnthropicProvider(LLMProvider):
                     start_time = datetime.now(timezone.utc)
 
                     # Create LLMCall to store raw request payload
-                    should_log_llm_call = db == "STAGE"
-                    logger.info(
-                        f"[ANTHROPIC_LLMCALL] Checking if should log: db={db}, "
-                        f"initial_should_log={should_log_llm_call}, "
-                        f"user_id={llm_call_metadata.get('user')}, "
-                        f"session={llm_call_metadata.get('session')}"
-                    )
-                    if not should_log_llm_call and llm_call_metadata.get("user"):
-                        try:
-                            user = User.from_mongo(llm_call_metadata.get("user"))
-                            should_log_llm_call = user.is_admin()
-                            logger.info(
-                                f"[ANTHROPIC_LLMCALL] User lookup: is_admin={should_log_llm_call}"
-                            )
-                        except ValueError as e:
-                            logger.warning(
-                                f"[ANTHROPIC_LLMCALL] User lookup failed: {e}"
-                            )
-                            pass  # User not found in current DB environment
+                    try:
+                        truncated_payload = truncate_base64_in_payload(request_kwargs)
 
-                    logger.info(
-                        f"[ANTHROPIC_LLMCALL] Final should_log_llm_call={should_log_llm_call}"
-                    )
-                    if should_log_llm_call:
-                        try:
-                            truncated_payload = truncate_base64_in_payload(
-                                request_kwargs
-                            )
+                        # Parse session_id - it may be prefixed with DB name like "STAGE-{id}"
+                        session_id_raw = llm_call_metadata.get("session")
+                        session_oid = None
+                        if session_id_raw:
+                            # Extract ObjectId from "DB-{id}" format if present
+                            if "-" in session_id_raw:
+                                session_oid = ObjectId(session_id_raw.split("-", 1)[1])
+                            else:
+                                session_oid = ObjectId(session_id_raw)
 
-                            # Parse session_id - it may be prefixed with DB name like "STAGE-{id}"
-                            session_id_raw = llm_call_metadata.get("session")
-                            session_oid = None
-                            if session_id_raw:
-                                # Extract ObjectId from "DB-{id}" format if present
-                                if "-" in session_id_raw:
-                                    session_oid = ObjectId(
-                                        session_id_raw.split("-", 1)[1]
-                                    )
-                                else:
-                                    session_oid = ObjectId(session_id_raw)
+                        llm_call = LLMCall(
+                            provider=self.provider_name,
+                            model=effective_model,
+                            request_payload=truncated_payload,
+                            start_time=start_time,
+                            status="pending",
+                            session=session_oid,
+                            agent=ObjectId(llm_call_metadata.get("agent"))
+                            if llm_call_metadata.get("agent")
+                            else None,
+                            user=ObjectId(llm_call_metadata.get("user"))
+                            if llm_call_metadata.get("user")
+                            else None,
+                        )
+                        llm_call.save()
+                        logger.info(
+                            f"[ANTHROPIC_LLMCALL] Created LLMCall id={llm_call.id}"
+                        )
+                    except Exception as e:
+                        logger.error(
+                            f"[ANTHROPIC_LLMCALL] Failed to create LLMCall: {e}"
+                        )
+                        import traceback
 
-                            llm_call = LLMCall(
-                                provider=self.provider_name,
-                                model=effective_model,
-                                request_payload=truncated_payload,
-                                start_time=start_time,
-                                status="pending",
-                                session=session_oid,
-                                agent=ObjectId(llm_call_metadata.get("agent"))
-                                if llm_call_metadata.get("agent")
-                                else None,
-                                user=ObjectId(llm_call_metadata.get("user"))
-                                if llm_call_metadata.get("user")
-                                else None,
-                            )
-                            llm_call.save()
-                            logger.info(
-                                f"[ANTHROPIC_LLMCALL] Created LLMCall id={llm_call.id}"
-                            )
-                        except Exception as e:
-                            logger.error(
-                                f"[ANTHROPIC_LLMCALL] Failed to create LLMCall: {e}"
-                            )
-                            import traceback
-
-                            logger.error(
-                                f"[ANTHROPIC_LLMCALL] Traceback: {traceback.format_exc()}"
-                            )
+                        logger.error(
+                            f"[ANTHROPIC_LLMCALL] Traceback: {traceback.format_exc()}"
+                        )
 
                     betas = []
                     if response_format_class or output_format_payload:
@@ -332,7 +302,7 @@ class AnthropicProvider(LLMProvider):
                     llm_response = self._to_llm_response(response)
 
                     # Update LLMCall with response data
-                    if should_log_llm_call and llm_call:
+                    if llm_call:
                         duration_ms = int(
                             (end_time - start_time).total_seconds() * 1000
                         )
@@ -514,53 +484,43 @@ class AnthropicProvider(LLMProvider):
                 betas.append("advanced-tool-use-2025-11-20")
             beta_kwargs = {"betas": betas} if betas else {}
 
-            # Determine if we should log LLMCall
-            should_log_llm_call = db == "STAGE"
-            if not should_log_llm_call and llm_call_metadata.get("user"):
-                try:
-                    user = User.from_mongo(llm_call_metadata.get("user"))
-                    should_log_llm_call = user.is_admin()
-                except ValueError:
-                    pass  # User not found in current DB environment
-
             # Create LLMCall before streaming starts
             llm_call = None
             start_time = datetime.now(timezone.utc)
-            if should_log_llm_call:
-                try:
-                    truncated_payload = truncate_base64_in_payload(request_kwargs)
+            try:
+                truncated_payload = truncate_base64_in_payload(request_kwargs)
 
-                    # Parse session_id - it may be prefixed with DB name like "STAGE-{id}"
-                    session_id_raw = llm_call_metadata.get("session")
-                    session_oid = None
-                    if session_id_raw:
-                        if "-" in session_id_raw:
-                            session_oid = ObjectId(session_id_raw.split("-", 1)[1])
-                        else:
-                            session_oid = ObjectId(session_id_raw)
+                # Parse session_id - it may be prefixed with DB name like "STAGE-{id}"
+                session_id_raw = llm_call_metadata.get("session")
+                session_oid = None
+                if session_id_raw:
+                    if "-" in session_id_raw:
+                        session_oid = ObjectId(session_id_raw.split("-", 1)[1])
+                    else:
+                        session_oid = ObjectId(session_id_raw)
 
-                    llm_call = LLMCall(
-                        provider=self.provider_name,
-                        model=model_name,
-                        request_payload=truncated_payload,
-                        start_time=start_time,
-                        status="pending",
-                        session=session_oid,
-                        agent=ObjectId(llm_call_metadata.get("agent"))
-                        if llm_call_metadata.get("agent")
-                        else None,
-                        user=ObjectId(llm_call_metadata.get("user"))
-                        if llm_call_metadata.get("user")
-                        else None,
-                    )
-                    llm_call.save()
-                    logger.info(
-                        f"[ANTHROPIC_STREAM_LLMCALL] Created LLMCall id={llm_call.id}"
-                    )
-                except Exception as e:
-                    logger.error(
-                        f"[ANTHROPIC_STREAM_LLMCALL] Failed to create LLMCall: {e}"
-                    )
+                llm_call = LLMCall(
+                    provider=self.provider_name,
+                    model=model_name,
+                    request_payload=truncated_payload,
+                    start_time=start_time,
+                    status="pending",
+                    session=session_oid,
+                    agent=ObjectId(llm_call_metadata.get("agent"))
+                    if llm_call_metadata.get("agent")
+                    else None,
+                    user=ObjectId(llm_call_metadata.get("user"))
+                    if llm_call_metadata.get("user")
+                    else None,
+                )
+                llm_call.save()
+                logger.info(
+                    f"[ANTHROPIC_STREAM_LLMCALL] Created LLMCall id={llm_call.id}"
+                )
+            except Exception as e:
+                logger.error(
+                    f"[ANTHROPIC_STREAM_LLMCALL] Failed to create LLMCall: {e}"
+                )
 
             stop_reason = None
             tool_calls: Dict[int, Dict[str, Any]] = {}
@@ -657,7 +617,7 @@ class AnthropicProvider(LLMProvider):
                 # Update LLMCall with response data
                 end_time = datetime.now(timezone.utc)
                 llm_call_id = None
-                if should_log_llm_call and llm_call:
+                if llm_call:
                     try:
                         duration_ms = int(
                             (end_time - start_time).total_seconds() * 1000

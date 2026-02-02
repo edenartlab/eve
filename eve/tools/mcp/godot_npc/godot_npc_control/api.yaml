@@ -1,0 +1,117 @@
+name: Godot NPC Control
+description: |
+  Control NPCs in a 3D Godot game environment. Supports walking, running, navigation with
+  pathfinding, facing directions, and teleportation.
+
+  COORDINATE SYSTEM (CRITICAL):
+  - X axis: +X = East, -X = West
+  - Y axis: +Y = Up, -Y = Down
+  - Z axis: +Z = South, -Z = North (counterintuitive - to go NORTH use negative Z!)
+
+  SPEED LEVELS: 0=stop, 0.3=slow, 0.5=walk, 1.0=brisk, 1.5=jog, 2.0=run
+
+  MOVEMENT OPTIONS:
+  - walk_* actions: Direct movement (straight line, no obstacle avoidance)
+  - navigate_* actions: Pathfinding with obstacle avoidance (RECOMMENDED)
+
+  Known landmarks: motorhome, lotus_tent, linkage_lab, mars_aerial, skid_steer,
+  busses, origin, player_spawn, center, north_area, south_area, east_area, west_area
+tip: |
+  Always call get_state first to understand the environment. For navigation, prefer
+  navigate_to_landmark over walk_to_landmark for obstacle avoidance. Poll is_navigating
+  to check progress.
+cost_estimate: 0
+output_type: string
+active: true
+visible: true
+handler: mcp
+mcp_server_url: ${GODOT_NPC_MCP_URL}
+mcp_tool_name: npc_control
+mcp_timeout: 30
+parameters:
+  action:
+    type: string
+    label: Action
+    description: |
+      The action to perform:
+      - get_state: Get environment state (positions, landmarks, distances)
+      - walk_direction: Walk in a [x,y,z] direction
+      - walk_cardinal: Walk in a cardinal direction (north, south, etc.)
+      - walk_to_position: Walk to [x,y,z] (straight line)
+      - walk_to_landmark: Walk to a landmark (straight line)
+      - navigate_to_position: Navigate to [x,y,z] with pathfinding (RECOMMENDED)
+      - navigate_to_landmark: Navigate to landmark with pathfinding (RECOMMENDED)
+      - is_navigating: Check navigation progress
+      - get_navigation_path: Get current path waypoints
+      - cancel_navigation: Stop navigation
+      - stop: Stop all movement
+      - face_direction: Face a [x,y,z] direction
+      - face_cardinal: Face a cardinal direction
+      - face_landmark: Face towards a landmark
+      - set_position: Teleport to [x,y,z]
+    required: true
+    choices:
+      - get_state
+      - walk_direction
+      - walk_cardinal
+      - walk_to_position
+      - walk_to_landmark
+      - navigate_to_position
+      - navigate_to_landmark
+      - is_navigating
+      - get_navigation_path
+      - cancel_navigation
+      - stop
+      - face_direction
+      - face_cardinal
+      - face_landmark
+      - set_position
+  npc_id:
+    type: string
+    label: NPC ID
+    description: ID of the NPC to control (default 'npc_01')
+    default: npc_01
+    required: false
+  direction:
+    type: array
+    label: Direction Vector
+    description: |
+      [x, y, z] direction vector for walk_direction or face_direction.
+      Y is usually 0. REMEMBER: -Z is North, +Z is South!
+      Examples: [0,0,-1]=North, [0,0,1]=South, [1,0,0]=East, [-1,0,0]=West
+    required: false
+  direction_name:
+    type: string
+    label: Cardinal Direction
+    description: Cardinal direction for walk_cardinal or face_cardinal
+    required: false
+    choices:
+      - north
+      - south
+      - east
+      - west
+      - northeast
+      - northwest
+      - southeast
+      - southwest
+  position:
+    type: array
+    label: Position
+    description: "[x, y, z] target position for walk_to_position, navigate_to_position, or set_position"
+    required: false
+  landmark:
+    type: string
+    label: Landmark
+    description: |
+      Landmark name for walk_to_landmark, navigate_to_landmark, or face_landmark.
+      Known landmarks: motorhome, lotus_tent, linkage_lab, mars_aerial, skid_steer,
+      busses, origin, player_spawn, center, north_area, south_area, east_area, west_area
+    required: false
+  speed:
+    type: number
+    label: Speed
+    description: "Movement speed 0.0-2.0 (0.5=walk, 1.0=brisk, 2.0=run)"
+    minimum: 0
+    maximum: 2
+    default: 0.5
+    required: false

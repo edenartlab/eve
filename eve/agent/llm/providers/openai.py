@@ -6,12 +6,12 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from bson import ObjectId
+from loguru import logger
 from openai import AsyncOpenAI
 from openai.types.chat import ChatCompletion
 from openai.types.chat.chat_completion_message import ChatCompletionMessage
 from pydantic import BaseModel
 
-from eve import db
 from eve.agent.llm.formatting import (
     construct_observability_metadata,
     construct_tools,
@@ -30,7 +30,6 @@ from eve.agent.session.models import (
     LLMUsage,
     ToolCall,
 )
-from eve.user import User
 
 
 class OpenAIProvider(LLMProvider):
@@ -117,15 +116,9 @@ class OpenAIProvider(LLMProvider):
                         request_kwargs["max_tokens"] = context.config.max_tokens
 
                     # Create LLMCall record before API call
-                    should_log_llm_call = db == "STAGE"
-                    if not should_log_llm_call and llm_call_metadata.get("user"):
-                        try:
-                            user = User.from_mongo(llm_call_metadata.get("user"))
-                            should_log_llm_call = user.is_admin()
-                        except ValueError:
-                            pass  # User not found in current DB environment
-                    if should_log_llm_call:
-                        truncated_payload = truncate_base64_in_payload(request_kwargs)
+                    llm_call = None
+                    truncated_payload = truncate_base64_in_payload(request_kwargs)
+                    try:
                         llm_call = LLMCall(
                             provider=self.provider_name,
                             model=canonical_name,
@@ -143,6 +136,8 @@ class OpenAIProvider(LLMProvider):
                             else None,
                         )
                         llm_call.save()
+                    except Exception as e:
+                        logger.error(f"[OPENAI_LLMCALL] Failed to create LLMCall: {e}")
 
                     response = await self.client.chat.completions.create(
                         **request_kwargs
@@ -165,7 +160,7 @@ class OpenAIProvider(LLMProvider):
                     )
 
                     # Update LLMCall with response data
-                    if should_log_llm_call:
+                    if llm_call:
                         llm_call.update(
                             status="completed",
                             end_time=end_time,

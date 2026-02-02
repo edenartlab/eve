@@ -1,10 +1,10 @@
 {
     "user_id": "65284b18f8bbb9bff13ebe65",
     "agent_id": "675f880479e00297cd9b4688",
-    "script": "A dramatic film trailer for a sci-fi thriller.\n\nStructure:\n- 0-8s: Quiet, tense intro (instrumental only)\n- 8-20s: Building tension with ominous music (instrumental only)\n- 20-25s: Musical climax/drop\n- 25-30s: Final dramatic line spoken over the aftermath\n\nThe only spoken line comes at the end:\nNARRATOR: \"They thought they were gods... until the sky fell.\"\n\nUse a composition_plan to structure the music precisely, with the dramatic drop at 20s. Generate the narrator line separately, pad it to start at 25s, then mix over the instrumental track.",
+    "script": "A dramatic film trailer for a sci-fi thriller.\n\nStructure:\n- 0-8s: Quiet, tense intro\n- 8-20s: Building tension with ominous music\n- 20-25s: Musical climax/drop\n- 25-30s: Final dramatic line spoken over the aftermath\n\nThe only spoken line comes at the end:\nNARRATOR: \"They thought they were gods... until the sky fell.\"\n\nWorkflow:\n1. Generate the narrator line with elevenlabs_speech\n2. Use elevenlabs_music with a composition_plan (include positive_global_styles, negative_global_styles, and sections with all required fields: section_name, positive_local_styles, negative_local_styles, duration_ms, lines as empty arrays for instrumental)\n3. Use audio_pad to delay the narrator line to start at ~25s\n4. Use audio_mix to layer the narrator over the instrumental",
     "voices": [
         {"speaker": "NARRATOR", "voice": "deep dramatic male voice, gravelly, ominous"}
     ],
-    "music_style": "dark cinematic trailer music, tension building, massive brass hits, electronic elements, Hans Zimmer style",
+    "music_style": "dark cinematic trailer music, tension building, massive brass hits, electronic hybrid orchestral, epic and dramatic film score style",
     "duration": 30
 }

@@ -41,8 +41,20 @@ class MCPTool(Tool):
         None, description="TTL seconds for minted user MCP tokens"
     )
 
+    def _is_running_on_modal(self) -> bool:
+        """Check if we're running inside a Modal container"""
+        return os.getenv("MODAL_SERVE") == "1" or os.getenv("MODAL_IS_REMOTE") == "1"
+
+    def _get_local_api_base(self) -> str:
+        """Get the local API base URL for non-Modal environments"""
+        return os.getenv("EDEN_LOCAL_API_URL", "http://localhost:5050")
+
     def _resolve_server_url(self) -> str:
-        return os.path.expandvars(self.mcp_server_url)
+        if self._is_running_on_modal():
+            return os.path.expandvars(self.mcp_server_url)
+        # When running locally, use localhost instead of the env var
+        local_base = self._get_local_api_base()
+        return f"{local_base}/mcp"
 
     def _build_url_with_auth(self) -> str:
         """Build URL with query parameters from environment variables"""
@@ -96,7 +108,12 @@ class MCPTool(Tool):
         if not api_key:
             return None
 
-        url = os.path.expandvars(self.mcp_user_token_url)
+        if self._is_running_on_modal():
+            url = os.path.expandvars(self.mcp_user_token_url)
+        else:
+            # When running locally, use localhost
+            local_base = self._get_local_api_base()
+            url = f"{local_base}/v2/mcp/token"
         payload: Dict[str, Any] = {"userId": user_id}
         if self.mcp_user_token_ttl_seconds:
             payload["ttlSeconds"] = int(self.mcp_user_token_ttl_seconds)

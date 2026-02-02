@@ -36,7 +36,7 @@ class Concept(Document):
 
 
 @handle_errors
-def create_concept_thumbnail(concept: Concept) -> str:
+async def create_concept_thumbnail(concept: Concept) -> str:
     try:
         if not concept.images:
             raise APIError("No images found", status_code=400)

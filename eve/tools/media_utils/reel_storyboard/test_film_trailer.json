@@ -1,0 +1,11 @@
+{
+    "user_id": "65284b18f8bbb9bff13ebe65",
+    "agent_id": "675f880479e00297cd9b4688",
+    "audio_url": "https://dtut5r9j4w7j4.cloudfront.net/b88bb8424e34d16c29412f920fa339d15e4a29be7229fea16bdbb436ad3d093a.mp3",
+    "transcript": "Callum 25.0-28.1 : They thought they were gods... until the sky fell.",
+    "composition_plan": "{ \"positive_global_styles\": [ \"dark cinematic trailer\", \"epic orchestral\", \"electronic hybrid\", \"massive percussion\", \"tension building\" ], \"negative_global_styles\": [ \"light\", \"upbeat\", \"comedic\", \"soft\" ], \"sections\": [ { \"section_name\": \"Quiet Tense Intro\", \"positive_local_styles\": [ \"ominous drones\", \"subtle bass pulses\", \"eerie atmosphere\", \"quiet tension\" ], \"negative_local_styles\": [ \"loud\", \"bright\", \"melodic\" ], \"duration_ms\": 8000, \"lines\": [] }, { \"section_name\": \"Building Tension\", \"positive_local_styles\": [ \"rising strings\", \"growing percussion\", \"electronic pulses intensifying\", \"orchestral swell\", \"increasing dread\" ], \"negative_local_styles\": [ \"drop too early\", \"quiet\", \"calm\" ], \"duration_ms\": 12000, \"lines\": [] }, { \"section_name\": \"Epic Drop\", \"positive_local_styles\": [ \"massive brass hits\", \"thunderous drums\", \"epic orchestral climax\", \"huge percussion impacts\" ], \"negative_local_styles\": [ \"quiet\", \"subtle\", \"minimal\" ], \"duration_ms\": 5000, \"lines\": [] }, { \"section_name\": \"Dramatic Aftermath\", \"positive_local_styles\": [ \"haunting resonance\", \"ominous decay\", \"dark ambient wash\", \"apocalyptic atmosphere\" ], \"negative_local_styles\": [ \"loud percussion\", \"busy\", \"bright\" ], \"duration_ms\": 5000, \"lines\": [] } ] }",
+    "instructions": "Sci-fi thriller trailer about the two ceramic heads pictured. Visuals should depict: an advanced civilization of floating disembodied ceramic heads that believed themselves invincible, cosmic/celestial imagery, catastrophic destruction from above. The final keyframe should show the aftermath with the narrator's ominous line. Dark, cinematic, epic scope. Think Blade Runner meets Interstellar meets apocalyptic destruction.",
+    "image_references": [
+        "https://dtut5r9j4w7j4.cloudfront.net/c3dd01d06d0d348ccfc84016fe148fcd37dcc64ae597b1facd9fd8fd33787099.png"
+    ]
+}

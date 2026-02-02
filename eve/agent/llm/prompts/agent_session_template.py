@@ -71,9 +71,11 @@ agent_session_template = Template("""
     </CreateTool>
     {% endif %}
     {% if 'elevenlabs' in tools %}
-    <VoiceTool provider="elevenlabs"{% if voice %} default_voice_id="{{ voice }}"{% endif %}>
+    <VoiceTool provider="elevenlabs"{% if voice %} default_voice_name="{{ voice }}"{% endif %}>
       - Voice generation is useful for voiceovers, narration, or dialogue.{% if voice %}
-      - Use your default voice ({{ voice }}) as your own voice; only switch on request or when portraying other characters.{% endif %}
+      - Your default voice is "{{ voice }}" - use this exact string as the voice parameter (case-insensitive).
+      - Only switch voices on request or when portraying other characters.
+      - Use elevenlabs_search_voices to discover other voice names.{% endif %}
     </VoiceTool>
     {% endif %}
     {% if 'create' in tools and loras %}

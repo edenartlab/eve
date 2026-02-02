@@ -1,9 +1,11 @@
 name: Reel Storyboard Artist
-description: Create keyframe images with timing for video production. Produces storyboard from audio and transcript.
+description: Create keyframe images with timing for video production. Produces storyboard from audio, transcript, and optional composition plan.
 tip: |-
   Storyboard artist for reel pipeline. Creates keyframe images synced to audio timing.
-  Output format: KEYFRAMES block with timing and image URLs.
-  Keyframe count = ceil(duration / 5). Generate sequentially with reference chaining.
+  Uses composition_plan for awareness of musical sections (intros, drops, buildups).
+  Output: ordered keyframes with timestamps (5-8s intervals each) and image URLs.
+  Strategy: Generate 3 seed images first for consistency, then use as references for remaining keyframes.
+  Returns `storyboard_transcript` in result: JSON array of {start, end, image_url, description} for each keyframe.
 cost_estimate: 100
 output_type: image
 active: true
@@ -22,14 +24,27 @@ parameters:
     description: 'Timestamped transcript from reel_audio in format "Speaker 0.0-3.2 : text"'
     required: true
 
-  style_references:
+  composition_plan:
+    type: string
+    label: Composition plan
+    description: JSON composition plan from reel_audio showing musical sections with timestamps (intros, drops, buildups, etc.)
+    tip: Use this to time visuals to musical moments - dramatic visuals for drops, calm scenes for intros, etc.
+    required: false
+
+  image_references:
     type: array
     items:
       anyOf:
         - type: image
-    label: Style references
-    description: Style or character reference images for visual consistency.
-    tip: Use 1-2 references max. More causes confusion.
+    label: Image references
+    description: Reference images for visual guidance - characters, settings, objects, style/aesthetics, or mood.
+    tip: |-
+      Attach images to establish visual elements. Can depict:
+      - Characters (faces, costumes, body types)
+      - Settings/environments (locations, architecture, landscapes)
+      - Important objects or props
+      - Style/aesthetics (art style, color palette, lighting mood)
+      These augment or replace the seed image generation step. For best results, provide 1-3 key references.
     required: false
 
   instructions:
