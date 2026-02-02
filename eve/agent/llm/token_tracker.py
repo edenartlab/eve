@@ -6,7 +6,16 @@ components of the LLM input context. Results are logged to CSV files
 on a Modal Volume for later analysis.
 
 IMPORTANT: All methods in this module are designed to fail gracefully
-and will never raise exceptions that could crash the main code loop.
+and will NEVER raise exceptions that could crash the main code loop.
+The track_request method runs entirely in a background thread, ensuring
+the main event loop is never blocked by tracking operations.
+
+Thread Safety:
+- track_request() is fire-and-forget: it serializes data and submits to
+  a background ThreadPoolExecutor, returning immediately
+- All data processing (XML parsing, token counting) happens in background threads
+- File I/O (CSV writing) is performed in the same background thread
+- Any errors are logged but never propagate to the caller
 
 Output file:
 - token_usage_{DB}.csv: Token breakdown by category with content (for analysis and debugging)
@@ -17,7 +26,7 @@ for the assistant message output. Files are suffixed with DB env (STAGE/PROD).
 Usage:
     from eve.agent.llm.token_tracker import token_tracker
 
-    # Track an LLM request - single entry point
+    # Track an LLM request - single entry point (fire-and-forget)
     await token_tracker.track_request(
         model=context.config.model,
         system=system_message,
@@ -812,20 +821,22 @@ class TokenTracker:
         # Pass these to let track_request extract metadata automatically
         instrumentation: Any = None,
         metadata: Any = None,
-    ) -> Optional[Dict[str, Any]]:
+    ) -> None:
         """
         Track an LLM API request with automatic XML parsing for system messages.
+
+        IMPORTANT: This method is fire-and-forget. It immediately submits all
+        tracking work to a background thread and returns without blocking.
+        Any errors in tracking will be logged but will NEVER affect the caller.
 
         This is the primary entry point for token tracking. Call this method once,
         right before the actual LLM API call, with the exact data being sent.
 
         The method:
-        1. Extracts metadata from instrumentation/metadata objects if not provided directly
-        2. Parses the system message to extract XML hierarchy (system/*)
-        3. Tracks each message by role (messages/user, messages/assistant)
-        4. Tracks tool results from assistant messages (messages/tool_result/{tool_name})
-        5. Tracks each tool schema (tools/{tool_name})
-        6. Flushes to storage asynchronously
+        1. Captures all necessary data from inputs
+        2. Submits ALL tracking work to a background thread
+        3. Returns immediately (non-blocking)
+        4. In background: parses system message, tracks messages/tools, writes to CSV
 
         Args:
             model: Model name being used
@@ -843,7 +854,7 @@ class TokenTracker:
             metadata: LLMContextMetadata object (for extracting metadata)
 
         Returns:
-            Summary dict with "total_tokens" and "breakdown" (or None on error)
+            None - this method is fire-and-forget for performance
 
         Example:
             await token_tracker.track_request(
@@ -856,10 +867,6 @@ class TokenTracker:
             )
         """
         try:
-            # Default terminal tags if not provided
-            if terminal_tags is None:
-                terminal_tags = []
-
             # Extract metadata from instrumentation if available
             if instrumentation:
                 if not session_run_id:
@@ -893,29 +900,128 @@ class TokenTracker:
             if not session_run_id:
                 session_run_id = str(uuid.uuid4())
 
+            # Capture all data needed for background processing
+            # We serialize message/tool data upfront to avoid accessing objects from another thread
+            messages_data = self._serialize_messages(messages)
+            tools_data = self._serialize_tools(tools)
+
+            tracking_params = {
+                "model": model,
+                "system": system,
+                "messages_data": messages_data,
+                "tools_data": tools_data,
+                "terminal_tags": terminal_tags or [],
+                "session_run_id": session_run_id,
+                "agent_id": _safe_str(agent_id),
+                "agent_name": _safe_str(agent_name),
+                "session_id": _safe_str(session_id),
+                "user_id": _safe_str(user_id),
+            }
+
+            # Submit ALL tracking work to background thread - returns immediately
+            self._executor.submit(self._track_request_background, tracking_params)
+
+        except Exception as e:
+            # Log but never crash - this is fire-and-forget
+            try:
+                logger.warning(f"[TokenTracker] Failed to submit tracking: {e}")
+            except Exception:
+                pass
+
+    def _serialize_messages(self, messages: Optional[List["ChatMessage"]]) -> List[Dict[str, Any]]:
+        """Serialize messages to plain dicts for thread-safe background processing."""
+        if not messages:
+            return []
+
+        serialized = []
+        for msg in messages:
+            try:
+                msg_data = {
+                    "role": getattr(msg, "role", None),
+                    "content": getattr(msg, "content", None) or "",
+                    "tool_calls": [],
+                }
+                # Serialize tool_calls if present
+                if hasattr(msg, "tool_calls") and msg.tool_calls:
+                    for tc in msg.tool_calls:
+                        try:
+                            tc_data = {
+                                "name": getattr(tc, "name", None),
+                                "tool": getattr(tc, "tool", None),
+                                "args": getattr(tc, "args", None),
+                                "status": getattr(tc, "status", None),
+                                "error": getattr(tc, "error", None),
+                                "result": getattr(tc, "result", None),
+                            }
+                            msg_data["tool_calls"].append(tc_data)
+                        except Exception:
+                            pass
+                serialized.append(msg_data)
+            except Exception:
+                pass
+        return serialized
+
+    def _serialize_tools(self, tools: Optional[Union[Dict[str, "Tool"], List["Tool"]]]) -> List[Dict[str, Any]]:
+        """Serialize tools to plain dicts for thread-safe background processing."""
+        if not tools:
+            return []
+
+        serialized = []
+        try:
+            tools_iter = tools.items() if isinstance(tools, dict) else [
+                (getattr(t, "key", None) or getattr(t, "name", "unknown"), t) for t in tools
+            ]
+            for tool_name, tool in tools_iter:
+                try:
+                    schema = (
+                        tool.anthropic_schema()
+                        if hasattr(tool, "anthropic_schema")
+                        else {}
+                    )
+                    serialized.append({
+                        "name": tool_name,
+                        "schema": schema,
+                    })
+                except Exception:
+                    pass
+        except Exception:
+            pass
+        return serialized
+
+    def _track_request_background(self, params: Dict[str, Any]) -> None:
+        """
+        Background thread worker that does all tracking work.
+
+        This runs in the ThreadPoolExecutor and handles:
+        - Registering the call
+        - Parsing system message XML
+        - Processing messages and tools
+        - Finalizing and flushing to CSV
+
+        Any exceptions are caught and logged - they never propagate to the main thread.
+        """
+        session_run_id = params.get("session_run_id", "unknown")
+        try:
             # Register the call
             with self._lock:
                 self._cleanup_expired()
-
-                agent_id_str = _safe_str(agent_id)
-                session_id_str = _safe_str(session_id)
-
                 self._calls[session_run_id] = {
                     "session_run_id": session_run_id,
                     "timestamp": datetime.now(timezone.utc).isoformat(),
-                    "agent_id": agent_id_str,
-                    "agent_name": _safe_str(agent_name),
-                    "session_id": session_id_str,
-                    "user_id": _safe_str(user_id),
-                    "model": model,
+                    "agent_id": params.get("agent_id"),
+                    "agent_name": params.get("agent_name"),
+                    "session_id": params.get("session_id"),
+                    "user_id": params.get("user_id"),
+                    "model": params.get("model"),
                     "chunks": [],
                     "_created_at": time.time(),
                 }
 
-            # Convert terminal_tags to a set for efficient lookup
+            terminal_tags = params.get("terminal_tags", [])
             terminal_tag_set = set(terminal_tags) if terminal_tags else set()
 
             # 1. Parse system message with XML hierarchy
+            system = params.get("system")
             if system:
                 system_sections = parse_xml_sections(
                     system,
@@ -929,105 +1035,107 @@ class TokenTracker:
                         section["content"],
                     )
 
-            # 2. Track messages by role
-            if messages:
-                for msg in messages:
-                    try:
-                        # Skip system messages - they're tracked via system parameter
-                        if msg.role == "system":
-                            continue
+            # 2. Track messages by role (using pre-serialized data)
+            messages_data = params.get("messages_data", [])
+            for msg_data in messages_data:
+                try:
+                    role = msg_data.get("role")
+                    # Skip system messages - they're tracked via system parameter
+                    if role == "system":
+                        continue
 
-                        # Determine the category based on role
-                        role = msg.role
-                        if role == "tool":
-                            role = "tool_result"
+                    if role == "tool":
+                        role = "tool_result"
 
-                        # Serialize message content
-                        content = msg.content or ""
+                    content = msg_data.get("content", "")
+                    tool_calls = msg_data.get("tool_calls", [])
 
-                        # Include tool_calls in assistant messages if present
-                        if hasattr(msg, "tool_calls") and msg.tool_calls:
-                            tool_calls_str = json.dumps(
-                                [
-                                    {"name": tc.name, "args": tc.args}
-                                    for tc in msg.tool_calls
-                                ],
-                                default=str,
-                            )
-                            content = f"{content}\n[Tool Calls: {tool_calls_str}]"
-
-                        if content:
-                            self._add_chunk(
-                                session_run_id,
-                                f"messages/{role}",
-                                content,
-                            )
-
-                        # Track tool results separately (these consume significant tokens)
-                        # Tool results are stored in the tool_calls of assistant messages
-                        if hasattr(msg, "tool_calls") and msg.tool_calls:
-                            for tc in msg.tool_calls:
-                                try:
-                                    tool_name = getattr(tc, "tool", None) or getattr(tc, "name", "unknown")
-
-                                    # Build result data matching what gets sent to the API
-                                    result_data = {"status": getattr(tc, "status", None)}
-                                    if getattr(tc, "error", None):
-                                        result_data["error"] = tc.error
-                                    if getattr(tc, "result", None) is not None:
-                                        result_data["result"] = tc.result
-
-                                    result_content = json.dumps(result_data, default=str)
-                                    self._add_chunk(
-                                        session_run_id,
-                                        f"messages/tool_result/{tool_name}",
-                                        result_content,
-                                    )
-                                except Exception:
-                                    pass
-                    except Exception:
-                        pass
-
-            # 3. Track tools by name
-            if tools:
-                tools_iter = tools.items() if isinstance(tools, dict) else [(t.key if hasattr(t, "key") else t.name, t) for t in tools]
-                for tool_name, tool in tools_iter:
-                    try:
-                        # Get the tool schema
-                        schema = (
-                            tool.anthropic_schema()
-                            if hasattr(tool, "anthropic_schema")
-                            else {}
+                    # Include tool_calls in assistant messages if present
+                    if tool_calls:
+                        tool_calls_str = json.dumps(
+                            [{"name": tc.get("name"), "args": tc.get("args")} for tc in tool_calls],
+                            default=str,
                         )
-                        schema_str = json.dumps(schema, default=str)
+                        content = f"{content}\n[Tool Calls: {tool_calls_str}]"
+
+                    if content:
                         self._add_chunk(
                             session_run_id,
-                            f"tools/{tool_name}",
-                            schema_str,
+                            f"messages/{role}",
+                            content,
                         )
-                    except Exception:
-                        pass
 
-            # 4. Finalize and flush asynchronously
+                    # Track tool results separately
+                    for tc in tool_calls:
+                        try:
+                            tool_name = tc.get("tool") or tc.get("name") or "unknown"
+                            result_data = {"status": tc.get("status")}
+                            if tc.get("error"):
+                                result_data["error"] = tc.get("error")
+                            if tc.get("result") is not None:
+                                result_data["result"] = tc.get("result")
+
+                            result_content = json.dumps(result_data, default=str)
+                            self._add_chunk(
+                                session_run_id,
+                                f"messages/tool_result/{tool_name}",
+                                result_content,
+                            )
+                        except Exception:
+                            pass
+                except Exception:
+                    pass
+
+            # 3. Track tools by name (using pre-serialized data)
+            tools_data = params.get("tools_data", [])
+            for tool_data in tools_data:
+                try:
+                    tool_name = tool_data.get("name", "unknown")
+                    schema = tool_data.get("schema", {})
+                    schema_str = json.dumps(schema, default=str)
+                    self._add_chunk(
+                        session_run_id,
+                        f"tools/{tool_name}",
+                        schema_str,
+                    )
+                except Exception:
+                    pass
+
+            # 4. Finalize and flush to CSV (all in this same background thread)
             call_data = self._finalize_call_data(session_run_id, full_prompt=None)
             if call_data:
-                self._flush_call_data(call_data)
-                return {
-                    "total_tokens": call_data.get("_total_tokens"),
-                    "breakdown": call_data.get("_summary"),
-                }
-
-            return None
+                # Flush directly - we're already in a background thread
+                self._flush_to_csv_direct(call_data)
 
         except Exception as e:
-            logger.warning(f"[TokenTracker] track_request failed: {e}")
+            try:
+                logger.warning(f"[TokenTracker] Background tracking failed for {session_run_id}: {e}")
+            except Exception:
+                pass
             # Clean up on error
             try:
                 with self._lock:
                     self._calls.pop(session_run_id, None)
             except Exception:
                 pass
-            return None
+
+    def _flush_to_csv_direct(self, call_data: Dict[str, Any]) -> bool:
+        """
+        Flush call data directly to CSV (called from background thread).
+
+        This method is called from _track_request_background which already
+        runs in the ThreadPoolExecutor, so no additional thread submission needed.
+        """
+        try:
+            if self._flush_fn:
+                return self._flush_fn(call_data)
+            return self._flush_to_csv(call_data)
+        except Exception as e:
+            try:
+                logger.warning(f"[TokenTracker] CSV flush failed: {e}")
+            except Exception:
+                pass
+            return False
 
 
 # Global singleton instance

@@ -179,7 +179,7 @@ Facts are accessible through two complementary mechanisms:
 
 #### 1. FIFO (Always-in-Context)
 
-Recent facts are automatically included in the agent's context:
+Recent facts are automatically included in the agent's always-on context (do not need to be retrieved):
 
 - **Age Filter**: Only facts within `FACTS_FIFO_MAX_AGE_HOURS` (default: 7 days)
 - **Count Limit**: Maximum `FACTS_FIFO_LIMIT` facts (default: 40)
@@ -195,7 +195,7 @@ Recent facts are automatically included in the agent's context:
 
 #### 2. RAG Tool (`search_facts`)
 
-Agents with memory enabled automatically receive the `search_facts` tool for explicit memory searches:
+Agents with memory enabled automatically receive the `search_facts` tool for explicit memory searches that lets them access all FACTS ever created:
 
 **Tool Definition:**
 ```yaml
@@ -219,7 +219,7 @@ parameters:
 - **Result Fusion**: Reciprocal Rank Fusion (RRF) to merge and re-rank results
 
 **When the Agent Should Use It**:
-- When the answer is not in current memory context
+- When the answer to a specific question is not in current memory context
 - Recalling specific information (emails, URLs, specifications)
 - Finding stored data from conversations days/weeks ago
 
