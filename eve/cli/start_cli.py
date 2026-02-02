@@ -92,8 +92,7 @@ def start(agent: str, db: str, platforms: tuple, local: bool):
     help="Port to run the server on",
 )
 @click.option(
-    "--reload",
-    is_flag=True,
+    "--reload/--no-reload",
     default=True,
     help="Enable auto-reload on code changes",
 )
@@ -140,10 +139,14 @@ def api(host: str, port: int, reload: bool, db: str, remote_debug: bool, mock: b
         click.style(f"Starting API server on {host}:{port} with DB={db}...", fg="blue")
     )
 
+    app_root = Path(__file__).parent.parent.parent
+    reload_dirs = [str(app_root)] if reload else None
+
     uvicorn.run(
         "eve.api.api:web_app",
         host=host,
         port=port,
         reload=reload,
-        app_dir=str(Path(__file__).parent.parent.parent),
+        reload_dirs=reload_dirs,
+        app_dir=str(app_root),
     )

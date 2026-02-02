@@ -229,6 +229,7 @@ def _extract_system_message(messages: List[ChatMessage]) -> str:
     system_parts = [m.content for m in messages if m.role == "system" and m.content]
     return "\n\n".join(system_parts)
 
+
 async def async_prompt(
     context: LLMContext,
     provider: Optional[LLMProvider] = None,
@@ -276,6 +277,20 @@ async def async_prompt_stream(
         raise RuntimeError(
             f"No LLM provider available for model {context.config.model}"
         )
+
+    if context.enable_tracing:
+        try:
+            system_msg = _extract_system_message(context.messages)
+            await token_tracker.track_request(
+                model=context.config.model,
+                system=system_msg,
+                messages=context.messages,
+                tools=context.tools,
+                instrumentation=context.instrumentation,
+                metadata=context.metadata,
+            )
+        except Exception as e:
+            logger.debug(f"Token tracking failed: {e}")
 
     async for chunk in resolved_provider.prompt_stream(context):
         yield chunk
