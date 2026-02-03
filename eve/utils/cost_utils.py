@@ -273,6 +273,27 @@ def _build_expression_parser(variables: Dict[str, Any]) -> ParserElement:
     return expr
 
 
+def _coerce_value(value: Any) -> Any:
+    """Auto-coerce string values that look like numbers or booleans."""
+    if not isinstance(value, str):
+        return value
+    # Check for boolean strings
+    if value.lower() in ("true", "false"):
+        return value.lower() == "true"
+    # Try integer first
+    try:
+        return int(value)
+    except ValueError:
+        pass
+    # Try float
+    try:
+        return float(value)
+    except ValueError:
+        pass
+    # Return as-is if not numeric
+    return value
+
+
 def eval_cost(expression: str, **variables: Any) -> Any:
     """Evaluate a JavaScript‑style expression in Python.
 
@@ -316,6 +337,8 @@ def eval_cost(expression: str, **variables: Any) -> Any:
         other numeric results are returned as ``float``.  Strings,
         booleans and ``None`` values are returned unchanged.
     """
+    # Auto-coerce string values that look like numbers or booleans
+    variables = {k: _coerce_value(v) for k, v in variables.items()}
     # Build a parser configured with the provided variables.  This
     # parser encapsulates the evaluation logic via parse actions.
     parser = _build_expression_parser(variables)
