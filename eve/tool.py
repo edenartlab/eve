@@ -576,6 +576,30 @@ class Tool(Document, ABC):
                 and isinstance(args[field], str)
             ):
                 args[field] = json.loads(args[field])
+            if (
+                parameter.get("type") == "integer"
+                and field in args
+                and isinstance(args[field], str)
+            ):
+                try:
+                    args[field] = int(args[field])
+                except ValueError:
+                    pass  # Leave as string if conversion fails
+            if (
+                parameter.get("type") == "float"
+                and field in args
+                and isinstance(args[field], str)
+            ):
+                try:
+                    args[field] = float(args[field])
+                except ValueError:
+                    pass  # Leave as string if conversion fails
+            if (
+                parameter.get("type") == "boolean"
+                and field in args
+                and isinstance(args[field], str)
+            ):
+                args[field] = args[field].lower() in ("true", "1", "yes")
             if field in args:
                 prepared_args[field] = args[field]
             elif parameter.get("default") == "random":

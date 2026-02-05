@@ -1579,6 +1579,7 @@ async def handle_extract_agent_prompts(request):
         ],
         config=LLMConfig(
             model=model,
+            fallback_models=["gpt-5-nano"],
             response_format=AgentPromptsResponse,
         ),
         metadata=LLMContextMetadata(
@@ -1595,7 +1596,10 @@ async def handle_extract_agent_prompts(request):
         enable_tracing=True,
     )
 
-    response = await async_prompt(context)
+    try:
+        response = await async_prompt(context)
+    except Exception as e:
+        raise APIError(f"LLM service unavailable. Please try again later. ({type(e).__name__})", status_code=503)
 
     # Parse the structured response
     if hasattr(response, "parsed"):

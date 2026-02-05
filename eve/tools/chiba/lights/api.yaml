@@ -14,6 +14,8 @@ tip: |-
 
   "Chiba" usually refers to the combined galleries and auditorium, but not including the terrace or Mimos.
 
+  If the user asks for a color theme that implies a palette of colors, distribute the color choices across all zones. examples might include "cops", alternating red and blue, "rainbow" which would distribute ROYGBI across zones, "fireplace" which might involve different dim hues between warm white, yellow and orange, or any other vague concept that isn't a specific color request
+
   Presets: all-off, all-on, warm-dim, cool-bright, max-bright
 
   Do **not** use a preset unless the user specifically requests it. If the user asks you to change "all" the lights, you can do so manually using target=all and parameters.
