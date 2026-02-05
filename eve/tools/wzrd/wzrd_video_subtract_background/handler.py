@@ -28,8 +28,8 @@ async def handler(context: ToolContext):
     crf = context.args.get("crf", 18)
 
     # Download input files
-    video_path = download_file(video_url, "input_video.mp4")
-    background_path = download_file(background_url, "background.png")
+    video_path = download_file(video_url, "input_video.mp4", overwrite=True)
+    background_path = download_file(background_url, "background.png", overwrite=True)
 
     # Generate output path
     output_path = Path(tempfile.gettempdir()) / "subtracted_output.mp4"
