@@ -80,7 +80,7 @@ def _build_expression_parser(variables: Dict[str, Any]) -> ParserElement:
         lambda t: [int(t[0])]
     )
     real = pyparsing_common.fnumber.copy().setParseAction(lambda t: [float(t[0])])
-    number = real | integer
+    number = integer | real
 
     # Define string literals (single or double quoted).  These return
     # Python str values when parsed.  The escChar parameter ensures
@@ -204,6 +204,31 @@ def _build_expression_parser(variables: Dict[str, Any]) -> ParserElement:
             return not val
         raise ValueError(f"Unknown unary operator: {op}")
 
+    def _numeric(val):
+        """Coerce a value to a number for arithmetic (matches JS semantics).
+
+        None/null → 0, booleans → 0/1, strings that look numeric → number.
+        Non-numeric strings → 0 to avoid TypeError in arithmetic.
+        """
+        if val is None:
+            return 0
+        if isinstance(val, bool):
+            return int(val)
+        if isinstance(val, (int, float)):
+            return val
+        if isinstance(val, str):
+            if val == "":
+                return 0
+            try:
+                return int(val)
+            except ValueError:
+                pass
+            try:
+                return float(val)
+            except ValueError:
+                return 0
+        return 0
+
     def binary_eval(tokens):
         values = tokens[0]
         result = values[0]
@@ -213,13 +238,13 @@ def _build_expression_parser(variables: Dict[str, Any]) -> ParserElement:
             if op == "+":
                 result = result + right
             elif op == "-":
-                result = result - right
+                result = _numeric(result) - _numeric(right)
             elif op == "*":
-                result = result * right
+                result = _numeric(result) * _numeric(right)
             elif op == "/":
-                result = result / right
+                result = _numeric(result) / _numeric(right)
             elif op == "%":
-                result = result % right
+                result = _numeric(result) % _numeric(right)
             elif op == "<":
                 result = result < right
             elif op == "<=":
@@ -277,6 +302,9 @@ def _coerce_value(value: Any) -> Any:
     """Auto-coerce string values that look like numbers or booleans."""
     if not isinstance(value, str):
         return value
+    # Treat empty strings as None (missing value)
+    if value == "":
+        return None
     # Check for boolean strings
     if value.lower() in ("true", "false"):
         return value.lower() == "true"
