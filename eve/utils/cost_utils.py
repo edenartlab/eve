@@ -80,7 +80,7 @@ def _build_expression_parser(variables: Dict[str, Any]) -> ParserElement:
         lambda t: [int(t[0])]
     )
     real = pyparsing_common.fnumber.copy().setParseAction(lambda t: [float(t[0])])
-    number = integer | real
+    number = real | integer
 
     # Define string literals (single or double quoted).  These return
     # Python str values when parsed.  The escChar parameter ensures
