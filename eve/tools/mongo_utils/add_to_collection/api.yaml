@@ -1,7 +1,7 @@
 name: Add to Collection
 description: Add a creation to a Collection that is in the database
 tip: Use this tool to add a creation to a collection based on a search query.
-cost_estimate: 1
+cost_estimate: 0
 output_type: image
 active: true
 visible: false

@@ -897,11 +897,14 @@ async def process_twitter_tweet_fn(
     tweet_id: str,
     tweet_data: dict,
     deployment_id: str,
+    match_reason: str = None,
 ):
     """Modal wrapper for Twitter tweet processing"""
     from eve.agent.deployments.twitter import process_twitter_tweet
 
-    return await process_twitter_tweet(tweet_id, tweet_data, deployment_id)
+    return await process_twitter_tweet(
+        tweet_id, tweet_data, deployment_id, match_reason
+    )
 
 
 @app.function(

@@ -16,7 +16,7 @@ tip: |-
   For comprehensive searches across multiple channels, include all relevant channel names in a single query rather than making separate calls.
 
   DO NOT use topic-based queries like "new features" or "updates" - instead specify the actual channel names you want to search.
-cost_estimate: 1
+cost_estimate: 0
 output_type: array
 active: true
 handler: modal
