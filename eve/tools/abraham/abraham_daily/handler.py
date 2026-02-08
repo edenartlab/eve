@@ -16,6 +16,15 @@ from eve.user import User
 EXCLUDED_SESSION_IDS = [
     ObjectId("68f4e550da856906e1501ed4"),
     ObjectId("68e839b48dc2fa5b40e24448"),
+    ObjectId("69607f6085b97d97d6e87a35"),
+    ObjectId("69607f7b85b97d97d6e87a84"),
+    ObjectId("695c2d4035ecdb2123d96efe"),
+    ObjectId("697c54dec57344f3c9193290"),
+    ObjectId("6978986a055fbf484bac62f8"),
+    ObjectId("6981d728ef3ab8f5f0f57425"),
+    ObjectId("697b68b7bc76d13c3d4d8273"),
+    ObjectId("697c6e2def3ab8f5f08d05d2"),
+    ObjectId("6986eb66aac3b43b2e94296d"),
 ]
 
 
