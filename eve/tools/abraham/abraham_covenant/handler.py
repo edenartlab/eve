@@ -2,7 +2,6 @@ import logging
 import os
 from datetime import datetime
 
-from bson import ObjectId
 from web3 import Web3
 
 from eve.agent import Agent
@@ -12,7 +11,7 @@ from eve.tools.abraham.abraham_covenant.guardrails import (
     validate_creation,
     validate_ipfs_bundle,
 )
-from eve.tools.abraham.abraham_seed.handler import AbrahamCreation, AbrahamSeed
+from eve.tools.abraham.abraham_seed.handler import AbrahamCreation
 from eve.utils.chain_utils import (
     BlockchainError,
     Network,
@@ -200,8 +199,7 @@ async def handler(context: ToolContext):
     logger.info(f"Poster image: {poster_image}")
     logger.info(f"Video: {video}")
 
-    abraham_seed = AbrahamSeed.find_one({"session_id": ObjectId(session_id)})
-    num_creations = len(AbrahamSeed.find({"status": "creation"}))
+    num_creations = len(AbrahamCreation.find({}))
     num_rest_days = num_creations // 6
     index = num_creations + num_rest_days + 1
 
@@ -231,12 +229,7 @@ async def handler(context: ToolContext):
             explorer_url=result["explorer_url"],
             minted_at=datetime.now(),
         )
-
-        # Update creation status
-        abraham_seed.update(
-            status="creation",
-            creation=creation.model_dump(),
-        )
+        creation.save()
 
         return {
             "output": [
