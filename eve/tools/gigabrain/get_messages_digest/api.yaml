@@ -10,11 +10,17 @@ parameters:
   session_ids:
     type: array
     label: Session IDs
-    description: Array of session ObjectIds to retrieve messages from
+    description: Array of session ObjectIds to retrieve messages from. Optional if all_sessions is true.
     tip: Provide one or more session IDs (as strings) to fetch messages from
-    required: true
+    required: false
     items:
       type: string
+  all_sessions:
+    type: boolean
+    label: All Sessions
+    description: If true, retrieve messages from all of the agent's sessions updated within the time window (uses session updatedAt, not createdAt)
+    tip: Use this to get a digest across all the agent's recent activity without specifying individual session IDs
+    default: false
   hours:
     type: number
     label: Hours

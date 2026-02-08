@@ -89,6 +89,7 @@ def get_agent_specific_tools(
                 "abraham_covenant",
                 "abraham_rest",
                 "abraham_seed",
+                "get_messages_digest",
             ]
         )
     elif username == "verdelis":

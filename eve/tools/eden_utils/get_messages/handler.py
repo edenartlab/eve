@@ -25,11 +25,14 @@ session_template = Template(
 
 def get_username(sender_id: ObjectId) -> str:
     """Get username from sender ObjectId, with fallback."""
-    if not sender_id:
+    if not sender_id or sender_id == ObjectId("000000000000000000000000"):
         return "unknown"
-    user = User.from_mongo(sender_id)
-    if user and user.username:
-        return user.username
+    try:
+        user = User.from_mongo(sender_id)
+        if user and user.username:
+            return user.username
+    except Exception:
+        pass
     return "unknown"
 
 

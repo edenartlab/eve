@@ -1,5 +1,5 @@
 import json
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from typing import List
 
 import pytz
@@ -9,7 +9,7 @@ from pydantic import BaseModel, Field
 from eve.agent.agent import Agent
 from eve.agent.llm.llm import async_prompt
 from eve.agent.llm.prompts.system_template import system_template
-from eve.agent.session.models import ChatMessage, LLMConfig, LLMContext
+from eve.agent.session.models import ChatMessage, LLMConfig, LLMContext, Session
 from eve.tool import ToolContext
 
 # Import the get_messages functionality
@@ -48,14 +48,15 @@ IMPORTANT: When referencing or quoting specific messages in your summary, always
 async def handler(context: ToolContext):
     agent_id = context.agent
     session_ids = context.args.get("session_ids", [])
+    all_sessions = context.args.get("all_sessions", False)
     hours = context.args.get("hours", 24)
     instructions = context.args.get("instructions", "")
 
     if not agent_id:
         return {"output": {"error": "agent is required"}}
 
-    if not session_ids:
-        return {"output": {"error": "session_ids is required"}}
+    if not session_ids and not all_sessions:
+        return {"output": {"error": "session_ids or all_sessions is required"}}
 
     if not instructions:
         return {"output": {"error": "instructions is required"}}
@@ -66,6 +67,24 @@ async def handler(context: ToolContext):
     agent = Agent.from_mongo(agent_id)
     if not agent:
         return {"output": {"error": f"Agent not found: {agent_id}"}}
+
+    # If all_sessions is true, query all sessions for this agent updated within the time window
+    if all_sessions:
+        cutoff_time = datetime.now(timezone.utc) - timedelta(hours=hours)
+        sessions = Session.find(
+            {
+                "agents": agent_id,
+                "updatedAt": {"$gte": cutoff_time},
+            }
+        )
+        session_ids = [str(s.id) for s in sessions]
+        if not session_ids:
+            return {
+                "output": {
+                    "summary": "No sessions found for this agent in the specified time window.",
+                    "attachments": [],
+                }
+            }
 
     # Call get_messages to get the raw messages and attachments
     # Session filtering by agent membership is handled by get_messages via context.agent

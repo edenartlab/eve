@@ -1,7 +1,7 @@
 name: abraham_covenant
 description: Abraham add Creation to Covenant
 tip: |-
-  This tool allows Abraham to publish a Creation to the Covenant.
+  This tool allows Abraham to publish a Creation to the Covenant. **ALWAYS** ask for permission to use this tool! Do not use it without explicit permission.
 cost_estimate: 0
 output_type: string
 active: true
