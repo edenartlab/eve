@@ -1,15 +1,22 @@
 import math
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
+from bson import ObjectId
 from jinja2 import Template
 
 from eve.agent import Agent
 from eve.agent.session.models import Session
 from eve.tool import ToolContext
 from eve.tools.abraham.abraham_rest.handler import rest
-from eve.tools.abraham.abraham_seed.handler import AbrahamSeed
+from eve.tools.abraham.abraham_seed.handler import AbrahamCreation
 from eve.tools.session_post.handler import handler as session_post_handler
 from eve.user import User
+
+# Sessions manually excluded from creation candidacy
+EXCLUDED_SESSION_IDS = [
+    ObjectId("68f4e550da856906e1501ed4"),
+    ObjectId("68e839b48dc2fa5b40e24448"),
+]
 
 
 def user_score(msg_count: int) -> float:
@@ -144,17 +151,33 @@ The tweet should strictly have only the following content: "{title} {link}" wher
 """)
 
 
-# daily_message_template = Template("""
-# Finish minting the new creation to the Covenant.
-
-# The reel in the last step completed. Its url is: https://d14i3advvh2bvd.cloudfront.net/243d3d3e4d30700c3868cd8651f8352d87c2d29778d24f2efd8939e506e6b98c.mp4
-
-# Now just finish the blog post, make the poster image (with nano banana), publish to the covenant using the `abraham_covenant` tool, along with the above, and then tweet it.""")
-
-
 async def commit_daily_work(agent: Agent, session: str):
-    abraham_seeds = AbrahamSeed.find({"status": "seed"})
-    sessions = Session.find({"_id": {"$in": [a.session_id for a in abraham_seeds]}})
+    # Gather session IDs to exclude: already-minted creations + manual exclusions
+    creations = AbrahamCreation.find({})
+    creation_session_ids = []
+    for c in creations:
+        if c.session_id:
+            try:
+                creation_session_ids.append(ObjectId(c.session_id))
+            except Exception:
+                pass
+    excluded_ids = creation_session_ids + EXCLUDED_SESSION_IDS
+
+    # Only consider sessions updated within the last 20 days
+    cutoff = datetime.now(timezone.utc) - timedelta(days=20)
+
+    # Find all eligible sessions:
+    # - Not already minted as a creation
+    # - Not manually excluded
+    # - Abraham is the only agent (no multi-agent sessions)
+    # - Active within the last 20 days
+    sessions = Session.find(
+        {
+            "_id": {"$nin": excluded_ids},
+            "agents": [agent.id],
+            "updatedAt": {"$gte": cutoff},
+        }
+    )
 
     candidates = []
     for session in sessions:
@@ -178,13 +201,17 @@ async def commit_daily_work(agent: Agent, session: str):
         total_messages = len(user_messages)
 
         # Sort users by message count (most to least)
+        def strip_prefixes(username, prefixes=("farcaster_", "twitter_", "discord_")):
+            for prefix in prefixes:
+                if username.startswith(prefix):
+                    return username[len(prefix) :]
+            return username
+
         users_sorted = sorted(
             [
                 {
                     "user_id": user_id,
-                    "username": User.from_mongo(user_id).username.replace(
-                        "farcaster_", ""
-                    ),
+                    "username": strip_prefixes(User.from_mongo(user_id).username),
                     "message_count": count,
                 }
                 for user_id, count in messages_per_user.items()

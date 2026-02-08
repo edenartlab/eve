@@ -32,14 +32,16 @@ ABRAHAM_PRIVATE_KEY = os.getenv("ABRAHAM_PRIVATE_KEY")
 CONTRACT_ABI_SEEDS = os.path.join(os.path.dirname(__file__), "abi_seeds.json")
 
 
-class AbrahamCreation(BaseModel):
+@Collection("abraham_creations")
+class AbrahamCreation(Document):
     index: int
     title: str
     tagline: str
     poster_image: str
     blog_post: str
     video: Optional[str] = None
-    session_id: str
+    session_id: Optional[str] = None
+    seed_id: Optional[ObjectId] = None
     contract_address: str
     tx_hash: str
     ipfs_hash: str
@@ -67,7 +69,7 @@ class AbrahamSeed(Document):
     url: str
     status: Literal["seed", "creation", "archived"]
     seed_metadata: Optional[SeedMetadata] = None
-    creation: Optional[AbrahamCreation] = None
+    creation: Optional[dict] = None
 
 
 def _check_contract_access(w3, contract, owner_address: str) -> None:

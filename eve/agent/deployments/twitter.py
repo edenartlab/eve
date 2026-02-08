@@ -746,11 +746,18 @@ async def poll_twitter_gateway(local_mode: bool = False):
                     break
 
                 # Check for errors in response
+                # Note: Twitter API v2 can return both "data" and "errors" together.
+                # "errors" for missing referenced tweets are non-fatal warnings.
                 if "errors" in response_data:
-                    logger.error(
-                        f"Twitter API returned errors: {response_data['errors']}"
-                    )
-                    break
+                    if "data" not in response_data:
+                        logger.error(
+                            f"Twitter API returned errors with no data: {response_data['errors']}"
+                        )
+                        break
+                    else:
+                        logger.warning(
+                            f"Twitter API returned partial errors (non-fatal): {response_data['errors']}"
+                        )
 
                 # Log results
                 result_count = len(response_data.get("data", []))
