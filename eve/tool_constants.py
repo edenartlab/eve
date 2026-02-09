@@ -124,6 +124,7 @@ SHOPIFY_TOOLS = ["shopify"]
 PRINTIFY_TOOLS = ["printify"]
 CAPTIONS_TOOLS = ["captions"]
 TIKTOK_TOOLS = ["tiktok_post"]
+MOLTBOOK_TOOLS = ["moltbook_post"]
 EMAIL_TOOLS = ["email_send"]
 GMAIL_TOOLS = ["gmail_send"]
 GOOGLE_CALENDAR_TOOLS = [
@@ -146,6 +147,7 @@ SOCIAL_MEDIA_TOOLS = [
     *GMAIL_TOOLS,
     *GOOGLE_CALENDAR_TOOLS,
     *INSTAGRAM_TOOLS,
+    *MOLTBOOK_TOOLS,
 ]
 
 EDEN_DB_TOOLS = [

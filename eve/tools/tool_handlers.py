@@ -80,6 +80,7 @@ HANDLER_PATHS = {
     "captions": "captions.handler",
     "printify": "printify.handler",
     "tiktok_post": "tiktok.tiktok_post.handler",
+    "moltbook_post": "moltbook.moltbook_post.handler",
     "session_post": "session_post.handler",
     "chat": "chat.handler",
     # Moderator tools for multi-agent session orchestration
