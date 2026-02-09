@@ -1184,6 +1184,7 @@ class ClientType(Enum):
     EMAIL = "email"
     APP = "app"
     GOOGLE_CALENDAR = "google_calendar"
+    MOLTBOOK = "moltbook"
 
 
 class NotificationType(Enum):
@@ -1445,6 +1446,15 @@ class DeploymentSecretsGoogleCalendar(BaseModel):
     google_email: str  # Email of the connected Google account
 
 
+# Moltbook Models
+class DeploymentSettingsMoltbook(BaseModel):
+    agent_name: Optional[str] = None
+
+
+class DeploymentSecretsMoltbook(BaseModel):
+    api_key: str
+
+
 # Combined Models
 class DeploymentSecrets(BaseModel):
     discord: DeploymentSecretsDiscord | None = None
@@ -1459,6 +1469,7 @@ class DeploymentSecrets(BaseModel):
     email: DeploymentSecretsEmail | None = None
     gmail: DeploymentSecretsGmail | None = None
     google_calendar: DeploymentSecretsGoogleCalendar | None = None
+    moltbook: DeploymentSecretsMoltbook | None = None
 
 
 class DeploymentConfig(BaseModel):
@@ -1474,6 +1485,7 @@ class DeploymentConfig(BaseModel):
     email: DeploymentSettingsEmail | None = None
     gmail: DeploymentSettingsGmail | None = None
     google_calendar: DeploymentSettingsGoogleCalendar | None = None
+    moltbook: DeploymentSettingsMoltbook | None = None
 
 
 @Collection("deployments2")

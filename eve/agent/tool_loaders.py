@@ -24,6 +24,7 @@ PLATFORM_TOOL_SETS = {
     "captions": None,
     "tiktok": None,
     "google_calendar": None,
+    "moltbook": None,
 }
 
 
@@ -39,6 +40,7 @@ def _get_platform_tool_sets():
             GMAIL_TOOLS,
             GOOGLE_CALENDAR_TOOLS,
             INSTAGRAM_TOOLS,
+            MOLTBOOK_TOOLS,
             PRINTIFY_TOOLS,
             SHOPIFY_TOOLS,
             TELEGRAM_TOOLS,
@@ -60,6 +62,7 @@ def _get_platform_tool_sets():
                 "email": EMAIL_TOOLS,
                 "gmail": GMAIL_TOOLS,
                 "google_calendar": GOOGLE_CALENDAR_TOOLS,
+                "moltbook": MOLTBOOK_TOOLS,
             }
         )
     return PLATFORM_TOOL_SETS

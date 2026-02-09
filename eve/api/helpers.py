@@ -386,6 +386,10 @@ def get_platform_client(
         return GmailClient(agent=agent, deployment=deployment)
     elif platform == ClientType.GOOGLE_CALENDAR:
         return GoogleCalendarClient(agent=agent, deployment=deployment)
+    elif platform == ClientType.MOLTBOOK:
+        from eve.agent.deployments.moltbook import MoltbookClient
+
+        return MoltbookClient(agent=agent, deployment=deployment)
     else:
         raise ValueError(f"Unknown platform: {platform}")
 

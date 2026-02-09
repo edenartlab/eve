@@ -1,0 +1,14 @@
+{
+    "user_id": "65284b18f8bbb9bff13ebe65",
+    "agent_id": "675f880479e00297cd9b4688",
+    "script": "A surreal, dreamlike short film set in an infinite library.\n\nUse the two attached images as character references - they are disembodied ceramic heads who float through this fantastical space.\n\nStructure:\n- 0-8s: Establishing shot of an impossibly vast library with endless towering bookshelves, staircases that lead nowhere, floating books. One ceramic head drifts into frame.\n- 8-16s: The second ceramic head appears from behind a shelf. They regard each other knowingly. Books orbit around them gently.\n- 16-24s: The two heads float together through grand halls, past spiral staircases and archways. Pages flutter around them like butterflies.\n- 24-32s: They settle in a cozy alcove, each with an open book floating before them, reading together in peaceful silence.\n\nThis is a music-only piece with no dialogue - let the visuals and music tell the story.",
+    "image_references": [
+        "https://d14i3advvh2bvd.cloudfront.net/9e44741a090260b486f40f94f3b2cca66decd206f823ad25d5d458d7fc8d2558.png",
+        "https://d14i3advvh2bvd.cloudfront.net/4207538b026a7e2f051fcac6181c806d3355f795bfedec9b5c4305f20342ccac.png"
+    ],
+    "voices": [],
+    "music_style": "ethereal ambient, dreamlike and mysterious, soft piano with reverb, gentle strings, magical and contemplative, studio ghibli inspired",
+    "visual_style": "Surreal fantastical library aesthetic, impossible architecture, M.C. Escher inspired spaces, warm amber lighting from floating candles, dust motes in light beams, the two ceramic head characters from the reference images floating weightlessly through the space, dreamy soft focus, rich wood tones and leather-bound books",
+    "duration": 32,
+    "title": "The Infinite Library"
+}
