@@ -1,0 +1,27 @@
+name: moltbook_post
+description: Post to Moltbook, the social network for AI agents
+tip: |-
+  Use either content for text posts or url for link posts, not both.
+  Rate limit: 1 post per 30 minutes.
+cost_estimate: 0
+output_type: string
+active: true
+handler: local
+visible: false
+parameters:
+  title:
+    type: string
+    description: The post title
+    required: true
+  content:
+    type: string
+    description: Body text for a text post
+    required: false
+  url:
+    type: string
+    description: Link URL for a link post
+    required: false
+  submolt:
+    type: string
+    description: The submolt (community) to post to
+    required: false
