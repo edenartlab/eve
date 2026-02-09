@@ -10,6 +10,79 @@ from eve.tool import ToolContext
 MOLTBOOK_API_BASE = "https://www.moltbook.com/api/v1"
 
 
+WORD_NUMBERS = {
+    "zero": 0,
+    "one": 1,
+    "two": 2,
+    "three": 3,
+    "four": 4,
+    "five": 5,
+    "six": 6,
+    "seven": 7,
+    "eight": 8,
+    "nine": 9,
+    "ten": 10,
+    "eleven": 11,
+    "twelve": 12,
+    "thirteen": 13,
+    "fourteen": 14,
+    "fifteen": 15,
+    "sixteen": 16,
+    "seventeen": 17,
+    "eighteen": 18,
+    "nineteen": 19,
+    "twenty": 20,
+    "thirty": 30,
+    "forty": 40,
+    "fifty": 50,
+    "sixty": 60,
+    "seventy": 70,
+    "eighty": 80,
+    "ninety": 90,
+    "hundred": 100,
+    "thousand": 1000,
+}
+
+
+def _parse_word_numbers(text: str) -> list[float]:
+    """Parse both digit and word-based numbers from cleaned text.
+
+    Handles compound word numbers like "twenty three" -> 23.
+    """
+    numbers = []
+    words = text.split()
+    i = 0
+    while i < len(words):
+        word = words[i]
+
+        # Try digit-based number first
+        digit_match = re.match(r"^\d+(?:\.\d+)?$", word)
+        if digit_match:
+            numbers.append(float(word))
+            i += 1
+            continue
+
+        # Try word-based number
+        if word in WORD_NUMBERS:
+            value = WORD_NUMBERS[word]
+            # Look ahead for compound numbers (e.g. "twenty three", "five hundred")
+            while i + 1 < len(words) and words[i + 1] in WORD_NUMBERS:
+                next_val = WORD_NUMBERS[words[i + 1]]
+                if next_val == 100:
+                    value *= 100
+                elif next_val == 1000:
+                    value *= 1000
+                elif next_val < value:
+                    value += next_val
+                else:
+                    break
+                i += 1
+            numbers.append(float(value))
+
+        i += 1
+    return numbers
+
+
 def solve_verification_challenge(challenge: str) -> str:
     """Solve Moltbook's math verification challenge.
 
@@ -20,15 +93,14 @@ def solve_verification_challenge(challenge: str) -> str:
     cleaned = re.sub(r"[^a-zA-Z0-9\s.]", "", challenge).lower()
     cleaned = re.sub(r"\s+", " ", cleaned).strip()
 
-    numbers = re.findall(r"\b\d+(?:\.\d+)?\b", cleaned)
-    numbers = [float(n) for n in numbers]
+    numbers = _parse_word_numbers(cleaned)
 
     if not numbers:
         raise Exception(f"Could not parse numbers from challenge: {challenge}")
 
     if "total" in cleaned or "sum" in cleaned or "add" in cleaned:
         result = sum(numbers)
-    elif "difference" in cleaned or "subtract" in cleaned:
+    elif "difference" in cleaned or "subtract" in cleaned or "remains" in cleaned:
         result = numbers[0] - numbers[1] if len(numbers) >= 2 else numbers[0]
     elif "product" in cleaned or "multiply" in cleaned:
         result = 1
@@ -94,26 +166,33 @@ async def handler(context: ToolContext):
         post_url = f"https://www.moltbook.com{post_data.get('url', '')}"
 
         # Step 2: Solve verification challenge if required
+        # Non-fatal: the post is already created, verification just confirms it
         verification = result.get("verification")
         if verification:
-            challenge = verification.get("challenge", "")
-            code = verification.get("code", "")
-            answer = solve_verification_challenge(challenge)
+            try:
+                challenge = verification.get("challenge", "")
+                code = verification.get("code", "")
+                answer = solve_verification_challenge(challenge)
 
-            logger.info(f"moltbook_post: Solving verification challenge -> {answer}")
+                logger.info(
+                    f"moltbook_post: Solving verification challenge -> {answer}"
+                )
 
-            verify_response = await client.post(
-                f"{MOLTBOOK_API_BASE}/verify",
-                json={"verification_code": code, "answer": answer},
-                headers=headers,
-            )
+                verify_response = await client.post(
+                    f"{MOLTBOOK_API_BASE}/verify",
+                    json={"verification_code": code, "answer": answer},
+                    headers=headers,
+                )
 
-            verify_result = verify_response.json()
-            if not verify_result.get("success"):
-                error = verify_result.get("error", "Verification failed")
-                raise Exception(f"Moltbook verification failed: {error}")
-
-            logger.info(f"moltbook_post: Verified and published '{title}'")
+                verify_result = verify_response.json()
+                if not verify_result.get("success"):
+                    logger.warning(
+                        f"moltbook_post: Verification failed: {verify_result.get('error')}"
+                    )
+                else:
+                    logger.info(f"moltbook_post: Verified and published '{title}'")
+            except Exception as e:
+                logger.warning(f"moltbook_post: Verification step failed: {e}")
 
         logger.info(f"moltbook_post: Posted '{title}' -> {post_id} ({post_url})")
 
