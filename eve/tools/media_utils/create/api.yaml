@@ -89,7 +89,7 @@ parameters:
     type: integer
     label: Number of samples
     description: Images only. How many variations, individual images, or samples to generate
-    tip: Generates multiple images. With model_preference=seedream, n_samples can be used for consistent sets (same identity/style across images). **NOTE** -- This parameter is not supported for nano_banana! Keep it at 1 unless using Seedream.
+    tip: Generates multiple images. With model_preference=seedream, n_samples can be used for consistent sets (same identity/style across images). **NOTE** -- This parameter is not supported for nano_banana! Keep it at 1 unless using Seedream. **IMPORTANT** -- If you get a 403 Forbidden on a reference image, almost definitely you made a transcription error or made up a URL that doesn't exist. Use previous outputs or concept image references instead.
     default: 1
     minimum: 1
     maximum: 15

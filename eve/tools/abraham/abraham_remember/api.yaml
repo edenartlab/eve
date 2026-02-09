@@ -1,0 +1,22 @@
+name: abraham_remember
+description: Recall and summarize Abraham's recent sessions, excluding already-minted creations, and identify the top candidate session for minting.
+tip: Use this tool to review your recent creative sessions and find the top-scoring session for the next Creation. Provide a prompt describing what you want to recall or analyze.
+cost_estimate: 1
+output_type: object
+active: true
+handler: modal
+visible: false
+parameters:
+  prompt:
+    type: string
+    description: Instructions or meta-prompt for the digest summary — what to look for or summarize across eligible sessions.
+    tip: Describe what you want to recall or analyze from your recent sessions.
+    required: true
+  hours:
+    type: number
+    label: Hours
+    description: Number of hours to look back from now
+    tip: Sessions older than this many hours will not be included
+    default: 480
+    minimum: 1
+    maximum: 720
