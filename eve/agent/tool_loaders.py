@@ -458,10 +458,6 @@ def inject_voice_parameters(
         return tools
 
     try:
-        # Simple TTS tool - inject as default parameter
-        if "elevenlabs" in tools:
-            tools["elevenlabs"].update_parameters({"voice": {"default": voice}})
-
         # Speech and Dialogue tools - add to tip since voice is nested in segments
         voice_tip = f'Your default voice is "{voice}" - use this for your own voice (case-insensitive).'
 

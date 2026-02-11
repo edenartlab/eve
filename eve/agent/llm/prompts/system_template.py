@@ -108,7 +108,7 @@ system_template = Template("""
       </UseCases>
     </CreateTool>
     {% endif %}
-    {% if 'elevenlabs' in tools %}
+    {% if 'elevenlabs_speech' in tools %}
     <VoiceTool provider="elevenlabs"{% if voice %} default_voice_name="{{ voice }}"{% endif %}>
       - Voice generation is useful for voiceovers, narration, or dialogue.{% if voice %}
       - Your default voice is "{{ voice }}" - use this exact string as the voice parameter (case-insensitive).

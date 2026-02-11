@@ -12,6 +12,7 @@ parameters:
     description: The session to post to (object id)
     tip: Only set this if you are posting to an existing session. Leave it blank to make a new session.
     required: false
+    aliases: [session_id]
   agent:
     type: string
     label: Agent
