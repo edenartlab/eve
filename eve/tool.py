@@ -555,6 +555,15 @@ class Tool(Document, ABC):
         return cost_estimate
 
     def prepare_args(self, args: dict):
+        # Resolve parameter aliases (e.g., session_id -> session)
+        alias_map = {}
+        for field in self.model.model_fields.keys():
+            for alias in self.parameters[field].get("aliases", []):
+                alias_map[alias] = field
+        for alias, field in alias_map.items():
+            if alias in args and field not in args:
+                args[field] = args.pop(alias)
+
         unrecognized_args = set(args.keys()) - set(self.model.model_fields.keys())
         if unrecognized_args:
             logger.warning(
