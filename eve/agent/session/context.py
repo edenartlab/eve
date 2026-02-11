@@ -599,7 +599,9 @@ async def build_system_message(
         )
 
     # Current datetime with timezone - this stays in the system message (never ages out)
-    current_datetime_utc = datetime.now(timezone.utc).strftime("%Y %b %-d, %-I:%M%p UTC")
+    current_datetime_utc = datetime.now(timezone.utc).strftime(
+        "%Y %b %-d, %-I:%M%p UTC"
+    )
 
     # Build system prompt with memory context
     content = system_template.render(
@@ -610,7 +612,7 @@ async def build_system_message(
         tools=tools,
         concepts=concepts,
         loras=lora_docs,
-        voice=actor.voice,
+        voice=getattr(actor, "_resolved_voice_name", None) or actor.voice,
         memory=memory,
         social_instructions=social_instructions,
         session_context=session.context,
@@ -1072,7 +1074,7 @@ async def build_agent_session_system_message(
         tools=tools,
         concepts=concepts,
         loras=loras,
-        voice=actor.voice,
+        voice=getattr(actor, "_resolved_voice_name", None) or actor.voice,
         memory=memory,
     )
 

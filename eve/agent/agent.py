@@ -263,7 +263,10 @@ class Agent(User):
         )
 
         # Inject voice parameter for elevenlabs
-        tools = inject_voice_parameters(tools, self.voice, self.username)
+        tools, resolved_voice = inject_voice_parameters(
+            tools, self.voice, self.username
+        )
+        self._resolved_voice_name = resolved_voice
 
         return tools
 
