@@ -2,6 +2,7 @@
 Tool loaders - dynamic parameter injection and filtering for platform-specific tools
 """
 
+import os
 import traceback
 from typing import Any, Callable, Dict, List, Optional
 
@@ -440,32 +441,74 @@ def inject_lora_parameters(
     return tools
 
 
+def resolve_elevenlabs_voice_name(voice: str) -> str:
+    """
+    Resolve an ElevenLabs voice ID to a human-readable voice name.
+
+    If voice is already a name (contains spaces or non-hex chars), returns as-is.
+    If voice looks like an ID, queries ElevenLabs API to get the name.
+
+    Returns the resolved name, or the original string if resolution fails.
+    """
+    # If it contains spaces or non-alphanumeric chars, it's likely already a name
+    if " " in voice or not all(c.isalnum() for c in voice):
+        return voice
+
+    # Short strings are likely names too (IDs are typically 20+ chars)
+    if len(voice) < 16:
+        return voice
+
+    # Looks like an ID — resolve it via the ElevenLabs API
+    try:
+        from elevenlabs.client import ElevenLabs
+
+        eleven = ElevenLabs(api_key=os.getenv("ELEVEN_API_KEY"))
+        response = eleven.voices.get_all()
+        for v in response.voices:
+            if v.voice_id == voice:
+                name = v.name or voice
+                # Return short name (before " - " suffix)
+                if " - " in name:
+                    return name.split(" - ")[0]
+                return name
+    except Exception as e:
+        logger.warning(f"Failed to resolve ElevenLabs voice ID '{voice}': {e}")
+
+    return voice
+
+
 def inject_voice_parameters(
     tools: Dict, voice: Optional[str], agent_username: str = None
-) -> Dict:
+) -> tuple[Dict, Optional[str]]:
     """
-    Inject voice parameter for elevenlabs tools
+    Inject voice parameter for elevenlabs tools.
+
+    Resolves voice IDs to human-readable names for tool tips.
 
     Args:
         tools: Dict of tool_name -> tool object
-        voice: Voice name to use as default
+        voice: Voice ID or name to use as default
         agent_username: Optional agent username for logging
 
     Returns:
-        Updated tools dict
+        Tuple of (updated tools dict, resolved voice display name)
     """
     if not voice:
-        return tools
+        return tools, None
 
+    voice_name = voice
     try:
+        # Resolve voice ID to human-readable name
+        voice_name = resolve_elevenlabs_voice_name(voice)
+
         # Speech and Dialogue tools - add to tip since voice is nested in segments
-        voice_tip = f'Your default voice is "{voice}" - use this for your own voice (case-insensitive).'
+        voice_tip = f'Your default voice is "{voice_name}" - use this for your own voice (case-insensitive).'
 
         for tool_name in ["elevenlabs_speech", "elevenlabs_dialogue"]:
             if tool_name in tools:
                 tool = tools[tool_name]
                 existing_tip = tool.tip or ""
-                if voice not in existing_tip:  # Don't duplicate
+                if voice_name not in existing_tip:  # Don't duplicate
                     tool.tip = (
                         f"{voice_tip}\n{existing_tip}" if existing_tip else voice_tip
                     )
@@ -488,4 +531,4 @@ def inject_voice_parameters(
             )
             sentry_sdk.capture_exception(e)
 
-    return tools
+    return tools, voice_name
