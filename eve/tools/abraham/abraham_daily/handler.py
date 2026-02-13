@@ -26,6 +26,7 @@ EXCLUDED_SESSION_IDS = [
     ObjectId("697c6e2def3ab8f5f08d05d2"),
     ObjectId("6986eb66aac3b43b2e94296d"),
     ObjectId("69898b2b0d9043b959efb037"),
+    ObjectId("698cfd3e0d9043b959349474"),
 ]
 
 
@@ -186,6 +187,7 @@ async def commit_daily_work(agent: Agent, session: str):
             "_id": {"$nin": excluded_ids},
             "agents": [agent.id],
             "updatedAt": {"$gte": cutoff},
+            "deleted": {"$ne": True},
         }
     )
 
