@@ -820,6 +820,13 @@ class PromptSessionRuntime:
         memory_context = self.session.memory_context
         memory_context.last_activity = datetime.now(timezone.utc)
         memory_context.messages_since_memory_formation += 1
+        # Track weighted tokens for token-based memory formation triggers
+        content = (assistant_message.content or "").strip()
+        if content:
+            # Agent messages weighted at 0.2, ~4.5 chars per token
+            memory_context.weighted_tokens_since_memory_formation += int(
+                len(content) * 0.2 / 4.5
+            )
         self.session.update(memory_context=memory_context.model_dump())
         self.session.memory_context = SessionMemoryContext(
             **self.session.memory_context

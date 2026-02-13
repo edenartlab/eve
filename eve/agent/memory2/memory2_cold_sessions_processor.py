@@ -49,6 +49,7 @@ async def process_cold_sessions():
     from eve.agent.memory2.constants import (
         CONSIDER_COLD_AFTER_MINUTES,
         LOCAL_DEV,
+        MEMORY_FORMATION_TOKEN_INTERVAL,
         NEVER_FORM_MEMORIES_LESS_THAN_N_MESSAGES,
     )
 
@@ -82,12 +83,22 @@ async def process_cold_sessions():
         }
 
         # First batch: Sessions with memory_context that need processing
+        # Trigger if EITHER enough messages OR enough weighted tokens accumulated
         query_with_context = {
             **base_query,
             "memory_context.last_activity": {"$lt": cutoff_time},
-            "memory_context.messages_since_memory_formation": {
-                "$gte": NEVER_FORM_MEMORIES_LESS_THAN_N_MESSAGES
-            },
+            "$or": [
+                {
+                    "memory_context.messages_since_memory_formation": {
+                        "$gte": NEVER_FORM_MEMORIES_LESS_THAN_N_MESSAGES
+                    }
+                },
+                {
+                    "memory_context.weighted_tokens_since_memory_formation": {
+                        "$gte": MEMORY_FORMATION_TOKEN_INTERVAL
+                    }
+                },
+            ],
         }
 
         logger.debug("Running queries...")

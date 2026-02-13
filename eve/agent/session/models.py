@@ -996,6 +996,7 @@ class SessionMemoryContext(BaseModel):
     last_activity: Optional[datetime] = None
     last_memory_message_id: Optional[ObjectId] = None
     messages_since_memory_formation: int = 0
+    weighted_tokens_since_memory_formation: int = 0
 
     # Memory freshness timestamps
     agent_memory_timestamp: Optional[datetime] = None

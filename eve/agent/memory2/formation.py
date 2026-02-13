@@ -214,7 +214,7 @@ async def form_memories(
     start_time = time.time()
 
     try:
-        if not messages or len(messages) < NEVER_FORM_MEMORIES_LESS_THAN_N_MESSAGES:
+        if not messages:
             return False
 
         # Load config if not provided
@@ -247,8 +247,13 @@ async def form_memories(
         # Extract message IDs only from the messages being processed
         message_ids = [msg.id for msg in recent_messages if hasattr(msg, "id")]
 
+        # Check if there's enough content to form memories:
+        # either enough messages OR enough weighted tokens
         if len(recent_messages) < NEVER_FORM_MEMORIES_LESS_THAN_N_MESSAGES:
-            return False
+            conversation_text, char_counts = messages_to_text(recent_messages)
+            tokens_since_last = estimate_weighted_tokens(char_counts)
+            if tokens_since_last < MEMORY_FORMATION_TOKEN_INTERVAL:
+                return False
 
         # IMMEDIATELY claim messages to prevent race conditions
         last_message_id = messages[-1].id if messages else None
@@ -522,6 +527,7 @@ def _update_memory_context(
             memory_context.last_activity = last_activity
 
         memory_context.messages_since_memory_formation = 0
+        memory_context.weighted_tokens_since_memory_formation = 0
 
         # Save to database
         session.update(memory_context=memory_context.model_dump())
