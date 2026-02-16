@@ -1,0 +1,46 @@
+name: wzrd_preprocess_surface
+description: Prepare a projection surface reference image by detecting, aligning, and darkening for projection mapping
+tip: |-
+  Two modes: (1) provide a single pre-cropped image to darken it for projection,
+  or (2) provide both a daytime photo and a nighttime photo (with projector on) to
+  run the full detect-align-darken pipeline. The night image is used to detect the
+  projection area, and the day image is aligned and darkened to match.
+cost_estimate: 5
+output_type: image
+active: true
+handler: modal
+visible: true
+parameters:
+  image:
+    type: string
+    label: Input Image
+    description: URL of the input image. In single-image mode this is the pre-cropped surface photo. In full-pipeline mode this is the daytime photo.
+    required: true
+  night_image:
+    type: string
+    label: Night Image
+    description: URL of the nighttime photo with projector illuminating the surface. When provided, the full detect-align-darken pipeline is used.
+    required: false
+  target_aspect:
+    type: string
+    label: Target Aspect Ratio
+    description: Target aspect ratio for the output image (This will determine the aspect ratio of all future generated video content)
+    tip: Common ratios like "16:9", "4:3", "1:1". Used for normalizing the output dimensions.
+    default: "16:9"
+    required: true
+  max_brightness:
+    type: float
+    label: Max Brightness
+    description: Maximum output luminance ceiling (0.0-1.0)
+    tip: Controls the peak brightness cap. Lower values produce darker results suitable for projection. Default of 0.25 works well for most setups.
+    default: 0.25
+    minimum: 0.01
+    maximum: 1.0
+    required: false
+  alignment_aids:
+    type: boolean
+    label: Alignment Aids
+    description: Generate alignment aid overlay video alongside the output
+    tip: Produces visualization aids useful for physically aligning the projector to the surface.
+    default: true
+    required: false
