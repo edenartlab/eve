@@ -743,6 +743,13 @@ async def add_chat_message(
     memory_context = session.memory_context
     memory_context.last_activity = datetime.now(timezone.utc)
     memory_context.messages_since_memory_formation += 1
+    # Track weighted tokens for token-based memory formation triggers
+    content = (context.message.content or "").strip()
+    if content:
+        # User messages weighted at 1.0, ~4.5 chars per token
+        memory_context.weighted_tokens_since_memory_formation += int(
+            len(content) * 1.0 / 4.5
+        )
     session.update(memory_context=memory_context.model_dump())
     session.memory_context = SessionMemoryContext(**session.memory_context)
 

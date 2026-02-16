@@ -69,7 +69,7 @@ dependencies = [
     "loguru>=0.7.3",
     "isodate>=0.6.1",
     "graphiti-core[falkordb,neptune]>=0.22.0",
-    "wzrd @ git+https://github.com/aiXander/WZRD.git@main",
+    "wzrd @ git+https://github.com/aiXander/WZRD.git@f96d859acc5c1108c52b3e74f9b6477b7c732252",
 ]
 
 [build-system]

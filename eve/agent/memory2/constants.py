@@ -69,14 +69,14 @@ else:
     CONSOLIDATION_THRESHOLDS = {
         "agent": 10,
         "user": 4,
-        "session": 4,
+        "session": 6,
     }
 
 # Maximum word count for consolidated blobs
 CONSOLIDATED_WORD_LIMITS = {
-    "agent": 1200,  # Largest - agent's full persona/project state
-    "user": 300,  # Medium - user preferences and interaction style
-    "session": 2000,  # Rich session state - accumulates for long sessions (games, complex tasks)
+    "agent": 2000,  # Largest - agent's full persona/project state
+    "user": 600,  # Small - user preferences and interaction style
+    "session": 1500,  # Medium session state - accumulates for long sessions (games, complex tasks)
 }
 
 # =============================================================================
