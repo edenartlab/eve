@@ -1,7 +1,7 @@
 name: wzrd_video_subtract_background
 description: Subtract the static background from a video to isolate bright creatures/elements for VJ projection
 tip: |-
-  Should be run on ai-generated video content to remove static projection surface reference textures. Requires a reference background image.
+  Should be run on ai-generated video content to remove static projection surface backgrounds from the projected light. Requires a reference background image.
 cost_estimate: 10
 output_type: video
 active: true
@@ -22,7 +22,7 @@ parameters:
     type: integer
     label: Threshold
     description: Difference threshold (0-255). Pixels below this are considered background.
-    tip: Lower values capture more subtle differences, higher values only capture major changes.
+    tip: Lower values capture more subtle differences, higher values only capture major changes. Typically 10-20
     default: 10
     minimum: 0
     maximum: 255
@@ -33,6 +33,6 @@ parameters:
     description: Gamma correction for extracted elements. Values below 1.0 brighten the output.
     tip: Default of 0.85 provides a slight brightness boost for additive blending.
     default: 0.85
-    minimum: 0.1
-    maximum: 3.0
+    minimum: 0.5
+    maximum: 1.5
     required: false

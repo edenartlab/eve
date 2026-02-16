@@ -2,9 +2,5 @@
     "video": "https://edenartlab-prod-data.s3.us-east-1.amazonaws.com/sample_video.mp4",
     "background": "https://edenartlab-prod-data.s3.us-east-1.amazonaws.com/background_frame.png",
     "threshold": 10,
-    "gamma": 0.85,
-    "diff_mode": "lab",
-    "output_mode": "additive",
-    "preview": false,
-    "crf": 18
+    "gamma": 0.85
 }
