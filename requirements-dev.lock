@@ -848,7 +848,7 @@ websockets==13.1
     # via web3
 wrapt==1.17.2
     # via langfuse
-wzrd @ git+https://github.com/aiXander/WZRD.git@f96d859acc5c1108c52b3e74f9b6477b7c732252
+wzrd @ git+https://github.com/aiXander/WZRD.git@517c554478c84957de068835ea2573d1da49af9b
     # via eve
 yamllint==1.37.1
     # via runway

@@ -32,8 +32,8 @@ parameters:
     type: float
     label: Max Brightness
     description: Maximum output luminance ceiling (0.0-1.0)
-    tip: Controls the peak brightness cap. Lower values produce darker results suitable for projection. Default of 0.25 works well for most setups.
-    default: 0.25
+    tip: Controls the peak brightness cap. Lower values produce darker results suitable for projection. The default works well for most setups.
+    default: 0.20
     minimum: 0.01
     maximum: 1.0
     required: false
