@@ -1,0 +1,120 @@
+name: Kling v3 Image to Video
+description: Generate 3-15s videos with audio from a starting image using Kling v3.0 Standard via FAL. Supports native audio generation, voice control, and custom character/object elements.
+tip: |-
+  Generate high-quality cinematic videos with native audio from a starting image. Supports optional end image, voice control, and custom elements (characters/objects) for more controlled video generation.
+  For voice control, reference voices in your prompt with <<<voice_1>>> and <<<voice_2>>>.
+  For custom elements, reference them in your prompt as @Element1, @Element2, etc.
+output_type: video
+cost_estimate: 'generate_audio ? 25 * parseInt(duration) : 17 * parseInt(duration)'
+handler: fal
+fal_endpoint: fal-ai/kling-video/v3/standard/image-to-video
+thumbnail: app/kling.mp4
+visible: true
+active: true
+parameters:
+  prompt:
+    label: Prompt
+    type: string
+    required: true
+    description: Text description of the video to generate.
+    tip: |-
+      Describe the motion and action you want in the video. Be specific about movements, camera work, and visual elements.
+      For voice control, reference voices with <<<voice_1>>> and <<<voice_2>>>.
+      For custom elements, reference them as @Element1, @Element2, etc.
+  start_image_url:
+    label: Input Image
+    type: image
+    required: true
+    description: URL of the image to be used as the starting frame of the video.
+    tip: |-
+      This image will be used as the first frame of the video. The model will animate from this starting point based on your prompt.
+      Max file size 10MB, min 300x300px, aspect ratio between 0.4 and 2.5.
+  duration:
+    label: Duration
+    type: string
+    required: false
+    default: "5"
+    choices:
+      - "3"
+      - "4"
+      - "5"
+      - "6"
+      - "7"
+      - "8"
+      - "9"
+      - "10"
+      - "11"
+      - "12"
+      - "13"
+      - "14"
+      - "15"
+    description: The duration of the generated video in seconds (3 to 15).
+  generate_audio:
+    label: Generate Audio
+    type: boolean
+    required: false
+    default: true
+    description: Whether to generate native audio for the video. Supports Chinese and English voice output.
+  end_image_url:
+    label: End Image
+    type: image
+    required: false
+    description: URL of the image to be used as the last frame of the video.
+    tip: |-
+      Optional. If provided, the video will transition from the starting image to this end image.
+  negative_prompt:
+    label: Negative Prompt
+    type: string
+    required: false
+    default: "blur, distort, and low quality"
+    description: Things to avoid in the video generation.
+    hide_from_agent: true
+  cfg_scale:
+    label: Guidance Scale
+    type: float
+    required: false
+    default: 0.5
+    minimum: 0
+    maximum: 1
+    step: 0.01
+    description: How closely to follow the prompt. Lower values give more creative freedom, higher values stick closer to the prompt.
+    hide_from_agent: true
+  aspect_ratio:
+    label: Aspect Ratio
+    type: string
+    required: false
+    default: "16:9"
+    choices:
+      - "16:9"
+      - "9:16"
+      - "1:1"
+    description: The aspect ratio of the generated video frame.
+    hide_from_agent: true
+  voice_ids:
+    label: Voice IDs
+    type: list
+    required: false
+    description: Voice IDs for voice control. Reference voices in your prompt with <<<voice_1>>> and <<<voice_2>>> (max 2 voices). Get voice IDs from the kling video create-voice endpoint.
+    hide_from_agent: true
+  elements:
+    label: Elements
+    type: list
+    required: false
+    description: Characters or objects to include in the video. Each element can be an image set (frontal + reference images) or a video. Reference in prompt as @Element1, @Element2, etc.
+    hide_from_agent: true
+  shot_type:
+    label: Shot Type
+    type: string
+    required: false
+    default: "customize"
+    choices:
+      - "customize"
+    description: The type of multi-shot video generation. Required when multi_prompt is provided.
+    hide_from_agent: true
+    hide_from_ui: true
+  multi_prompt:
+    label: Multi-Shot Prompts
+    type: list
+    required: false
+    description: List of prompts for multi-shot video generation. Divides the video into multiple shots. Each element has a prompt and duration.
+    hide_from_agent: true
