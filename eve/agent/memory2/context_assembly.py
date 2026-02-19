@@ -368,7 +368,7 @@ def _get_scope_memory_sync(
             agent_id=agent_id,
             user_id=user_id,
             session_id=session_id,
-            limit=10,  # Limit recent reflections to avoid context bloat
+            limit=20,  # Limit recent reflections to avoid context bloat
         )
 
         recent = None
