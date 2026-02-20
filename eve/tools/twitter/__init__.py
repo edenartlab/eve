@@ -100,6 +100,10 @@ class X:
         token_data = response.json()
         self.access_token = token_data["access_token"]
 
+        # Log the scopes returned by the refresh to detect scope loss
+        granted_scope = token_data.get("scope", "NOT RETURNED")
+        logging.info(f"Token refresh granted scopes: {granted_scope}")
+
         # Update refresh token if provided (Twitter uses rotating refresh tokens)
         if "refresh_token" in token_data:
             self.refresh_token = token_data["refresh_token"]
@@ -139,30 +143,12 @@ class X:
                 logging.warning("Got 401 Unauthorized, attempting token refresh...")
                 try:
                     self._refresh_token()
-                    # Wait for token propagation across Twitter's infrastructure
-                    time.sleep(2)
                     # Retry request with new token
                     kwargs["headers"]["Authorization"] = f"Bearer {self.access_token}"
                     if method.lower() == "get":
                         response = requests.get(url, **kwargs)
                     else:
                         response = requests.post(url, **kwargs)
-
-                    # If we get 403 right after a token refresh, retry once more
-                    # (token may not have fully propagated)
-                    if response.status_code == 403:
-                        logging.warning(
-                            "Got 403 Forbidden after token refresh, "
-                            "retrying after delay for propagation..."
-                        )
-                        time.sleep(3)
-                        kwargs["headers"]["Authorization"] = (
-                            f"Bearer {self.access_token}"
-                        )
-                        if method.lower() == "get":
-                            response = requests.get(url, **kwargs)
-                        else:
-                            response = requests.post(url, **kwargs)
                 except Exception as e:
                     logging.error(f"Token refresh failed: {e}")
 
@@ -179,12 +165,21 @@ class X:
                         response.text if response.text else "No error details available"
                     )
 
+                # Log response headers for debugging (access level, rate limits, etc.)
+                debug_headers = {
+                    k: v
+                    for k, v in response.headers.items()
+                    if k.lower().startswith(("x-", "retry-after"))
+                }
+
                 logging.error(
                     f"Twitter API Error:\n"
                     f"Status Code: {response.status_code}\n"
                     f"URL: {url}\n"
                     f"Method: {method.upper()}\n"
                     f"Error Data: {error_data}\n"
+                    f"Response Headers: {debug_headers}\n"
+                    f"Token prefix: {self.access_token[:8]}..."
                 )
                 response.raise_for_status()
 
