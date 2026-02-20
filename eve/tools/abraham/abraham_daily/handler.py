@@ -27,6 +27,14 @@ EXCLUDED_SESSION_IDS = [
     ObjectId("6986eb66aac3b43b2e94296d"),
     ObjectId("69898b2b0d9043b959efb037"),
     ObjectId("698cfd3e0d9043b959349474"),
+    ObjectId("69955ebb8648f23ec8360729"),
+    ObjectId("699573558648f23ec83871e7"),
+    ObjectId("69949bed8648f23ec81d93fa"),
+    ObjectId("699586828648f23ec839b8c4"),
+    ObjectId("6993aeb86ec56b9504804c4e"),
+    ObjectId("69954c7e8648f23ec832cc58"),
+    ObjectId("69931b426ec56b9504753ebf"),
+    ObjectId("699683dc8648f23ec84d723f"),
 ]
 
 
@@ -162,7 +170,13 @@ The tweet should strictly have only the following content: "{title} {link}" wher
 """)
 
 
-async def commit_daily_work(agent: Agent, session: str):
+def get_scored_candidates(agent: Agent) -> list:
+    """
+    Find and score eligible Abraham sessions.
+
+    Returns a sorted (highest score first) list of dicts with keys:
+        session, score, unique_users, total_messages, messages_per_user
+    """
     # Gather session IDs to exclude: already-minted creations + manual exclusions
     creations = AbrahamCreation.find({})
     creation_session_ids = []
@@ -182,71 +196,71 @@ async def commit_daily_work(agent: Agent, session: str):
     # - Not manually excluded
     # - Abraham is the only agent (no multi-agent sessions)
     # - Active within the last 20 days
+    # - Not a discord channel session
     sessions = Session.find(
         {
             "_id": {"$nin": excluded_ids},
             "agents": [agent.id],
             "updatedAt": {"$gte": cutoff},
             "deleted": {"$ne": True},
+            "platform": {"$ne": "discord"},
         }
     )
 
     candidates = []
-    for session in sessions:
-        messages = session.get_messages()
+    for s in sessions:
+        messages = s.get_messages()
         user_messages = [m for m in messages if m.role == "user"]
 
         # Count messages per unique user
         messages_per_user = {}
         for msg in user_messages:
-            user_id = msg.sender  # sender is an ObjectId field on ChatMessage
+            user_id = msg.sender
             if user_id:
                 user_id = str(user_id)
                 messages_per_user[user_id] = messages_per_user.get(user_id, 0) + 1
 
-        # Quadratic voting with anti-spam: first 5 messages get sqrt weight,
-        # messages 6-20 get logarithmic attenuation, hard cap at 20 messages.
-        # Example: 4 users with 4 messages each = 8 points vs 1 user with 100 messages = 3.07 points
+        # Quadratic voting with anti-spam
         score = sum(user_score(msg_count) for msg_count in messages_per_user.values())
-
-        unique_users = len(messages_per_user)
-        total_messages = len(user_messages)
-
-        # Sort users by message count (most to least)
-        def strip_prefixes(username, prefixes=("farcaster_", "twitter_", "discord_")):
-            for prefix in prefixes:
-                if username.startswith(prefix):
-                    return username[len(prefix) :]
-            return username
-
-        users_sorted = sorted(
-            [
-                {
-                    "user_id": user_id,
-                    "username": strip_prefixes(User.from_mongo(user_id).username),
-                    "message_count": count,
-                }
-                for user_id, count in messages_per_user.items()
-            ],
-            key=lambda x: x["message_count"],
-            reverse=True,
-        )
 
         candidates.append(
             {
-                "session": session,
+                "session": s,
                 "score": score,
-                "unique_users": unique_users,
-                "total_messages": total_messages,
-                "users": users_sorted,
+                "unique_users": len(messages_per_user),
+                "total_messages": len(user_messages),
+                "messages_per_user": messages_per_user,
             }
         )
 
-    candidates = sorted(candidates, key=lambda x: x["score"], reverse=True)
+    return sorted(candidates, key=lambda x: x["score"], reverse=True)
+
+
+async def commit_daily_work(agent: Agent, session: str):
+    candidates = get_scored_candidates(agent)
+
+    def strip_prefixes(username, prefixes=("farcaster_", "twitter_", "discord_")):
+        for prefix in prefixes:
+            if username.startswith(prefix):
+                return username[len(prefix) :]
+        return username
+
     winner = candidates[0]
+    users_sorted = sorted(
+        [
+            {
+                "user_id": user_id,
+                "username": strip_prefixes(User.from_mongo(user_id).username),
+                "message_count": count,
+            }
+            for user_id, count in winner["messages_per_user"].items()
+        ],
+        key=lambda x: x["message_count"],
+        reverse=True,
+    )
 
     daily_message = daily_message_template.render(
-        usernames=[user["username"] for user in winner["users"][:3]],
+        usernames=[user["username"] for user in users_sorted[:3]],
     )
 
     args = {
@@ -295,8 +309,10 @@ async def handler(context: ToolContext):
     if agent.username != "abraham":
         raise Exception("Agent is not Abraham")
 
-    # check if UTC hour is 2, 4, 6, etc
-    if datetime.now(timezone.utc).weekday() == 5:  # Saturday is 5 (Monday is 0)
-        return await abraham_rest(agent)
-    else:
-        return await commit_daily_work(agent, context.session)
+    # # check if UTC hour is 2, 4, 6, etc
+    # if datetime.now(timezone.utc).weekday() == 5:  # Saturday is 5 (Monday is 0)
+    #     return await abraham_rest(agent)
+    # else:
+    #     return await commit_daily_work(agent, context.session)
+
+    return await commit_daily_work(agent, context.session)
