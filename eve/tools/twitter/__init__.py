@@ -139,12 +139,30 @@ class X:
                 logging.warning("Got 401 Unauthorized, attempting token refresh...")
                 try:
                     self._refresh_token()
+                    # Wait for token propagation across Twitter's infrastructure
+                    time.sleep(2)
                     # Retry request with new token
                     kwargs["headers"]["Authorization"] = f"Bearer {self.access_token}"
                     if method.lower() == "get":
                         response = requests.get(url, **kwargs)
                     else:
                         response = requests.post(url, **kwargs)
+
+                    # If we get 403 right after a token refresh, retry once more
+                    # (token may not have fully propagated)
+                    if response.status_code == 403:
+                        logging.warning(
+                            "Got 403 Forbidden after token refresh, "
+                            "retrying after delay for propagation..."
+                        )
+                        time.sleep(3)
+                        kwargs["headers"]["Authorization"] = (
+                            f"Bearer {self.access_token}"
+                        )
+                        if method.lower() == "get":
+                            response = requests.get(url, **kwargs)
+                        else:
+                            response = requests.post(url, **kwargs)
                 except Exception as e:
                     logging.error(f"Token refresh failed: {e}")
 

@@ -1,0 +1,8 @@
+{
+  "prompt": "Camera slowly orbits around the vase. Soft light shifts across the ceramic surface. The pampas grass sways gently. Shadows move elegantly. Smooth continuous motion, premium feel.",
+  "start_image_url": "https://storage.googleapis.com/falserverless/example_inputs/kling-v3/standard-i2v/start_image.png",
+  "duration": "5",
+  "generate_audio": true,
+  "negative_prompt": "blur, distort, and low quality",
+  "cfg_scale": 0.5
+}

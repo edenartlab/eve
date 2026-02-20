@@ -804,8 +804,8 @@ async def handle_video_creation(
 
     """
     reference_video -> runway3
-    txt2vid -> runway, veo3, seedance, kling 2
-    img2vid -> kling 2.1, runway, veo3 (fast/not), seedance
+    txt2vid -> runway, veo3, seedance, kling
+    img2vid -> kling, runway, veo3 (fast/not), seedance
     
     """
 
