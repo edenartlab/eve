@@ -48,7 +48,7 @@ import uuid
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Set, Tuple, Union, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Set, Tuple, Union
 
 if TYPE_CHECKING:
     from eve.agent.session.models import ChatMessage
@@ -281,11 +281,12 @@ def parse_xml_sections(
         terminal_due_to_depth: bool = False
 
         # Find all tag positions and types
-        events: List[Tuple[int, str, str, int]] = []  # (position, type, tag_name, end_position)
+        events: List[
+            Tuple[int, str, str, int]
+        ] = []  # (position, type, tag_name, end_position)
 
         for match in opening_tag_pattern.finditer(text):
             # Check if this is actually a self-closing tag (avoid double-counting)
-            full_match = text[match.start() : match.end() + 10]  # Look ahead for />
             if "/>" not in text[match.start() : match.end() + 2]:
                 events.append((match.start(), "open", match.group(1), match.end()))
 
@@ -337,15 +338,26 @@ def parse_xml_sections(
                 if path_stack and path_stack[-1] == tag_name:
                     # Build the category path
                     # When terminal due to max_depth, exclude the terminal tag from category
-                    if terminal_due_to_depth and terminal_depth is not None and len(path_stack) - 1 == terminal_depth:
+                    if (
+                        terminal_due_to_depth
+                        and terminal_depth is not None
+                        and len(path_stack) - 1 == terminal_depth
+                    ):
                         category = f"{prefix}/{'/'.join(path_stack[:-1])}"
                     else:
                         category = f"{prefix}/{'/'.join(path_stack)}"
 
                     # Check if we're closing a terminal tag
-                    if terminal_depth is not None and len(path_stack) - 1 == terminal_depth:
+                    if (
+                        terminal_depth is not None
+                        and len(path_stack) - 1 == terminal_depth
+                    ):
                         # Extract all content from the terminal tag (including nested XML)
-                        start_pos = tag_start_positions.pop() if tag_start_positions else last_end_position
+                        start_pos = (
+                            tag_start_positions.pop()
+                            if tag_start_positions
+                            else last_end_position
+                        )
                         content = text[start_pos:pos].strip()
                         if content:
                             results.append(
@@ -399,7 +411,9 @@ def parse_xml_sections(
         if terminal_depth is None and last_end_position < len(text):
             remaining_text = text[last_end_position:].strip()
             if remaining_text:
-                category = prefix if not path_stack else f"{prefix}/{'/'.join(path_stack)}"
+                category = (
+                    prefix if not path_stack else f"{prefix}/{'/'.join(path_stack)}"
+                )
                 results.append(
                     {
                         "category": category,
@@ -459,6 +473,8 @@ class TokenTracker:
         self._log_dir: Optional[Path] = None  # Set lazily in _ensure_log_dir
         self._initialized = False
         self._flush_fn: Optional[Callable[[Dict[str, Any]], bool]] = None
+        self._summaries: Dict[str, Dict[str, Any]] = {}
+        self._summary_events: Dict[str, threading.Event] = {}
         self._last_cleanup = time.time()
         # Background thread pool for file I/O - max 2 workers to avoid too many open files
         self._executor = ThreadPoolExecutor(
@@ -486,6 +502,21 @@ class TokenTracker:
                     logger.debug(f"[TokenTracker] Expired tracking for {run_id}")
                 except Exception:
                     pass
+
+            expired_summaries = []
+            for run_id, summary in self._summaries.items():
+                created_at = summary.get("_created_at", 0)
+                if now - created_at > TRACKING_EXPIRY_SECONDS:
+                    expired_summaries.append(run_id)
+
+            for run_id in expired_summaries:
+                try:
+                    self._summaries.pop(run_id, None)
+                    event = self._summary_events.pop(run_id, None)
+                    if event:
+                        event.set()
+                except Exception:
+                    pass
         except Exception:
             pass
 
@@ -500,7 +531,9 @@ class TokenTracker:
                 self._log_dir = Path(TOKEN_TRACKER_MODAL_DIR)
                 # Check if the mount point exists before trying to create subdirs
                 if not self._log_dir.parent.exists():
-                    logger.warning(f"[TokenTracker] Modal volume mount not available: {self._log_dir.parent}")
+                    logger.warning(
+                        f"[TokenTracker] Modal volume mount not available: {self._log_dir.parent}"
+                    )
                     return False
             else:
                 # Locally, use eve/data/token-tracker/
@@ -701,9 +734,13 @@ class TokenTracker:
                 )
                 if not has_template_structure:
                     tracked_chunks = [
-                        c for c in call_data["chunks"] if not c["category"].startswith("_")
+                        c
+                        for c in call_data["chunks"]
+                        if not c["category"].startswith("_")
                     ]
-                    untracked = self._find_untracked_content(full_prompt, tracked_chunks)
+                    untracked = self._find_untracked_content(
+                        full_prompt, tracked_chunks
+                    )
                     call_data["chunks"].extend(untracked)
 
             summary: Dict[str, int] = {}
@@ -716,6 +753,19 @@ class TokenTracker:
             total_tokens = sum(summary.values())
             call_data["_summary"] = summary
             call_data["_total_tokens"] = total_tokens
+
+            try:
+                with self._lock:
+                    self._summaries[session_run_id] = {
+                        "total_tokens": total_tokens,
+                        "breakdown": summary,
+                        "_created_at": time.time(),
+                    }
+                    event = self._summary_events.get(session_run_id)
+                if event:
+                    event.set()
+            except Exception:
+                pass
 
             untracked_count = sum(
                 1
@@ -796,6 +846,33 @@ class TokenTracker:
             "total_tokens": call_data.get("_total_tokens"),
             "breakdown": call_data.get("_summary"),
         }
+
+    def wait_for_summary(
+        self, session_run_id: str, timeout_s: float = 0.0
+    ) -> Optional[Dict[str, Any]]:
+        try:
+            event = None
+            with self._lock:
+                summary = self._summaries.pop(session_run_id, None)
+                if summary:
+                    self._summary_events.pop(session_run_id, None)
+                    summary.pop("_created_at", None)
+                    return summary
+                event = self._summary_events.get(session_run_id)
+
+            if event and timeout_s > 0:
+                event.wait(timeout_s)
+
+            with self._lock:
+                summary = self._summaries.pop(session_run_id, None)
+                self._summary_events.pop(session_run_id, None)
+
+            if summary:
+                summary.pop("_created_at", None)
+                return summary
+        except Exception:
+            pass
+        return None
 
     def _cancel(self, session_run_id: str) -> None:
         """Internal: Cancel tracking for a specific session."""
@@ -900,6 +977,10 @@ class TokenTracker:
             if not session_run_id:
                 session_run_id = str(uuid.uuid4())
 
+            with self._lock:
+                if session_run_id not in self._summary_events:
+                    self._summary_events[session_run_id] = threading.Event()
+
             # Capture all data needed for background processing
             # We serialize message/tool data upfront to avoid accessing objects from another thread
             messages_data = self._serialize_messages(messages)
@@ -928,7 +1009,9 @@ class TokenTracker:
             except Exception:
                 pass
 
-    def _serialize_messages(self, messages: Optional[List["ChatMessage"]]) -> List[Dict[str, Any]]:
+    def _serialize_messages(
+        self, messages: Optional[List["ChatMessage"]]
+    ) -> List[Dict[str, Any]]:
         """Serialize messages to plain dicts for thread-safe background processing."""
         if not messages:
             return []
@@ -961,16 +1044,23 @@ class TokenTracker:
                 pass
         return serialized
 
-    def _serialize_tools(self, tools: Optional[Union[Dict[str, "Tool"], List["Tool"]]]) -> List[Dict[str, Any]]:
+    def _serialize_tools(
+        self, tools: Optional[Union[Dict[str, "Tool"], List["Tool"]]]
+    ) -> List[Dict[str, Any]]:
         """Serialize tools to plain dicts for thread-safe background processing."""
         if not tools:
             return []
 
         serialized = []
         try:
-            tools_iter = tools.items() if isinstance(tools, dict) else [
-                (getattr(t, "key", None) or getattr(t, "name", "unknown"), t) for t in tools
-            ]
+            tools_iter = (
+                tools.items()
+                if isinstance(tools, dict)
+                else [
+                    (getattr(t, "key", None) or getattr(t, "name", "unknown"), t)
+                    for t in tools
+                ]
+            )
             for tool_name, tool in tools_iter:
                 try:
                     schema = (
@@ -978,10 +1068,12 @@ class TokenTracker:
                         if hasattr(tool, "anthropic_schema")
                         else {}
                     )
-                    serialized.append({
-                        "name": tool_name,
-                        "schema": schema,
-                    })
+                    serialized.append(
+                        {
+                            "name": tool_name,
+                            "schema": schema,
+                        }
+                    )
                 except Exception:
                     pass
         except Exception:
@@ -1053,7 +1145,10 @@ class TokenTracker:
                     # Include tool_calls in assistant messages if present
                     if tool_calls:
                         tool_calls_str = json.dumps(
-                            [{"name": tc.get("name"), "args": tc.get("args")} for tc in tool_calls],
+                            [
+                                {"name": tc.get("name"), "args": tc.get("args")}
+                                for tc in tool_calls
+                            ],
                             default=str,
                         )
                         content = f"{content}\n[Tool Calls: {tool_calls_str}]"
@@ -1109,7 +1204,9 @@ class TokenTracker:
 
         except Exception as e:
             try:
-                logger.warning(f"[TokenTracker] Background tracking failed for {session_run_id}: {e}")
+                logger.warning(
+                    f"[TokenTracker] Background tracking failed for {session_run_id}: {e}"
+                )
             except Exception:
                 pass
             # Clean up on error

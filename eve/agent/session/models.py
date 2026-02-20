@@ -1043,7 +1043,7 @@ class Session(Document):
     last_actor_id: Optional[ObjectId] = None
     budget: SessionBudget = SessionBudget()
     platform: Optional[
-        Literal["discord", "telegram", "twitter", "farcaster", "gmail", "app"]
+        Literal["discord", "telegram", "twitter", "farcaster", "gmail", "app", "web"]
     ] = None
     discord_channel_id: Optional[str] = None  # Discord channel ID for discord_post tool
     telegram_chat_id: Optional[str] = None  # Telegram chat ID for telegram_post tool
