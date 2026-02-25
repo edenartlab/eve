@@ -14,6 +14,7 @@ from eve.agent.agent import Agent
 from eve.agent.llm.llm import async_prompt as provider_async_prompt
 from eve.agent.llm.llm import async_prompt_stream as provider_async_prompt_stream
 from eve.agent.llm.llm import get_provider
+from eve.agent.llm.token_tracker import token_tracker
 from eve.agent.memory2.backend import memory2_backend
 from eve.agent.memory2.utils import select_messages
 from eve.agent.session.debug_logger import SessionDebugger
@@ -287,6 +288,7 @@ class PromptSessionRuntime:
                 else:
                     llm_result = await self._non_stream_llm_response(provider)
 
+                await self._capture_token_tracker_summary()
                 assistant_message = await self._persist_assistant_message(llm_result)
                 yield SessionUpdate(
                     type=UpdateType.ASSISTANT_MESSAGE,
@@ -715,6 +717,20 @@ class PromptSessionRuntime:
             "usage": usage_dump,
             "llm_call_id": response.llm_call_id,
         }
+
+    async def _capture_token_tracker_summary(self) -> None:
+        if not self.llm_context.enable_tracing:
+            return
+        try:
+            summary = await asyncio.to_thread(
+                token_tracker.wait_for_summary, self.session_run_id, 0.5
+            )
+        except Exception as exc:
+            logger.debug(f"Token tracker summary lookup failed: {exc}")
+            return
+        if summary:
+            self._token_tracker_total = summary.get("total_tokens")
+            self._token_tracker_breakdown = summary.get("breakdown")
 
     def _materialize_tool_calls(
         self, tool_calls_dict: Dict[int, Dict[str, Any]]
