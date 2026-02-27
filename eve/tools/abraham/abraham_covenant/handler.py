@@ -201,7 +201,7 @@ async def handler(context: ToolContext):
 
     num_creations = len(AbrahamCreation.find({}))
     num_rest_days = num_creations // 6
-    index = num_creations + num_rest_days + 1
+    index = num_creations + num_rest_days + 2
 
     # Commit to blockchain
     try:
