@@ -25,7 +25,6 @@ EXCLUDED_SESSION_IDS = [
     ObjectId("697b68b7bc76d13c3d4d8273"),
     ObjectId("697c6e2def3ab8f5f08d05d2"),
     ObjectId("6986eb66aac3b43b2e94296d"),
-    ObjectId("69898b2b0d9043b959efb037"),
     ObjectId("698cfd3e0d9043b959349474"),
     ObjectId("69955ebb8648f23ec8360729"),
     ObjectId("699573558648f23ec83871e7"),
@@ -35,6 +34,14 @@ EXCLUDED_SESSION_IDS = [
     ObjectId("69954c7e8648f23ec832cc58"),
     ObjectId("69931b426ec56b9504753ebf"),
     ObjectId("699683dc8648f23ec84d723f"),
+    ObjectId("69966b088648f23ec849661f"),
+    ObjectId("699979948648f23ec87c7173"),
+    ObjectId("699bb3a88648f23ec89686dd"),
+    ObjectId("699c67888648f23ec89cb640"),
+    ObjectId("69881fabeb7e84c5958e7ab4"),
+    ObjectId("699c63288648f23ec89c8eb1"),
+    ObjectId("699468048648f23ec81839fd"),
+    ObjectId("69898b2b0d9043b959efb037"),
 ]
 
 
