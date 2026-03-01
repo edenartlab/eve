@@ -183,7 +183,7 @@ Format your response in a clear, structured way that can be easily parsed for th
 
             # Create message with the chunk
             response = client.messages.create(
-                model="claude-sonnet-4-5-20250929",
+                model="claude-sonnet-4-6",
                 max_tokens=4048,
                 messages=[
                     {"role": "user", "content": prompt_start + chunk + prompt_end}

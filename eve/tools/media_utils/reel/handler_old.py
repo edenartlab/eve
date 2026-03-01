@@ -118,7 +118,7 @@ def write_reel(args: dict, agent: Agent = None):
 
     client = instructor.from_anthropic(Anthropic())
     reel = client.messages.create(
-        model="claude-sonnet-4-5",
+        model="claude-sonnet-4-6",
         max_tokens=3000,
         max_retries=1,
         system=system_prompt,
@@ -165,7 +165,7 @@ def write_visual_prompts(reel: Reel, num_clips: int, instructions: str = None):
     # )
     client = instructor.from_anthropic(Anthropic())
     result = client.messages.create(
-        model="claude-sonnet-4-5-20250929",
+        model="claude-sonnet-4-6-20250929",
         max_tokens=3000,
         max_retries=1,
         system=system_prompt,

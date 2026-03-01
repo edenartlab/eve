@@ -354,7 +354,7 @@ class LLMCall(Document):
 
     # Provider info
     provider: str  # e.g., "anthropic", "openai", "google"
-    model: str  # e.g., "claude-sonnet-4-5"
+    model: str  # e.g., "claude-sonnet-4-6"
 
     # Raw request payload - exactly what was sent to the API
     request_payload: Dict[str, Any]  # Contains system, messages, tools, etc.
