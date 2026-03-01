@@ -375,7 +375,7 @@ Generate a friendly, personalized introduction message that presents these conne
             system_message,
             ChatMessage(role="user", content=instruction_prompt, session=[session.id]),
         ],
-        config=LLMConfig(model="claude-sonnet-4-5"),
+        config=LLMConfig(model="claude-sonnet-4-6"),
     )
 
     # Generate the response

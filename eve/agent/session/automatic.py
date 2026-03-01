@@ -166,7 +166,7 @@ Generate the moderator instructions now."""
         messages=[system_message, user_message],
         tools=[],
         config=LLMConfig(
-            model="claude-sonnet-4-20250514",
+            model="claude-sonnet-4-6",
             fallback_models=["gpt-4o"],
         ),
         metadata=LLMContextMetadata(

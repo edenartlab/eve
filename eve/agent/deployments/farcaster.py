@@ -413,7 +413,7 @@ async def process_farcaster_cast(
                 farcaster_author_fid=author_fid,
                 social_match_reason=match_reason,
             ),
-            llm_config=LLMConfig(model="claude-sonnet-4-5"),
+            llm_config=LLMConfig(model="claude-sonnet-4-6"),
             extra_tools={farcaster_tool.name: farcaster_tool},
         )
 

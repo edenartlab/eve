@@ -467,7 +467,7 @@ async def process_twitter_tweet(
                 twitter_author_id=author_id,
                 social_match_reason=match_reason,  # type: ignore[arg-type]
             ),
-            llm_config=LLMConfig(model="claude-sonnet-4-5"),
+            llm_config=LLMConfig(model="claude-sonnet-4-6"),
             extra_tools={twitter_tool.name: twitter_tool},  # type: ignore[union-attr]
         )
 
