@@ -1428,21 +1428,21 @@ async def handle_create_notification(request: CreateNotificationRequest):
     return {"id": str(notification.id), "message": "Notification created successfully"}
 
 
-import torch
-import torch.nn.functional as F
-from transformers import CLIPModel, CLIPProcessor
-
 MODEL_NAME = "openai/clip-vit-large-patch14"
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+model = None
+proc = None
+device = None
 
 # Only load model on Modal, not on localhost
 # MODAL_IS_REMOTE is automatically set by Modal when running remotely
 if os.getenv("MODAL_IS_REMOTE") == "1":
+    import torch
+    import torch.nn.functional as F
+    from transformers import CLIPModel, CLIPProcessor
+
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model = CLIPModel.from_pretrained(MODEL_NAME).to(device).eval()
     proc = CLIPProcessor.from_pretrained(MODEL_NAME)
-else:
-    model = None
-    proc = None
 
 
 # Embed handler
@@ -1574,7 +1574,10 @@ async def handle_extract_agent_prompts(request):
     # Note: Anthropic beta API requires a system message when using structured outputs
     context = LLMContext(
         messages=[
-            ChatMessage(role="system", content="You are a helpful assistant that extracts agent prompts from conversations."),
+            ChatMessage(
+                role="system",
+                content="You are a helpful assistant that extracts agent prompts from conversations.",
+            ),
             ChatMessage(role="user", content=prompt),
         ],
         config=LLMConfig(
@@ -1599,7 +1602,10 @@ async def handle_extract_agent_prompts(request):
     try:
         response = await async_prompt(context)
     except Exception as e:
-        raise APIError(f"LLM service unavailable. Please try again later. ({type(e).__name__})", status_code=503)
+        raise APIError(
+            f"LLM service unavailable. Please try again later. ({type(e).__name__})",
+            status_code=503,
+        )
 
     # Parse the structured response
     if hasattr(response, "parsed"):

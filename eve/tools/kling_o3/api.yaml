@@ -1,0 +1,113 @@
+name: Kling O3 Reference to Video
+description: Generate 3-15s videos with reference images and elements using Kling O3 Pro. Supports character/object consistency, native audio, and multi-shot generation.
+tip: |-
+  Generate high-quality videos from a starting image with reference images for style/character consistency. Reference images influence the look and feel of the generated video.
+  For custom elements, reference them in your prompt as @Element1, @Element2, etc.
+output_type: video
+cost_estimate: 'generate_audio ? 28 * parseInt(duration) : 22 * parseInt(duration)'
+handler: fal
+fal_endpoint: fal-ai/kling-video/o3/pro/reference-to-video
+thumbnail: app/kling.mp4
+visible: true
+active: true
+parameters:
+  prompt:
+    label: Prompt
+    type: string
+    required: true
+    description: Text description of the video to generate.
+    tip: |-
+      Describe the motion and action you want in the video.
+      For custom elements, reference them as @Element1, @Element2, etc.
+  start_image_url:
+    label: Input Image
+    type: image
+    required: true
+    description: URL of the image to be used as the starting frame of the video.
+  duration:
+    label: Duration
+    type: string
+    required: false
+    default: "5"
+    choices: ["3","4","5","6","7","8","9","10","11","12","13","14","15"]
+    description: The duration of the generated video in seconds (3 to 15).
+  generate_audio:
+    label: Generate Audio
+    type: boolean
+    required: false
+    default: true
+    description: Whether to generate native audio for the video.
+  image_urls:
+    label: Reference Images
+    type: array
+    required: false
+    description: Reference images that influence the style and appearance of the generated video. Max 4 total across reference images and elements.
+    items:
+      type: image
+    max_length: 4
+  end_image_url:
+    label: End Image
+    type: image
+    required: false
+    description: URL of the image to be used as the last frame of the video.
+  negative_prompt:
+    label: Negative Prompt
+    type: string
+    required: false
+    default: "blur, distort, and low quality"
+    description: Things to avoid in the video generation.
+    hide_from_agent: true
+  cfg_scale:
+    label: Guidance Scale
+    type: float
+    required: false
+    default: 0.5
+    minimum: 0
+    maximum: 1
+    step: 0.01
+    description: How closely to follow the prompt.
+    hide_from_agent: true
+  aspect_ratio:
+    label: Aspect Ratio
+    type: string
+    required: false
+    default: "16:9"
+    choices: ["16:9", "9:16", "1:1"]
+    description: The aspect ratio of the generated video frame.
+    hide_from_agent: true
+  elements:
+    label: Elements
+    type: array
+    required: false
+    description: Characters or objects to include in the video. Reference in prompt as @Element1, @Element2, etc. Max 4 total across elements and reference images.
+    hide_from_agent: true
+    items:
+      type: object
+      properties:
+        frontal_image_url:
+          type: image
+          label: Frontal Image
+          description: A front-facing image of the character or object, used as the primary reference for identity and detailed appearance.
+          required: true
+        reference_image_urls:
+          type: array
+          label: Reference Images
+          description: Additional images of the character or object from different angles or perspectives, helping the model understand the full appearance and maintain consistency.
+          required: false
+          items:
+            type: image
+  shot_type:
+    label: Shot Type
+    type: string
+    required: false
+    default: "customize"
+    choices: ["customize"]
+    description: The type of multi-shot video generation.
+    hide_from_agent: true
+    hide_from_ui: true
+  multi_prompt:
+    label: Multi-Shot Prompts
+    type: list
+    required: false
+    description: List of prompts for multi-shot video generation. Each element has a prompt and duration.
+    hide_from_agent: true

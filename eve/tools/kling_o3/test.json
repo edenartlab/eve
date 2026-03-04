@@ -1,0 +1,7 @@
+{
+  "prompt": "Camera slowly orbits around the subject. Soft light shifts across the scene. Smooth continuous motion.",
+  "start_image_url": "https://storage.googleapis.com/falserverless/example_inputs/kling-v3/standard-i2v/start_image.png",
+  "duration": "5",
+  "generate_audio": true,
+  "cfg_scale": 0.5
+}
