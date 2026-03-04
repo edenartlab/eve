@@ -365,12 +365,12 @@ First explain your reasoning, then select the speaker.
             ChatMessage(role="user", content=task_prompt),
         ],
         config=LLMConfig(
-            model="claude-sonnet-4-5", response_format=ConductorTurnResponse
+            model="claude-sonnet-4-6", response_format=ConductorTurnResponse
         ),
     )
 
     # Create LLMCall record before API call
-    model_name = "claude-sonnet-4-5"
+    model_name = "claude-sonnet-4-6"
     request_payload = {
         "system": conductor_message,
         "messages": [{"role": m.role, "content": m.content} for m in messages]
@@ -490,7 +490,7 @@ Do NOT select an agent just because they could potentially contribute - there mu
             ChatMessage(role="user", content=conservative_prompt),
         ],
         config=LLMConfig(
-            model="claude-sonnet-4-5", response_format=NaturalConductorResponse
+            model="claude-sonnet-4-6", response_format=NaturalConductorResponse
         ),
     )
 
@@ -660,12 +660,12 @@ User's Scenario:
             ChatMessage(role="user", content=task_prompt),
         ],
         config=LLMConfig(
-            model="claude-sonnet-4-5", response_format=ConductorInitResponse
+            model="claude-sonnet-4-6", response_format=ConductorInitResponse
         ),
     )
 
     # Create LLMCall record before API call
-    model_name = "claude-sonnet-4-5"
+    model_name = "claude-sonnet-4-6"
     request_payload = {
         "system": system_message,
         "messages": [{"role": "user", "content": task_prompt}],
@@ -766,12 +766,12 @@ Be concise but comprehensive. This summary will be visible to all participants.
             ChatMessage(role="user", content=task_prompt),
         ],
         config=LLMConfig(
-            model="claude-sonnet-4-5", response_format=ConductorFinishResponse
+            model="claude-sonnet-4-6", response_format=ConductorFinishResponse
         ),
     )
 
     # Create LLMCall record before API call
-    model_name = "claude-sonnet-4-5"
+    model_name = "claude-sonnet-4-6"
     request_payload = {
         "system": system_message,
         "messages": [{"role": m.role, "content": m.content} for m in messages]

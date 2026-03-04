@@ -734,7 +734,7 @@ async def process_discord_message_for_agent(
                 discord_channel_id=channel_id,
                 discord_message_id=message_id,
             ),
-            llm_config=LLMConfig(model="claude-sonnet-4-5-20250929"),
+            llm_config=LLMConfig(model="claude-sonnet-4-6"),
         )
 
         # Add discord_post tool if we're prompting

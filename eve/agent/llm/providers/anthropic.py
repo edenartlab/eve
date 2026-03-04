@@ -62,6 +62,7 @@ class AnthropicProvider(LLMProvider):
 
     # Models that support structured outputs (as of Nov 2025)
     STRUCTURED_OUTPUT_MODELS = {
+        "claude-sonnet-4-6",
         "claude-sonnet-4-5",
         "claude-sonnet-4-5-20250929",
         "claude-opus-4-1",
@@ -69,7 +70,7 @@ class AnthropicProvider(LLMProvider):
     }
 
     # Fallback model for structured outputs when using unsupported models
-    STRUCTURED_OUTPUT_FALLBACK = "claude-sonnet-4-5-20250929"
+    STRUCTURED_OUTPUT_FALLBACK = "claude-sonnet-4-6"
 
     async def prompt(self, context: LLMContext) -> LLMResponse:
         include_thoughts = bool(context.config.reasoning_effort)
@@ -364,8 +365,8 @@ class AnthropicProvider(LLMProvider):
             if normalized == supported or normalized.startswith(
                 supported.split("-202")[0]
             ):
-                # e.g., "claude-sonnet-4-5" matches "claude-sonnet-4-5-20250929"
-                if "sonnet-4-5" in normalized or "opus-4-1" in normalized:
+                # e.g., "claude-sonnet-4-6" matches "claude-sonnet-4-6-YYYYMMDD"
+                if "sonnet-4-6" in normalized or "sonnet-4-5" in normalized or "opus-4-1" in normalized:
                     return True
         return False
 
