@@ -66,6 +66,7 @@ ALL_TOOLS = [
     "runway3",
     "kling_pro",
     "kling",
+    "kling_o3",
     "veo2",
     "hedra",
     "seedance1",
