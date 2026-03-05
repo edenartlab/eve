@@ -3,8 +3,9 @@ description: Generate 3-15s videos with reference images and elements using Klin
 tip: |-
   Generate high-quality videos from a starting image with reference images for style/character consistency. Reference images influence the look and feel of the generated video.
   For custom elements, reference them in your prompt as @Element1, @Element2, etc.
+  For reference images, reference them in your prompt as @Image1, @Image2, etc.
 output_type: video
-cost_estimate: 'generate_audio ? 28 * parseInt(duration) : 22 * parseInt(duration)'
+cost_estimate: 25 * duration
 handler: fal
 fal_endpoint: fal-ai/kling-video/o3/pro/reference-to-video
 thumbnail: app/kling.mp4
@@ -19,29 +20,30 @@ parameters:
     tip: |-
       Describe the motion and action you want in the video.
       For custom elements, reference them as @Element1, @Element2, etc.
+      For reference images, reference them as @Image1, @Image2, etc.
   start_image_url:
     label: Input Image
     type: image
     required: true
-    description: URL of the image to be used as the starting frame of the video.
+    description: Image to use as the first frame of the video.
   duration:
     label: Duration
     type: string
     required: false
     default: "5"
     choices: ["3","4","5","6","7","8","9","10","11","12","13","14","15"]
-    description: The duration of the generated video in seconds (3 to 15).
+    description: Video duration in seconds (3 to 15).
   generate_audio:
     label: Generate Audio
     type: boolean
     required: false
-    default: true
+    default: false
     description: Whether to generate native audio for the video.
   image_urls:
     label: Reference Images
     type: array
     required: false
-    description: Reference images that influence the style and appearance of the generated video. Max 4 total across reference images and elements.
+    description: Reference images for style/appearance. Reference in prompt as @Image1, @Image2, etc. Maximum 4 total across reference images and elements.
     items:
       type: image
     max_length: 4
@@ -49,24 +51,7 @@ parameters:
     label: End Image
     type: image
     required: false
-    description: URL of the image to be used as the last frame of the video.
-  negative_prompt:
-    label: Negative Prompt
-    type: string
-    required: false
-    default: "blur, distort, and low quality"
-    description: Things to avoid in the video generation.
-    hide_from_agent: true
-  cfg_scale:
-    label: Guidance Scale
-    type: float
-    required: false
-    default: 0.5
-    minimum: 0
-    maximum: 1
-    step: 0.01
-    description: How closely to follow the prompt.
-    hide_from_agent: true
+    description: Image to use as the last frame of the video.
   aspect_ratio:
     label: Aspect Ratio
     type: string
@@ -107,7 +92,20 @@ parameters:
     hide_from_ui: true
   multi_prompt:
     label: Multi-Shot Prompts
-    type: list
+    type: array
     required: false
-    description: List of prompts for multi-shot video generation. Each element has a prompt and duration.
+    description: List of prompts for multi-shot video generation. Each element has a prompt and duration. Use instead of prompt, not both.
     hide_from_agent: true
+    items:
+      type: object
+      properties:
+        prompt:
+          type: string
+          label: Prompt
+          description: Text prompt for this shot.
+          required: true
+        duration:
+          type: string
+          label: Duration
+          description: Duration of this shot in seconds.
+          required: true

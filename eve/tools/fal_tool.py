@@ -257,24 +257,30 @@ class FalTool(Tool):
             if task.status == "cancelled":
                 return {"status": "cancelled"}
 
-            status = await asyncio.to_thread(
-                fal_client.status,
-                self.fal_endpoint,
-                request_id,
-                with_logs=self.with_logs,
-            )
+            try:
+                status = await asyncio.to_thread(
+                    fal_client.status,
+                    self.fal_endpoint,
+                    request_id,
+                    with_logs=self.with_logs,
+                )
+            except ValueError as e:
+                # fal-client raises ValueError for unknown statuses
+                # (e.g. FAILED, CANCELED)
+                error_msg = str(e)
+                if "FAILED" in error_msg or "CANCELED" in error_msg:
+                    is_cancel = "CANCELED" in error_msg
+                    if is_cancel:
+                        task.update(status="cancelled")
+                        task.refund_manna()
+                        return {"status": "cancelled"}
+                    else:
+                        task.update(status="failed", error=error_msg)
+                        task.refund_manna()
+                        return {"status": "failed", "error": error_msg}
+                raise
 
-            if status.status == "FAILED":
-                task.update(status="failed", error=status.error)
-                task.refund_manna()
-                return {"status": "failed", "error": status.error}
-
-            elif status.status == "CANCELED":
-                task.update(status="cancelled")
-                task.refund_manna()
-                return {"status": "cancelled"}
-
-            elif status.status == "PROCESSING":
+            if isinstance(status, fal_client.InProgress):
                 task.status = "running"
                 task.save()
                 # Print running status only every 2 seconds
@@ -282,7 +288,7 @@ class FalTool(Tool):
                 if current_time - last_print_time >= 2.0:
                     last_print_time = current_time
 
-            elif status.status == "COMPLETED":
+            elif isinstance(status, fal_client.Completed):
                 result = await asyncio.to_thread(
                     fal_client.result, self.fal_endpoint, request_id
                 )
@@ -291,6 +297,8 @@ class FalTool(Tool):
                 task.result = processed_result
                 task.save()
                 return {"status": "completed", "result": processed_result}
+
+            # Queued status — just keep polling
 
             await asyncio.sleep(0.5)  # Poll every 0.5 seconds
 
@@ -361,7 +369,8 @@ class FalTool(Tool):
                 )
                 # Print the result from upload_result to see the structure and final URL
                 logger.info(f"Uploaded FAL URL {url} to Eden: {uploaded_data}")
-                processed_outputs.append(uploaded_data)
+                # Unwrap the "output" key since upload_result preserves the dict structure
+                processed_outputs.append(uploaded_data.get("output", uploaded_data))
             except Exception as e:
                 logger.error(f"Failed to upload result URL {url}: {e}")
                 continue  # Skip this output if upload fails

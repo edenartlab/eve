@@ -5,7 +5,7 @@ tip: |-
   For voice control, reference voices in your prompt with <<<voice_1>>> and <<<voice_2>>>.
   For custom elements, reference them in your prompt as @Element1, @Element2, etc.
 output_type: video
-cost_estimate: 'generate_audio ? 25 * parseInt(duration) : 17 * parseInt(duration)'
+cost_estimate: 'generate_audio ? 25 * duration : 17 * duration'
 handler: fal
 fal_endpoint: fal-ai/kling-video/v3/standard/image-to-video
 thumbnail: app/kling.mp4

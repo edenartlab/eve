@@ -116,6 +116,7 @@ def get_agent_specific_tools(
                 "eden_search",
                 *HOME_ASSISTANT_TOOLS,
                 *GODOT_NPC_TOOLS,
+                "kling_o3",
                 "reel2",
                 "reel_audio",
                 "reel_storyboard",

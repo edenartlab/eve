@@ -194,6 +194,7 @@ async def handle_image_creation(
     aspect_ratio = args.get("aspect_ratio", "auto")
     model_preference = args.get("model_preference")
     model_preference = model_preference.lower() if model_preference else ""
+    quality = args.get("quality", "standard")
 
     # get loras
     loras = get_loras(args.get("lora"), args.get("lora2"))
@@ -203,15 +204,20 @@ async def handle_image_creation(
     intermediate_outputs = {}
 
     # default image tools
-    # txt2img default: nano_banana for subscribed, seedream45 for non-subscribed
-    default_image_tool = "seedream45"
-    if nano_banana_enabled:
+    # txt2img default: nano_banana_pro for subscribed, nano_banana_2_fal for non-subscribed
+    # quality="pro" forces nano_banana_pro (requires subscription), quality="standard" forces nano_banana_2_fal
+    if quality == "pro" and nano_banana_enabled:
         default_image_tool = "nano_banana"
+    elif quality == "pro" and not nano_banana_enabled:
+        default_image_tool = "nano_banana_2_fal"  # fallback if not subscribed
+    else:
+        default_image_tool = "nano_banana_2_fal"
 
-    # image editing default: nano_banana for subscribed, gpt_image_15_edit for non-subscribed
-    default_image_edit_tool = "gpt_image_15_edit"
-    if nano_banana_enabled:
+    # image editing default: same logic
+    if quality == "pro" and nano_banana_enabled:
         default_image_edit_tool = "nano_banana"
+    else:
+        default_image_edit_tool = "nano_banana_2_fal"
 
     # Determine tool
     if init_image:
@@ -245,9 +251,9 @@ async def handle_image_creation(
         if len(loras) > 1 or controlnet:
             image_tool = "flux_dev"
 
-    # Downgrade from Nano Banana if not enabled
+    # Downgrade from Nano Banana Pro if not enabled
     if image_tool == "nano_banana" and not nano_banana_enabled:
-        image_tool = "seedream45"
+        image_tool = "nano_banana_2_fal"
 
     tool_calls = []
 
@@ -475,6 +481,31 @@ async def handle_image_creation(
         if check_cancelled():
             return {"status": "cancelled", "output": []}
         result = await nano_banana_pro.async_run(
+            args, save_thumbnails=True, cancellation_event=cancellation_event
+        )
+
+    # Nano Banana 2 (FAL) - standard quality
+    elif image_tool == "nano_banana_2_fal":
+        nano_banana_2_fal = Tool.load("nano_banana_2_fal")
+
+        args = {
+            "prompt": prompt,
+            "num_images": n_samples,
+            "output_format": "png",
+        }
+
+        if aspect_ratio != "auto":
+            args["aspect_ratio"] = aspect_ratio
+
+        if reference_images:
+            args["image_urls"] = reference_images
+
+        if seed:
+            args["seed"] = seed
+
+        if check_cancelled():
+            return {"status": "cancelled", "output": []}
+        result = await nano_banana_2_fal.async_run(
             args, save_thumbnails=True, cancellation_event=cancellation_event
         )
 
