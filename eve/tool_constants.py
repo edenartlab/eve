@@ -84,7 +84,6 @@ ALL_TOOLS = [
     "elevenlabs_music",
     "elevenlabs_fx",
     # editing
-    "media_editor",
     # search
     # "search_agents",
     # "search_models",
@@ -182,7 +181,7 @@ EDEN_MCP_TOOLS = [
 ]
 
 TOOL_SETS = {
-    "create_image": ["create", "media_editor", "reel"],  #  "magic_8_ball"
+    "create_image": ["create"],  #  "magic_8_ball"
     "create_video": [],  # deprecated
     "create_audio": [
         "elevenlabs_speech",
