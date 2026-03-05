@@ -25,6 +25,7 @@ HANDLER_PATHS = {
     "image_crop": "media_utils.image_crop.handler",
     "video_concat": "media_utils.video_concat.handler",
     "ffmpeg_multitool": "media_utils.ffmpeg_multitool.handler",
+    "media_editor": "media_utils.media_editor.handler",
     "create": "media_utils.create.handler",
     "create_image": "media_utils.create_image.handler",
     "create_video": "media_utils.create_video.handler",
