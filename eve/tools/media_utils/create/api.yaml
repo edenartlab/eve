@@ -157,7 +157,9 @@ parameters:
     label: Quality
     description: Quality vs speed tradeoff
     tip: |-
-      For videos only. "standard" is fast and cheap but lower quality. "pro" is slower and more expensive but highest quality. Use standard for most cases unless user specifically requests high quality.
+      For videos: "standard" is fast and cheap but lower quality. "pro" is slower and more expensive but highest quality.
+      For images: "standard" uses a fast, cost-effective model (nano_banana_2). "pro" uses the premium model (nano_banana_pro, requires subscription). If omitted, auto-selects based on subscription status.
+      Use standard for most cases unless user specifically requests high quality.
     default: "standard"
     choices: ["standard", "pro"]
   model_preference:
@@ -167,6 +169,7 @@ parameters:
     tip: |-
       If omitted, auto-selects based on task.
       Videos: kling, seedance, runway, veo. Images: seedream, nano_banana, openai.
+      For images, use quality="standard" (nano_banana_2, default) or quality="pro" (nano_banana_pro, requires subscription).
     choices: ["kling", "seedream", "seedance", "sdxl", "runway", "openai", "flux", "veo", "nano_banana"]
   audio:
     type: audio

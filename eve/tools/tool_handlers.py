@@ -77,6 +77,7 @@ HANDLER_PATHS = {
     "nano_banana_pro": "google.nano_banana_pro.handler",
     "nano_banana_fal": "fal.nano_banana_fal.handler",
     "nano_banana_pro_fal": "fal.nano_banana_pro_fal.handler",
+    "nano_banana_2_fal": "fal.nano_banana_2_fal.handler",
     "captions": "captions.handler",
     "printify": "printify.handler",
     "tiktok_post": "tiktok.tiktok_post.handler",
