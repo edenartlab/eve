@@ -4,18 +4,9 @@ from eve.tool import ToolContext
 from eve.tools.session_post.handler import handler as session_post_handler
 
 init_message = """
-
 ########################################################
 VERY IMPORTANT NOTE: Do **NOT** call the media_editor tool from within this session. Doing so may cause an infinite loop. You may **only** use create, ffmpeg_multiool, audio_video_combine, video_concat, and audio_mix.
 ########################################################
-
-You are not allowed to use the media_editor tool. You are only allowed to use the following tools:
-
-video_concat
-audio_video_combine
-audio_mix
-ffmpeg_multitool
-
 
 You have been provided a set of attachments (URLs to media files), along with a request to perform certain media editing tasks. You have access to three specialized tools:
 
@@ -43,7 +34,7 @@ In your response, outline how you will solve the user’s request using the avai
 
 **NOTE**: **DO NOT** ask for confirmation or clarification from the user! Just attempt to complete the task as best as you can, and output a final report later.
 
-Do **NOT** call media_editor tool!
+IMPORTANT: Do **NOT** call media_editor tool!
 </Task>
 """
 
