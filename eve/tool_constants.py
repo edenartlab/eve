@@ -212,7 +212,6 @@ FEATURE_FLAG_TOOL_SETS = {}
 
 BASE_TOOLS = [
     "create",
-    "media_editor",
 ]
 
 FLUX_LORA_TXT2IMG_TOOLS = ["flux_dev_lora", "flux_dev"]
