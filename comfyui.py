@@ -22,6 +22,7 @@ import copy
 import glob
 import json
 import os
+from typing import get_args
 import pathlib
 import re
 import shutil
@@ -121,19 +122,22 @@ def install_comfyui():
     )
     logger.info(f"Git checkout output: {result.stdout.decode()}")
 
-    subprocess.run(
-        [
-            "pip",
-            "install",
-            "xformers!=0.0.18",
-            "sageattention",
-            "-r",
-            "requirements.txt",
-            "--extra-index-url",
-            "https://download.pytorch.org/whl/cu121",
-        ],
-        check=True,
-    )
+    subprocess.run(                                                                                                                                 
+      [                                                       
+          "pip",
+          "install",
+          "xformers!=0.0.18",
+          "sageattention",
+          "-r",
+          "requirements.txt",
+          "torch>=2.6.0",
+          "torchvision>=0.21.0",
+          "torchaudio>=2.6.0",
+          "--extra-index-url",
+          "https://download.pytorch.org/whl/cu128",
+      ],
+      check=True,
+  )
     # List all files and directories in the current directory:
     logger.info("Current directory structure:")
     for root, dirs, files in os.walk("."):
@@ -1752,11 +1756,7 @@ class ComfyUI:
                             f"Node ID {remap.node_id}, field {remap.field}, subfield {subfield} not found in workflow"
                         )
                 param = tool.model.model_fields[key]
-                # has_choices = isinstance(param.annotation, type) and issubclass(param.annotation, Enum)
-                # if not has_choices:
-                #     raise Exception(f"Remap parameter {key} has no original choices")
-                # choices = [e.value for e in param.annotation]
-                choices = param.json_schema_extra.get("choices")
+                choices = list(get_args(param.annotation))
                 if not all(choice in choices for choice in remap.map.keys()):
                     raise Exception(
                         f"Remap parameter {key} has invalid choices: {remap.map}"
