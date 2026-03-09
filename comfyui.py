@@ -57,7 +57,7 @@ if not os.getenv("WORKSPACE"):
 db = os.getenv("DB", "STAGE").upper()
 workspace_name = os.getenv("WORKSPACE")
 app_name = f"comfyui-{workspace_name}-{db}"
-test_workflows = os.getenv("WORKFLOWS")
+workflows_filter = os.getenv("WORKFLOWS")
 root_workflows_folder = (
     "../private_workflows" if os.getenv("PRIVATE") else "../workflows"
 )
@@ -79,14 +79,14 @@ if test_all and specific_tests:
 logger.info("========================================")
 logger.info(f"db: {db}")
 logger.info(f"workspace: {workspace_name}")
-logger.info(f"test_workflows: {test_workflows}")
+logger.info(f"test_workflows: {workflows_filter}")
 logger.info(f"test_all: {test_all}")
 logger.info(f"specific_tests: {specific_tests}")
 logger.info(f"skip_tests: {skip_tests}")
 logger.info(f"test_inactive: {test_inactive}")
 logger.info("========================================")
 
-if not test_workflows and workspace_name and not test_all:
+if not workflows_filter and workspace_name and not test_all:
     logger.info("\n!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
     logger.info("!!!! WARNING: You are deploying a workspace without TEST_ALL !!!!")
     logger.info("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n")
@@ -122,22 +122,22 @@ def install_comfyui():
     )
     logger.info(f"Git checkout output: {result.stdout.decode()}")
 
-    subprocess.run(                                                                                                                                 
-      [                                                       
-          "pip",
-          "install",
-          "xformers!=0.0.18",
-          "sageattention",
-          "-r",
-          "requirements.txt",
-          "torch>=2.6.0",
-          "torchvision>=0.21.0",
-          "torchaudio>=2.6.0",
-          "--extra-index-url",
-          "https://download.pytorch.org/whl/cu128",
-      ],
-      check=True,
-  )
+    subprocess.run(
+        [
+            "pip",
+            "install",
+            "xformers>=0.0.35",
+            "sageattention",
+            "-r",
+            "requirements.txt",
+            "torch>=2.10.0",
+            "torchvision>=0.25.0",
+            "torchaudio>=2.10.0",
+            "--extra-index-url",
+            "https://download.pytorch.org/whl/cu130",
+        ],
+        check=True,
+    )
     # List all files and directories in the current directory:
     logger.info("Current directory structure:")
     for root, dirs, files in os.walk("."):
@@ -1018,11 +1018,20 @@ image = (
     .pip_install("diffusers==0.31.0", "psutil", "flet==0.27.6")
     .env({"WORKSPACE": workspace_name})
     .add_local_python_source("eve", copy=True)
-    # First copy of workflow files
+    # First copy of workflow files — only include build-relevant files
+    # (snapshot.json, downloads.json, etc.) and exclude files that change
+    # frequently during iteration (api.yaml, test*.json, workflow*.json)
+    # so that edits to those don't invalidate expensive cached layers.
     .add_local_dir(
         f"{root_workflows_folder}/workspaces/{workspace_name}",
         "/root/workspace",
         copy=True,
+        ignore=[
+            "**/api.yaml",
+            "**/test*.json",
+            "**/workflow.json",
+            "**/workflow_api.json"
+        ],
     )
     .run_function(install_comfyui)
     .run_function(install_custom_nodes, gpu="A100")
@@ -1268,12 +1277,6 @@ class ComfyUI:
         )
         return json.loads(urllib.request.urlopen(req).read())
 
-    def _get_history(self, prompt_id):
-        with urllib.request.urlopen(
-            "http://{}/history/{}".format(self.server_address, prompt_id)
-        ) as response:
-            return json.loads(response.read())
-
     def _interrupt(self):
         try:
             logger.info("Interrupting ComfyUI ...")
@@ -1377,30 +1380,29 @@ class ComfyUI:
                 logger.info("error", error_str)
                 raise Exception(error_str)
 
-            for _ in history["outputs"]:
-                for node_id in history["outputs"]:
-                    node_output = history["outputs"][node_id]
-                    if "images" in node_output:
-                        outputs[node_id] = [
-                            os.path.join(
-                                "output", image["subfolder"], image["filename"]
-                            )
-                            for image in node_output["images"]
-                        ]
-                    elif "gifs" in node_output:
-                        outputs[node_id] = [
-                            os.path.join(
-                                "output", video["subfolder"], video["filename"]
-                            )
-                            for video in node_output["gifs"]
-                        ]
-                    elif "audio" in node_output:
-                        outputs[node_id] = [
-                            os.path.join(
-                                "output", audio["subfolder"], audio["filename"]
-                            )
-                            for audio in node_output["audio"]
-                        ]
+            for node_id in history["outputs"]:
+                node_output = history["outputs"][node_id]
+                if "images" in node_output:
+                    outputs[node_id] = [
+                        os.path.join(
+                            "output", image["subfolder"], image["filename"]
+                        )
+                        for image in node_output["images"]
+                    ]
+                elif "gifs" in node_output:
+                    outputs[node_id] = [
+                        os.path.join(
+                            "output", video["subfolder"], video["filename"]
+                        )
+                        for video in node_output["gifs"]
+                    ]
+                elif "audio" in node_output:
+                    outputs[node_id] = [
+                        os.path.join(
+                            "output", audio["subfolder"], audio["filename"]
+                        )
+                        for audio in node_output["audio"]
+                    ]
 
             logger.info("comfy outputs", outputs)
             if not outputs:
@@ -1447,7 +1449,7 @@ class ComfyUI:
     def _inject_embedding_mentions_flux(
         self, text, embedding_trigger, lora_trigger_text
     ):
-        orig_text = orig_text = str(text)
+        orig_text = str(text)
         if not embedding_trigger:  # Handles both None and empty string
             if lora_trigger_text:
                 text = re.sub(
@@ -2079,6 +2081,27 @@ class ComfyUIBasic(ComfyUI):
 @modal.concurrent(max_inputs=10)
 class ComfyUITempleAbyss(ComfyUI):
     pass
+
+
+@app.cls(
+    image=image,
+    gpu="A10G",
+    cpu=8.0,
+    volumes={"/data": downloads_vol},
+    max_containers=1,
+    scaledown_window=300,
+    min_containers=0,
+    timeout=7200,
+)
+class ComfyUIInteractive(ComfyUI):
+    @modal.enter()
+    def enter(self):
+        pass  # Skip auto-start; the web_server method handles it
+
+    @modal.web_server(8188, startup_timeout=120)
+    def ui(self):
+        cmd = "python /root/main.py --listen --port 8188"
+        subprocess.Popen(cmd, shell=True)
 
 
 @app.local_entrypoint()
