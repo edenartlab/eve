@@ -1227,9 +1227,20 @@ class ComfyUI:
     ):
         return self._execute(tool_key, args, user, agent, session)
 
-    @modal.enter()
+    @modal.enter(snap=True)
     def enter(self):
+        """Start ComfyUI and load models — this state gets frozen into the snapshot."""
         self._start()
+
+    @modal.enter()
+    def restore(self):
+        """Runs after snapshot restore — re-establish volume symlinks."""
+        downloads = json.load(open("/root/workspace/downloads.json", "r"))
+        for path_key, source_identifier in downloads.items():
+            comfy_path = pathlib.Path("/root") / path_key
+            vol_path = pathlib.Path("/data") / path_key
+            if vol_path.exists() and not comfy_path.exists():
+                create_symlink(vol_path, comfy_path, is_directory=vol_path.is_dir(), force=True)
 
     def _is_server_running(self):
         try:
@@ -2048,6 +2059,8 @@ class ComfyUI:
     scaledown_window=60,
     min_containers=0,
     timeout=3600,
+    enable_memory_snapshot=True,
+    experimental_options={"enable_gpu_snapshot": True},
 )
 @modal.concurrent(max_inputs=10)
 class ComfyUIPremium(ComfyUI):
@@ -2063,6 +2076,8 @@ class ComfyUIPremium(ComfyUI):
     scaledown_window=60,
     min_containers=0,
     timeout=3600,
+    enable_memory_snapshot=True,
+    experimental_options={"enable_gpu_snapshot": True},
 )
 class ComfyUIBasic(ComfyUI):
     pass
@@ -2077,6 +2092,8 @@ class ComfyUIBasic(ComfyUI):
     scaledown_window=60,
     min_containers=0,
     timeout=3600,
+    enable_memory_snapshot=True,
+    experimental_options={"enable_gpu_snapshot": True},
 )
 @modal.concurrent(max_inputs=10)
 class ComfyUITempleAbyss(ComfyUI):
@@ -2092,11 +2109,16 @@ class ComfyUITempleAbyss(ComfyUI):
     scaledown_window=300,
     min_containers=0,
     timeout=7200,
+    enable_memory_snapshot=True,
 )
 class ComfyUIInteractive(ComfyUI):
-    @modal.enter()
+    @modal.enter(snap=True)
     def enter(self):
         pass  # Skip auto-start; the web_server method handles it
+
+    @modal.enter()
+    def restore(self):
+        pass  # No snapshot restore needed for interactive mode
 
     @modal.web_server(8188, startup_timeout=120)
     def ui(self):
