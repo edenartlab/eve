@@ -574,8 +574,8 @@ async def handler(context: ToolContext):
                 ]
             }
 
-        if matching_results.get("error"):
-            error_msg = matching_results.get("error")
+        if not matching_results.get("success"):
+            error_msg = matching_results.get("error", "Unknown error")
             return {"output": [f"Profile matching failed: {error_msg}"]}
 
         # Parse the cohort_summary structure
