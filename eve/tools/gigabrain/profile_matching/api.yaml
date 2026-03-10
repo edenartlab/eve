@@ -24,14 +24,6 @@ parameters:
       Uses default config if not specified.
     default: "config/config.yaml"
     required: false
-  group_name:
-    hide_from_agent: true
-    type: string
-    label: Group Name
-    description: |-
-      Optional group name for organizing results and outputs.
-      Useful for running multiple matching sessions.
-    required: false
   force:
     hide_from_agent: true
     type: boolean

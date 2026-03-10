@@ -112,6 +112,10 @@ Follow these steps precisely:
    * Be careful not to mix the same audio track in twice--sequential runs of this tool keep previous audio tracks.
    * Output a single cohesive multi-clip video.
 
+# Aditional Rules
+
+* Avoid using the same image as a keyframe more than once. I want diversity of images and clips, not repetition.
+
 </Reel>
 
 <Task>

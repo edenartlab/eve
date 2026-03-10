@@ -22,6 +22,7 @@ import copy
 import glob
 import json
 import os
+from typing import get_args
 import pathlib
 import re
 import shutil
@@ -56,7 +57,7 @@ if not os.getenv("WORKSPACE"):
 db = os.getenv("DB", "STAGE").upper()
 workspace_name = os.getenv("WORKSPACE")
 app_name = f"comfyui-{workspace_name}-{db}"
-test_workflows = os.getenv("WORKFLOWS")
+workflows_filter = os.getenv("WORKFLOWS")
 root_workflows_folder = (
     "../private_workflows" if os.getenv("PRIVATE") else "../workflows"
 )
@@ -78,14 +79,14 @@ if test_all and specific_tests:
 logger.info("========================================")
 logger.info(f"db: {db}")
 logger.info(f"workspace: {workspace_name}")
-logger.info(f"test_workflows: {test_workflows}")
+logger.info(f"test_workflows: {workflows_filter}")
 logger.info(f"test_all: {test_all}")
 logger.info(f"specific_tests: {specific_tests}")
 logger.info(f"skip_tests: {skip_tests}")
 logger.info(f"test_inactive: {test_inactive}")
 logger.info("========================================")
 
-if not test_workflows and workspace_name and not test_all:
+if not workflows_filter and workspace_name and not test_all:
     logger.info("\n!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
     logger.info("!!!! WARNING: You are deploying a workspace without TEST_ALL !!!!")
     logger.info("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n")
@@ -125,12 +126,15 @@ def install_comfyui():
         [
             "pip",
             "install",
-            "xformers!=0.0.18",
+            "xformers>=0.0.35",
             "sageattention",
             "-r",
             "requirements.txt",
+            "torch>=2.10.0",
+            "torchvision>=0.25.0",
+            "torchaudio>=2.10.0",
             "--extra-index-url",
-            "https://download.pytorch.org/whl/cu121",
+            "https://download.pytorch.org/whl/cu130",
         ],
         check=True,
     )
@@ -1014,11 +1018,20 @@ image = (
     .pip_install("diffusers==0.31.0", "psutil", "flet==0.27.6")
     .env({"WORKSPACE": workspace_name})
     .add_local_python_source("eve", copy=True)
-    # First copy of workflow files
+    # First copy of workflow files — only include build-relevant files
+    # (snapshot.json, downloads.json, etc.) and exclude files that change
+    # frequently during iteration (api.yaml, test*.json, workflow*.json)
+    # so that edits to those don't invalidate expensive cached layers.
     .add_local_dir(
         f"{root_workflows_folder}/workspaces/{workspace_name}",
         "/root/workspace",
         copy=True,
+        ignore=[
+            "**/api.yaml",
+            "**/test*.json",
+            "**/workflow.json",
+            "**/workflow_api.json"
+        ],
     )
     .run_function(install_comfyui)
     .run_function(install_custom_nodes, gpu="A100")
@@ -1214,9 +1227,20 @@ class ComfyUI:
     ):
         return self._execute(tool_key, args, user, agent, session)
 
-    @modal.enter()
+    @modal.enter(snap=True)
     def enter(self):
+        """Start ComfyUI and load models — this state gets frozen into the snapshot."""
         self._start()
+
+    @modal.enter()
+    def restore(self):
+        """Runs after snapshot restore — re-establish volume symlinks."""
+        downloads = json.load(open("/root/workspace/downloads.json", "r"))
+        for path_key, source_identifier in downloads.items():
+            comfy_path = pathlib.Path("/root") / path_key
+            vol_path = pathlib.Path("/data") / path_key
+            if vol_path.exists() and not comfy_path.exists():
+                create_symlink(vol_path, comfy_path, is_directory=vol_path.is_dir(), force=True)
 
     def _is_server_running(self):
         try:
@@ -1263,12 +1287,6 @@ class ComfyUI:
             "http://{}/prompt".format(self.server_address), data=data
         )
         return json.loads(urllib.request.urlopen(req).read())
-
-    def _get_history(self, prompt_id):
-        with urllib.request.urlopen(
-            "http://{}/history/{}".format(self.server_address, prompt_id)
-        ) as response:
-            return json.loads(response.read())
 
     def _interrupt(self):
         try:
@@ -1373,30 +1391,29 @@ class ComfyUI:
                 logger.info("error", error_str)
                 raise Exception(error_str)
 
-            for _ in history["outputs"]:
-                for node_id in history["outputs"]:
-                    node_output = history["outputs"][node_id]
-                    if "images" in node_output:
-                        outputs[node_id] = [
-                            os.path.join(
-                                "output", image["subfolder"], image["filename"]
-                            )
-                            for image in node_output["images"]
-                        ]
-                    elif "gifs" in node_output:
-                        outputs[node_id] = [
-                            os.path.join(
-                                "output", video["subfolder"], video["filename"]
-                            )
-                            for video in node_output["gifs"]
-                        ]
-                    elif "audio" in node_output:
-                        outputs[node_id] = [
-                            os.path.join(
-                                "output", audio["subfolder"], audio["filename"]
-                            )
-                            for audio in node_output["audio"]
-                        ]
+            for node_id in history["outputs"]:
+                node_output = history["outputs"][node_id]
+                if "images" in node_output:
+                    outputs[node_id] = [
+                        os.path.join(
+                            "output", image["subfolder"], image["filename"]
+                        )
+                        for image in node_output["images"]
+                    ]
+                elif "gifs" in node_output:
+                    outputs[node_id] = [
+                        os.path.join(
+                            "output", video["subfolder"], video["filename"]
+                        )
+                        for video in node_output["gifs"]
+                    ]
+                elif "audio" in node_output:
+                    outputs[node_id] = [
+                        os.path.join(
+                            "output", audio["subfolder"], audio["filename"]
+                        )
+                        for audio in node_output["audio"]
+                    ]
 
             logger.info("comfy outputs", outputs)
             if not outputs:
@@ -1443,7 +1460,7 @@ class ComfyUI:
     def _inject_embedding_mentions_flux(
         self, text, embedding_trigger, lora_trigger_text
     ):
-        orig_text = orig_text = str(text)
+        orig_text = str(text)
         if not embedding_trigger:  # Handles both None and empty string
             if lora_trigger_text:
                 text = re.sub(
@@ -1752,11 +1769,7 @@ class ComfyUI:
                             f"Node ID {remap.node_id}, field {remap.field}, subfield {subfield} not found in workflow"
                         )
                 param = tool.model.model_fields[key]
-                # has_choices = isinstance(param.annotation, type) and issubclass(param.annotation, Enum)
-                # if not has_choices:
-                #     raise Exception(f"Remap parameter {key} has no original choices")
-                # choices = [e.value for e in param.annotation]
-                choices = param.json_schema_extra.get("choices")
+                choices = list(get_args(param.annotation))
                 if not all(choice in choices for choice in remap.map.keys()):
                     raise Exception(
                         f"Remap parameter {key} has invalid choices: {remap.map}"
@@ -2046,6 +2059,8 @@ class ComfyUI:
     scaledown_window=60,
     min_containers=0,
     timeout=3600,
+    enable_memory_snapshot=True,
+    experimental_options={"enable_gpu_snapshot": True},
 )
 @modal.concurrent(max_inputs=10)
 class ComfyUIPremium(ComfyUI):
@@ -2061,6 +2076,8 @@ class ComfyUIPremium(ComfyUI):
     scaledown_window=60,
     min_containers=0,
     timeout=3600,
+    enable_memory_snapshot=True,
+    experimental_options={"enable_gpu_snapshot": True},
 )
 class ComfyUIBasic(ComfyUI):
     pass
@@ -2075,10 +2092,38 @@ class ComfyUIBasic(ComfyUI):
     scaledown_window=60,
     min_containers=0,
     timeout=3600,
+    enable_memory_snapshot=True,
+    experimental_options={"enable_gpu_snapshot": True},
 )
 @modal.concurrent(max_inputs=10)
 class ComfyUITempleAbyss(ComfyUI):
     pass
+
+
+@app.cls(
+    image=image,
+    gpu="A10G",
+    cpu=8.0,
+    volumes={"/data": downloads_vol},
+    max_containers=1,
+    scaledown_window=300,
+    min_containers=0,
+    timeout=7200,
+    enable_memory_snapshot=True,
+)
+class ComfyUIInteractive(ComfyUI):
+    @modal.enter(snap=True)
+    def enter(self):
+        pass  # Skip auto-start; the web_server method handles it
+
+    @modal.enter()
+    def restore(self):
+        pass  # No snapshot restore needed for interactive mode
+
+    @modal.web_server(8188, startup_timeout=120)
+    def ui(self):
+        cmd = "python /root/main.py --listen --port 8188"
+        subprocess.Popen(cmd, shell=True)
 
 
 @app.local_entrypoint()

@@ -61,14 +61,11 @@ async def handler(context: ToolContext):
 
     # Optional parameters with defaults
     config_path = args.get("config_path", "config/config.yaml")
-    group_name = args.get("group_name")
     force = args.get("force", False)
 
     logger.info("Calling Gigabrain Modal app for profile matching...")
     logger.info(f"Number of user profiles: {len(user_profiles)}")
     logger.info(f"Config path: {config_path}")
-    if group_name:
-        logger.info(f"Group name: {group_name}")
     logger.info(f"Force re-run: {force}")
 
     try:
@@ -84,18 +81,23 @@ async def handler(context: ToolContext):
         result = run_matching_pipeline.remote(
             user_profiles_json=user_profiles_json,
             config_path=config_path,
-            group_name=group_name,
             force=force,
         )
 
+        # Check success/failure using the explicit success field
+        if not result.get("success"):
+            error_msg = result.get("error", "Unknown error")
+            logger.warning(f"Pipeline returned with error: {error_msg}")
+            return {"output": result}
+
         logger.info("Matching pipeline completed successfully")
 
-        # Log results - check for error or success
-        if result.get("error"):
-            logger.warning(f"Pipeline returned with errors: {result.get('error')}")
-        elif result.get("users"):
+        if result.get("users"):
             num_users = len(result.get("users", {}))
             logger.info(f"Generated matches for {num_users} users")
+
+        if result.get("outputs_zip_url"):
+            logger.info(f"Outputs zip URL: {result['outputs_zip_url']}")
 
         return {
             "output": result,

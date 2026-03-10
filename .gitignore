@@ -11,6 +11,7 @@ logs/
 eve/data/token-tracker/
 scripts/analytics/data
 scripts/analytics/results
+eve/agent/memory2/scripts/dumps
 .claude
 
 eve/data
