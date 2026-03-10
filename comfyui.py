@@ -1030,7 +1030,8 @@ image = (
             "**/api.yaml",
             "**/test*.json",
             "**/workflow.json",
-            "**/workflow_api.json"
+            "**/workflow_api.json",
+            "**/.DS_Store",
         ],
     )
     .run_function(install_comfyui)
@@ -1057,6 +1058,7 @@ image = (
         f"{root_workflows_folder}/workspaces/{workspace_name}",
         "/root/workspace",
         copy=True,
+        ignore=["**/.DS_Store"],
     )
     .run_function(
         run_tests_or_restore,
