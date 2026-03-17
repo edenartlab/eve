@@ -1054,7 +1054,7 @@ image = (
         "libegl1",
     )
     .pip_install_from_pyproject(str(root_dir / "pyproject.toml"))
-    .pip_install("diffusers==0.31.0", "psutil", "flet==0.27.6")
+    .pip_install("diffusers==0.31.0", "psutil", "flet==0.27.6", "nvidia-cuda-nvrtc-cu13")
     .env({"WORKSPACE": workspace_name})
     .add_local_python_source("eve", copy=True)
     # First copy of workflow files — only include build-relevant files
