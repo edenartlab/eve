@@ -119,6 +119,12 @@ Follow these steps precisely:
 
 * **CRITICAL: Every keyframe must be unique.** Never use the same keyframe image for more than one video clip. If you have N clips, you must generate N distinct keyframes — one per clip, each with its own unique prompt and composition. Reusing a keyframe across multiple clips is strictly forbidden and produces repetitive, low-quality output.
 
+* **Attached images are not to be recreated.** When the producer provides images as attachments, do NOT generate near-duplicate keyframes that closely resemble them. Instead, either:
+  1. **Use the attached images directly as keyframes** — skip generation for those clips and go straight to image-to-video conversion with the attachment as the keyframe, OR
+  2. **Use them as reference images to generate *different* keyframes** — new compositions, angles, scenes, or moments that are clearly distinct from the attachments but maintain stylistic/character consistency via the reference.
+
+  Generating a keyframe that is essentially the same image as an attachment is wasteful and produces no creative value.
+
 </Reel>
 
 <Task>

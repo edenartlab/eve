@@ -446,7 +446,7 @@ async def nano_banana_handler(
 
     Args:
         args: Tool arguments (prompt, image_input, aspect_ratio, etc.)
-        model: GCP model name (gemini-2.5-flash-image-preview or gemini-3-pro-image-preview)
+        model: GCP model name (gemini-2.5-flash-image or gemini-3-pro-image-preview)
         fal_fallback_tool: Name of FAL tool to use as fallback (nano_banana_fal or nano_banana_pro_fal)
 
     Returns:
