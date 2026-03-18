@@ -12,6 +12,6 @@ async def handler(context: ToolContext):
     """
     return await nano_banana_handler(
         context.args,
-        model="gemini-2.5-flash-image-preview",
+        model="gemini-2.5-flash-image",
         fal_fallback_tool="nano_banana_fal",
     )
