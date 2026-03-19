@@ -31,6 +31,18 @@ from .file_utils import download_file, get_file_handler
 from .text_utils import get_font, wrap_text
 
 
+def _ensure_dev_null():
+    """Ensure /dev/null exists — Modal's gVisor sandbox can lose it."""
+    if not os.path.exists(os.devnull):
+        try:
+            os.makedirs(os.path.dirname(os.devnull), exist_ok=True)
+            import stat
+            os.mknod(os.devnull, 0o666 | stat.S_IFCHR, os.makedev(1, 3))
+            logger.warning(f"Recreated missing {os.devnull}")
+        except Exception as e:
+            logger.warning(f"Could not recreate {os.devnull}: {e}")
+
+
 def get_media_attributes(file):
     if isinstance(file, replicate.helpers.FileOutput):
         is_url = False
@@ -60,6 +72,7 @@ def get_media_attributes(file):
         )
 
     elif "video" in mime_type:
+        _ensure_dev_null()
         video = VideoFileClip(file)
         thumbnail = Image.fromarray(video.get_frame(0).astype("uint8"), "RGB")
         width, height = thumbnail.size
