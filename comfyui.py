@@ -63,10 +63,11 @@ DEFAULT_CONFIG = {
     "enable_gpu_snapshot": True,
 }
 
-# Premium: higher concurrency for subscribers
+# Premium: one job per container so each workflow gets full GPU resources;
+# Modal scales out to multiple containers instead of multiplexing on one.
 PREMIUM_SCALING = {
     "max_containers": 10,
-    "max_concurrent_inputs": 10,
+    "max_concurrent_inputs": 1,
 }
 
 # Basic: single container, no concurrency
