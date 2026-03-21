@@ -36,19 +36,58 @@ class Manna(Document):
             raise e
 
     def spend(self, amount: float):
-        subscription_spend = min(self.subscriptionBalance, amount)
-        self.subscriptionBalance -= subscription_spend
-        self.balance -= amount - subscription_spend
-        if self.balance < 0:
+        if amount == 0:
+            return
+        collection = self.get_collection()
+
+        # Read current balances to determine the split between subscription and regular
+        current = collection.find_one({"_id": self.id})
+        if not current:
+            raise Exception("Manna record not found")
+
+        sub_balance = current.get("subscriptionBalance", 0)
+        subscription_spend = min(sub_balance, amount)
+        balance_spend = amount - subscription_spend
+
+        # Atomic update with balance guard: only succeeds if both fields
+        # are still >= the amounts we intend to deduct, preventing races
+        result = collection.find_one_and_update(
+            {
+                "_id": self.id,
+                "subscriptionBalance": {"$gte": subscription_spend},
+                "balance": {"$gte": balance_spend},
+            },
+            {
+                "$inc": {
+                    "subscriptionBalance": -subscription_spend,
+                    "balance": -balance_spend,
+                }
+            },
+            return_document=True,
+        )
+        if not result:
             raise Exception(
-                f"Insufficient manna balance. Need {amount} but only have {self.balance + self.subscriptionBalance}"
+                f"Insufficient manna balance or concurrent modification. "
+                f"Need {amount} manna."
             )
-        self.save()
+        # Update local state from the authoritative DB result
+        self.subscriptionBalance = result.get("subscriptionBalance", 0)
+        self.balance = result.get("balance", 0)
 
     def refund(self, amount: float):
-        # todo: make it refund to subscription balance first if it spent from there
-        self.balance += amount
-        self.save()
+        if amount == 0:
+            return
+        collection = self.get_collection()
+        result = collection.find_one_and_update(
+            {"_id": self.id},
+            {"$inc": {"balance": amount}},
+            return_document=True,
+        )
+        if not result:
+            raise Exception("Manna record not found for refund")
+        # Update local state from the authoritative DB result
+        self.balance = result.get("balance", 0)
+        self.subscriptionBalance = result.get("subscriptionBalance", 0)
 
 
 @Collection("transactions")

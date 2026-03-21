@@ -1,5 +1,6 @@
 import click
 
+from .collection_cli import collection
 from .export_cli import export
 from .lookup_cli import lookup
 from .start_cli import api, start
@@ -19,5 +20,6 @@ cli.add_command(api)
 cli.add_command(upload)
 cli.add_command(export)
 cli.add_command(lookup)
+cli.add_command(collection)
 
 __all__ = ["start"]  # Add other CLI commands as needed

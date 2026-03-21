@@ -165,24 +165,37 @@ class Task(Document):
             (self.cost or 0) * (n_samples - len(self.result or [])) / n_samples
         )
 
-        # Avoid double-refunding if multiple code paths invoke this method
         if refund_amount <= 0:
-            return
-        existing_refund = Transaction.get_collection().find_one(
-            {"task": self.id, "type": "refund"}
-        )
-        if existing_refund:
-            logger.warning(f"Refund already issued for task {self.id}")
             return
 
         manna = Manna.load(self.paying_user or self.user)
+
+        # Atomically insert the refund transaction only if one doesn't already
+        # exist for this task.  The upsert filter {task, type} acts as a
+        # de-duplication key: if a concurrent request already created the
+        # refund document, upserted_id will be None (matched, not inserted).
+        txn_collection = Transaction.get_collection()
+        result = txn_collection.update_one(
+            {"task": self.id, "type": "refund"},
+            {
+                "$setOnInsert": {
+                    "manna": manna.id,
+                    "task": self.id,
+                    "amount": refund_amount,
+                    "type": "refund",
+                    "createdAt": datetime.now(timezone.utc),
+                }
+            },
+            upsert=True,
+        )
+
+        if result.upserted_id is None:
+            # The document already existed -- another path already refunded
+            logger.warning(f"Refund already issued for task {self.id}")
+            return
+
+        # Only credit the balance if *we* won the insert race
         manna.refund(refund_amount)
-        Transaction(
-            manna=manna.id,
-            task=self.id,
-            amount=refund_amount,
-            type="refund",
-        ).save()
 
 
 def task_handler_func(func):
