@@ -841,7 +841,8 @@ class Tool(Document, ABC):
                     # Forced cancellation from the server due to stuck task
                     task.update(status="failed", error="Timed out")
                 else:
-                    task.update(status="cancelled")
+                    # Clear results so cancelled tasks never have usable output
+                    task.update(status="cancelled", result=[])
 
         return async_wrapper
 
