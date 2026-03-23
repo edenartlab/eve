@@ -136,6 +136,9 @@ Follow these steps precisely:
 
 **NOTE**: Do not ask for confirmation or clarification from the user. Just attempt to complete the task as best as you can, and output a final report later.
 
+
+**IMPORTANT ADDENDUM**: make THIS reel only 30 seconds long (5-6 clips max). Ignore previous instructions about the duration and make it 30 SECONDS ONLY!!!! Go fast, use fast cheap models so this ends quickly.
+
 </Task>
 """
 

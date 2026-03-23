@@ -45,7 +45,6 @@ async def handler(context: ToolContext):
 
     runway = Tool.load("runway")
     kling_pro = Tool.load("kling_pro")
-    veo2 = Tool.load("veo2")
     veo3 = Tool.load("veo3") if veo3_enabled else None
     hedra = Tool.load("hedra")
     create = Tool.load("create")
@@ -96,13 +95,10 @@ async def handler(context: ToolContext):
     elif quality == "standard":
         video_tool = kling_pro
     elif quality == "high_quality":
-        if veo3_enabled:
-            if sound_effects and not start_image:
-                video_tool = veo3
-            else:
-                video_tool = veo2
+        if veo3_enabled and sound_effects and not start_image:
+            video_tool = veo3
         else:
-            video_tool = veo2
+            video_tool = kling_pro
 
     # If there is no start image, generate one for any of the following reasons:
     # - Using Runway, because it requires one
@@ -134,9 +130,9 @@ async def handler(context: ToolContext):
     else:
         start_image_attributes = None
 
-    # Veo-3 doesn't support start images, so fall back to veo-2
+    # Veo-3 doesn't support start images, so fall back to kling_pro
     if start_image and video_tool == veo3:
-        video_tool = veo2
+        video_tool = kling_pro
 
     #########################################################
     # Runway
@@ -209,37 +205,6 @@ async def handler(context: ToolContext):
             )
 
         result = await kling_pro.async_run(args, save_thumbnails=True)
-
-    #########################################################
-    # Veo-2
-    elif video_tool == veo2:
-        # Veo can only produce 5-8s videos
-        duration = min(duration, 8)
-
-        # Snap aspect ratio to closest Veo2 preset
-        aspect_ratio = snap_aspect_ratio_to_model(
-            aspect_ratio, "veo2", start_image_attributes
-        )
-
-        args = {
-            "prompt": prompt,
-            "duration": duration,
-            "aspect_ratio": aspect_ratio,
-        }
-
-        if start_image:
-            args.update(
-                {
-                    "image": start_image,
-                }
-            )
-
-        # if end_image:
-        #     args.update({
-        #         "end_image": end_image,
-        #     })
-
-        result = await veo2.async_run(args, save_thumbnails=True)
 
     #########################################################
     # Veo-3
@@ -365,7 +330,6 @@ def snap_aspect_ratio_to_model(aspect_ratio, model_name, start_image_attributes)
             "9:16": 9 / 16,
         },
         "kling": {"16:9": 16 / 9, "1:1": 1 / 1, "9:16": 9 / 16},
-        "veo2": {"16:9": 16 / 9, "9:16": 9 / 16},
         "hedra": {"16:9": 16 / 9, "1:1": 1 / 1, "9:16": 9 / 16},
     }[model_name]
 

@@ -845,7 +845,7 @@ async def handle_video_creation(
     # kling = Tool.load("kling")
     # kling_pro = Tool.load("kling")
     # seedance1 = Tool.load("seedance1")
-    # veo2 = Tool.load("veo2")
+    # veo2 removed - deprecated
     # veo3 = Tool.load("veo3") if veo3_enabled else None
     # hedra = Tool.load("hedra")
     # create = Tool.load("create")
@@ -1096,43 +1096,6 @@ async def handle_video_creation(
         )
 
     #########################################################
-    # Veo-2
-    elif video_tool == "veo2":
-        veo2 = Tool.load("veo2")
-
-        # Veo can only produce 5-8s videos
-        duration = max(5, min(duration, 8))
-
-        # Snap aspect ratio to closest Veo2 preset
-        aspect_ratio = snap_aspect_ratio_to_model(
-            aspect_ratio, "veo2", start_image_attributes
-        )
-
-        args = {
-            "prompt": prompt,
-            "duration": duration,
-            "aspect_ratio": aspect_ratio,
-        }
-
-        if start_image:
-            args.update(
-                {
-                    "image": start_image,
-                }
-            )
-
-        # if end_image:
-        #     args.update({
-        #         "end_image": end_image,
-        #     })
-
-        if check_cancelled():
-            return {"status": "cancelled", "output": None}
-        result = await veo2.async_run(
-            args, save_thumbnails=True, cancellation_event=cancellation_event
-        )
-
-    #########################################################
     # Veo-3
     elif video_tool == "veo3":
         veo3 = Tool.load("veo3")
@@ -1374,7 +1337,6 @@ def snap_aspect_ratio_to_model(aspect_ratio, model_name, start_image_attributes)
             "9:16": 9 / 16,
         },
         "kling": {"16:9": 16 / 9, "1:1": 1 / 1, "9:16": 9 / 16},
-        "veo2": {"16:9": 16 / 9, "9:16": 9 / 16},
         "veo3": {"16:9": 16 / 9, "9:16": 9 / 16},
         "hedra": {"16:9": 16 / 9, "1:1": 1 / 1, "9:16": 9 / 16},
         "seedance1": {
