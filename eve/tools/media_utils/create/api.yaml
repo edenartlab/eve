@@ -13,7 +13,7 @@ tip: |-
   Aspect ratio:
     - Use 16:9 (landscape), 1:1 (square), 9:16 (portrait) unless the user specifies otherwise.
     - If aspect_ratio != "auto", it overrides any aspect ratio inferred from references.
-cost_estimate: '(output == "video" ? (((quality == "pro" ? 40 : 20) + (sound_effects ? 5 : 0)) * duration) : (5 * n_samples))'
+cost_estimate: '(output == "video" ? (((quality == "pro" ? 50 : 25) + (sound_effects ? 10 : 0)) * duration) : (10 * n_samples))'
 output_type: image
 active: true
 visible: true
