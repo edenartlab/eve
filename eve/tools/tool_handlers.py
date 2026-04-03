@@ -71,7 +71,6 @@ HANDLER_PATHS = {
     "weather": "weather.handler",
     "openai_image_generate": "openai_image_generate.handler",
     "openai_image_edit": "openai_image_edit.handler",
-    "veo2": "google.veo2.handler",
     "veo3": "google.veo3.handler",
     "nano_banana": "google.nano_banana.handler",
     "nano_banana_pro": "google.nano_banana_pro.handler",

@@ -170,8 +170,8 @@ class User(Document):
         return "eden_admin" in (self.featureFlags or [])
 
     def check_manna(self, amount: float):
-        if "free_tools" in (self.featureFlags or []):
-            return
+        # if "free_tools" in (self.featureFlags or []):
+        #     return
         manna = Manna.load(self.id)
         total_balance = manna.balance + manna.subscriptionBalance
         if total_balance < amount:

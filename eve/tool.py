@@ -796,7 +796,8 @@ class Tool(Document, ABC):
                     if not pre_handler_id:
                         task.update(handler_id=handler_id)
 
-                if "free_tools" not in (paying_user.featureFlags or []):
+                # if "free_tools" not in (paying_user.featureFlags or []):
+                if True:
                     task.spend_manna()
 
             except Exception as e:

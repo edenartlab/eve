@@ -890,8 +890,8 @@ class PromptSessionRuntime:
         if not user_doc:
             return
 
-        if "free_tools" in (user_doc.featureFlags or []):
-            return
+        # if "free_tools" in (user_doc.featureFlags or []):
+        #     return
 
         try:
             manna = Manna.load(user_doc.id)

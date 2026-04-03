@@ -13,7 +13,7 @@ MODEL_TIERS: Dict[str, List[str]] = {
     "high": [
         "claude-sonnet-4-6",
         "claude-haiku-4-5",
-        "gpt-5-nano",
+        "gpt-5.4-nano",
         "gpt-4o-mini",
         "gemini-3-flash-preview",
     ],

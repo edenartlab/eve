@@ -67,7 +67,6 @@ ALL_TOOLS = [
     "kling_pro",
     "kling",
     "kling_o3",
-    "veo2",
     "hedra",
     "seedance1",
     "vid2vid_sdxl",
