@@ -52,6 +52,16 @@ EXCLUDED_SESSION_IDS = [
     ObjectId("69c06e1d95dd6625bdc57508"),
     ObjectId("69c0d12195dd6625bdcca422"),
     ObjectId("69c0852795dd6625bdc6d9f4"),
+    ObjectId("69c24f1795dd6625bde3acd3"),
+    ObjectId("69c095d095dd6625bdc862be"),
+    ObjectId("69c0ce8895dd6625bdcc92b3"),
+    ObjectId("69bf5ea095dd6625bdba9369"),
+    ObjectId("69bf5a4f95dd6625bdba5d3a"),
+    ObjectId("69bf5a4f95dd6625bdba5d3a"),
+    ObjectId("69bf55d995dd6625bdba41b9"),
+    ObjectId("69c186f795dd6625bdd62b83"),
+    ObjectId("69cc431395dd6625bd704f20"),
+    ObjectId("69cda88395dd6625bd7d5bce"),
 ]
 
 

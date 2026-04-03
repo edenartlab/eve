@@ -28,7 +28,6 @@ from eve.api.api_functions import (
     memory2_process_cold_sessions_fn,
     rotate_agent_metadata_fn,
     run_task_replicate,
-    topup_mars_college_manna_fn,
 )
 from eve.api.api_functions import (
     run as _run,
@@ -761,12 +760,12 @@ memory2_process_cold_sessions = app.function(
     image=image, max_containers=1, schedule=modal.Period(minutes=10), timeout=3600
 )(memory2_process_cold_sessions_fn)
 
-topup_mars_college_manna_modal = app.function(
-    image=image,
-    max_containers=1,
-    schedule=modal.Cron("0 6 * * *", timezone="America/Los_Angeles"),
-    timeout=3600,
-)(topup_mars_college_manna_fn)
+# topup_mars_college_manna_modal = app.function(
+#     image=image,
+#     max_containers=1,
+#     schedule=modal.Cron("0 6 * * *", timezone="America/Los_Angeles"),
+#     timeout=3600,
+# )(topup_mars_college_manna_fn)
 
 
 ########################################################
