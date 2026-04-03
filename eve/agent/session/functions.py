@@ -71,7 +71,7 @@ async def async_title_session(
             messages=messages,
             tools=[],
             config=LLMConfig(
-                model="gpt-5-nano",
+                model="gpt-5.4-nano",
                 fallback_models=["gpt-4o-mini"],
                 response_format=TitleResponse,
             ),

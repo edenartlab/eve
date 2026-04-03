@@ -1582,7 +1582,7 @@ async def handle_extract_agent_prompts(request):
         ],
         config=LLMConfig(
             model=model,
-            fallback_models=["gpt-5-nano"],
+            fallback_models=["gpt-5.4-nano"],
             response_format=AgentPromptsResponse,
         ),
         metadata=LLMContextMetadata(
