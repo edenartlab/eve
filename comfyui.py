@@ -46,10 +46,50 @@ from eve.s3 import get_full_url
 from eve.task import task_handler_method
 from eve.tool import Tool
 
-GPUs = {
-    "A100": "A100-40GB",  # Changed from modal.gpu.A100()
-    "A100-80GB": "A100-80GB",  # Changed from modal.gpu.A100(size="80GB")
+# ============================================================================
+# GPU & Container Configuration
+# All deployment settings for each ComfyUI class, centralized for easy tuning.
+# "A100" = 40GB variant. Use "A100-80GB" for the 80GB variant.
+# ============================================================================
+
+# Shared config for Premium and Basic (only scaling differs)
+DEFAULT_CONFIG = {
+    "gpu": "A100",          # A100-40GB
+    "cpu": 8.0,
+    "min_containers": 0,
+    "scaledown_window": 60,
+    "timeout": 3600,
+    "enable_memory_snapshot": True,
+    "enable_gpu_snapshot": True,
 }
+
+# Premium: one job per container so each workflow gets full GPU resources;
+# Modal scales out to multiple containers instead of multiplexing on one.
+PREMIUM_SCALING = {
+    "max_containers": 10,
+    "max_concurrent_inputs": 1,
+}
+
+# Basic: single container, no concurrency
+BASIC_SCALING = {
+    "max_containers": 1,
+}
+
+INTERACTIVE_CONFIG = {
+    "gpu": "A10G",
+    "cpu": 8.0,
+    "max_containers": 1,
+    "min_containers": 0,
+    "scaledown_window": 300,
+    "timeout": 1800,
+    "enable_memory_snapshot": True,
+    "enable_gpu_snapshot": False,
+    "web_server_startup_timeout": 120,
+}
+
+BUILD_GPU = INTERACTIVE_CONFIG["gpu"]  # Cheap GPU for image build (install_custom_nodes, run_tests_or_restore)
+
+# ============================================================================
 
 if not os.getenv("WORKSPACE"):
     raise Exception("No workspace selected")
@@ -1015,7 +1055,7 @@ image = (
         "libegl1",
     )
     .pip_install_from_pyproject(str(root_dir / "pyproject.toml"))
-    .pip_install("diffusers==0.31.0", "psutil", "flet==0.27.6")
+    .pip_install("diffusers==0.31.0", "psutil", "flet==0.27.6", "nvidia-cuda-nvrtc")
     .env({"WORKSPACE": workspace_name})
     .add_local_python_source("eve", copy=True)
     # First copy of workflow files — only include build-relevant files
@@ -1030,11 +1070,12 @@ image = (
             "**/api.yaml",
             "**/test*.json",
             "**/workflow.json",
-            "**/workflow_api.json"
+            "**/workflow_api.json",
+            "**/.DS_Store",
         ],
     )
     .run_function(install_comfyui)
-    .run_function(install_custom_nodes, gpu="A100")
+    .run_function(install_custom_nodes, gpu=BUILD_GPU)
     .pip_install(
         "moviepy==1.0.3",
         "accelerate==1.4.0",
@@ -1057,10 +1098,11 @@ image = (
         f"{root_workflows_folder}/workspaces/{workspace_name}",
         "/root/workspace",
         copy=True,
+        ignore=["**/.DS_Store"],
     )
     .run_function(
         run_tests_or_restore,
-        gpu="A100",
+        gpu=BUILD_GPU,
         volumes={"/data": downloads_vol},
         secrets=[
             modal.Secret.from_name("eve-secrets"),
@@ -1069,8 +1111,6 @@ image = (
     )
     .env({"SKIP_TESTS": str(skip_tests or "")})
 )
-
-gpu = "A100"
 
 app = modal.App(
     name=app_name,
@@ -2052,32 +2092,32 @@ class ComfyUI:
 
 @app.cls(
     image=image,
-    gpu=gpu,
-    cpu=8.0,
+    gpu=DEFAULT_CONFIG["gpu"],
+    cpu=DEFAULT_CONFIG["cpu"],
     volumes={"/data": downloads_vol},
-    max_containers=10,
-    scaledown_window=60,
-    min_containers=0,
-    timeout=3600,
-    enable_memory_snapshot=True,
-    experimental_options={"enable_gpu_snapshot": True},
+    max_containers=PREMIUM_SCALING["max_containers"],
+    scaledown_window=DEFAULT_CONFIG["scaledown_window"],
+    min_containers=DEFAULT_CONFIG["min_containers"],
+    timeout=DEFAULT_CONFIG["timeout"],
+    enable_memory_snapshot=DEFAULT_CONFIG["enable_memory_snapshot"],
+    experimental_options={"enable_gpu_snapshot": DEFAULT_CONFIG["enable_gpu_snapshot"]},
 )
-@modal.concurrent(max_inputs=10)
+@modal.concurrent(max_inputs=PREMIUM_SCALING["max_concurrent_inputs"])
 class ComfyUIPremium(ComfyUI):
     pass
 
 
 @app.cls(
     image=image,
-    gpu=gpu,
-    cpu=8.0,
+    gpu=DEFAULT_CONFIG["gpu"],
+    cpu=DEFAULT_CONFIG["cpu"],
     volumes={"/data": downloads_vol},
-    max_containers=1,
-    scaledown_window=60,
-    min_containers=0,
-    timeout=3600,
-    enable_memory_snapshot=True,
-    experimental_options={"enable_gpu_snapshot": True},
+    max_containers=BASIC_SCALING["max_containers"],
+    scaledown_window=DEFAULT_CONFIG["scaledown_window"],
+    min_containers=DEFAULT_CONFIG["min_containers"],
+    timeout=DEFAULT_CONFIG["timeout"],
+    enable_memory_snapshot=DEFAULT_CONFIG["enable_memory_snapshot"],
+    experimental_options={"enable_gpu_snapshot": DEFAULT_CONFIG["enable_gpu_snapshot"]},
 )
 class ComfyUIBasic(ComfyUI):
     pass
@@ -2085,31 +2125,14 @@ class ComfyUIBasic(ComfyUI):
 
 @app.cls(
     image=image,
-    gpu=gpu,
-    cpu=8.0,
+    gpu=INTERACTIVE_CONFIG["gpu"],
+    cpu=INTERACTIVE_CONFIG["cpu"],
     volumes={"/data": downloads_vol},
-    max_containers=50,
-    scaledown_window=60,
-    min_containers=0,
-    timeout=3600,
-    enable_memory_snapshot=True,
-    experimental_options={"enable_gpu_snapshot": True},
-)
-@modal.concurrent(max_inputs=10)
-class ComfyUITempleAbyss(ComfyUI):
-    pass
-
-
-@app.cls(
-    image=image,
-    gpu="A10G",
-    cpu=8.0,
-    volumes={"/data": downloads_vol},
-    max_containers=1,
-    scaledown_window=300,
-    min_containers=0,
-    timeout=7200,
-    enable_memory_snapshot=True,
+    max_containers=INTERACTIVE_CONFIG["max_containers"],
+    scaledown_window=INTERACTIVE_CONFIG["scaledown_window"],
+    min_containers=INTERACTIVE_CONFIG["min_containers"],
+    timeout=INTERACTIVE_CONFIG["timeout"],
+    enable_memory_snapshot=INTERACTIVE_CONFIG["enable_memory_snapshot"],
 )
 class ComfyUIInteractive(ComfyUI):
     @modal.enter(snap=True)
@@ -2120,7 +2143,7 @@ class ComfyUIInteractive(ComfyUI):
     def restore(self):
         pass  # No snapshot restore needed for interactive mode
 
-    @modal.web_server(8188, startup_timeout=120)
+    @modal.web_server(8188, startup_timeout=INTERACTIVE_CONFIG["web_server_startup_timeout"])
     def ui(self):
         cmd = "python /root/main.py --listen --port 8188"
         subprocess.Popen(cmd, shell=True)
