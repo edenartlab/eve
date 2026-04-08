@@ -75,6 +75,7 @@ async def memory2_process_cold_sessions_fn():
 
 async def topup_mars_college_manna_fn():
     """Top up subscription manna daily for Mars College users."""
+
     try:
         from eve.user import Manna, Transaction, User
 

@@ -51,6 +51,40 @@ class Creation(Document):
             data["task"] = ObjectId(data["task"])
         super().__init__(**data)
 
+    @classmethod
+    def ensure_indexes(cls):
+        """Ensure indexes exist for optimal query performance"""
+        collection = cls.get_collection()
+
+        # Primary index for eden_search: privacy filter + sort by createdAt
+        # Covers: {deleted: {$ne: true}, $or: [{user: X}, {public: true}]}.sort(createdAt, -1)
+        collection.create_index(
+            [("deleted", 1), ("user", 1), ("createdAt", -1)],
+            name="deleted_user_createdAt",
+        )
+        collection.create_index(
+            [("deleted", 1), ("public", 1), ("createdAt", -1)],
+            name="deleted_public_createdAt",
+        )
+
+        # Index for agent-based lookups (embedsearch, exports)
+        collection.create_index(
+            [("agent", 1), ("createdAt", -1)],
+            name="agent_createdAt",
+        )
+
+        # Index for user+agent lookups (export_creations)
+        collection.create_index(
+            [("user", 1), ("agent", 1), ("createdAt", -1)],
+            name="user_agent_createdAt",
+        )
+
+        # Index for embed_recent_creations job
+        collection.create_index(
+            [("createdAt", -1), ("embedding", 1)],
+            name="createdAt_embedding",
+        )
+
 
 @Collection("collections3")
 class CreationsCollection(Document):
