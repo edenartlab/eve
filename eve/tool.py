@@ -975,11 +975,7 @@ def get_api_files(root_dir: str = None) -> List[str]:
         eve_root = os.path.dirname(os.path.abspath(__file__))
         root_dirs = [
             os.path.join(eve_root, tools_dir)
-            for tools_dir in [
-                "tools",
-                "../../__archive__/workflows",
-                "../../private_workflows",
-            ]
+            for tools_dir in ["tools", "../../workflows", "../../private_workflows"]
         ]
 
     api_files = {}

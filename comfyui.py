@@ -101,7 +101,7 @@ workspace_name = os.getenv("WORKSPACE")
 app_name = f"comfyui-{workspace_name}-{db}"
 workflows_filter = os.getenv("WORKFLOWS")
 root_workflows_folder = (
-    "../private_workflows" if os.getenv("PRIVATE") else "../__archive__/workflows"
+    "../private_workflows" if os.getenv("PRIVATE") else "../workflows"
 )
 test_all = True if os.getenv("TEST_ALL") else False
 specific_tests = (
