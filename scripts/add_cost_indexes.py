@@ -54,6 +54,36 @@ INDEXES = [
         "owner_platform_updatedAt_createdAt_deleted_idx",
         {},
     ),
+    # ---- eden-prod.sessions (memory-context shapes, second pass) ----
+    # Slow query: filter on status + memory_context.last_activity + extras.incognito + updatedAt
+    # PA flagged both shapes (one keyed on messages_since_memory_formation,
+    # one on weighted_tokens_since_memory_formation) — add an index for each.
+    (
+        "eden-prod",
+        "sessions",
+        [
+            ("status", 1),
+            ("memory_context.messages_since_memory_formation", 1),
+            ("memory_context.last_activity", 1),
+            ("updatedAt", 1),
+            ("extras.incognito", 1),
+        ],
+        "status_msgsincemem_lastact_updated_incognito_idx",
+        {},
+    ),
+    (
+        "eden-prod",
+        "sessions",
+        [
+            ("status", 1),
+            ("memory_context.weighted_tokens_since_memory_formation", 1),
+            ("memory_context.last_activity", 1),
+            ("updatedAt", 1),
+            ("extras.incognito", 1),
+        ],
+        "status_wtokensincemem_lastact_updated_incognito_idx",
+        {},
+    ),
     # ---- eden-prod.messages ----
     # Slow query #7: {session, pinned} — 26K-doc scan, 0 returned, 34 occurrences.
     (
