@@ -22,7 +22,6 @@ import copy
 import glob
 import json
 import os
-from typing import get_args
 import pathlib
 import re
 import shutil
@@ -34,6 +33,7 @@ import time
 import traceback
 import urllib
 from pathlib import Path
+from typing import get_args
 
 import git
 import modal
@@ -54,7 +54,7 @@ from eve.tool import Tool
 
 # Shared config for Premium and Basic (only scaling differs)
 DEFAULT_CONFIG = {
-    "gpu": "A100",          # A100-40GB
+    "gpu": "A100",  # A100-40GB
     "cpu": 8.0,
     "min_containers": 0,
     "scaledown_window": 60,
@@ -87,7 +87,9 @@ INTERACTIVE_CONFIG = {
     "web_server_startup_timeout": 120,
 }
 
-BUILD_GPU = INTERACTIVE_CONFIG["gpu"]  # Cheap GPU for image build (install_custom_nodes, run_tests_or_restore)
+BUILD_GPU = INTERACTIVE_CONFIG[
+    "gpu"
+]  # Cheap GPU for image build (install_custom_nodes, run_tests_or_restore)
 
 # ============================================================================
 
@@ -99,7 +101,7 @@ workspace_name = os.getenv("WORKSPACE")
 app_name = f"comfyui-{workspace_name}-{db}"
 workflows_filter = os.getenv("WORKFLOWS")
 root_workflows_folder = (
-    "../private_workflows" if os.getenv("PRIVATE") else "../workflows"
+    "../private_workflows" if os.getenv("PRIVATE") else "../__archive__/workflows"
 )
 test_all = True if os.getenv("TEST_ALL") else False
 specific_tests = (
@@ -1280,7 +1282,9 @@ class ComfyUI:
             comfy_path = pathlib.Path("/root") / path_key
             vol_path = pathlib.Path("/data") / path_key
             if vol_path.exists() and not comfy_path.exists():
-                create_symlink(vol_path, comfy_path, is_directory=vol_path.is_dir(), force=True)
+                create_symlink(
+                    vol_path, comfy_path, is_directory=vol_path.is_dir(), force=True
+                )
 
     def _is_server_running(self):
         try:
@@ -1435,23 +1439,17 @@ class ComfyUI:
                 node_output = history["outputs"][node_id]
                 if "images" in node_output:
                     outputs[node_id] = [
-                        os.path.join(
-                            "output", image["subfolder"], image["filename"]
-                        )
+                        os.path.join("output", image["subfolder"], image["filename"])
                         for image in node_output["images"]
                     ]
                 elif "gifs" in node_output:
                     outputs[node_id] = [
-                        os.path.join(
-                            "output", video["subfolder"], video["filename"]
-                        )
+                        os.path.join("output", video["subfolder"], video["filename"])
                         for video in node_output["gifs"]
                     ]
                 elif "audio" in node_output:
                     outputs[node_id] = [
-                        os.path.join(
-                            "output", audio["subfolder"], audio["filename"]
-                        )
+                        os.path.join("output", audio["subfolder"], audio["filename"])
                         for audio in node_output["audio"]
                     ]
 
@@ -2143,7 +2141,9 @@ class ComfyUIInteractive(ComfyUI):
     def restore(self):
         pass  # No snapshot restore needed for interactive mode
 
-    @modal.web_server(8188, startup_timeout=INTERACTIVE_CONFIG["web_server_startup_timeout"])
+    @modal.web_server(
+        8188, startup_timeout=INTERACTIVE_CONFIG["web_server_startup_timeout"]
+    )
     def ui(self):
         cmd = "python /root/main.py --listen --port 8188"
         subprocess.Popen(cmd, shell=True)
