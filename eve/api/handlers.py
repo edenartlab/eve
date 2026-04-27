@@ -1450,6 +1450,13 @@ if os.getenv("MODAL_IS_REMOTE") == "1":
 async def handle_embed(request):
     """Embed images with CLIP"""
 
+    # VECTOR_SEARCH_DISABLED: CLIP text→image embedding feature disabled to
+    # free Atlas Search RAM (creations3.img_vec_idx was 4.92 GB, forced M30).
+    # Re-enable by setting VECTOR_SEARCH_ENABLED=true and rebuilding the
+    # creations3.img_vec_idx Atlas Vector Search index.
+    if os.getenv("VECTOR_SEARCH_ENABLED") != "true":
+        return {"embedding": []}
+
     inputs = proc(
         text=[request.query], return_tensors="pt", padding=True, truncation=True
     ).to(device)
@@ -1463,6 +1470,11 @@ async def handle_embed(request):
 @handle_errors
 async def handle_embedsearch(request):
     """Search images using CLIP embeddings"""
+
+    # VECTOR_SEARCH_DISABLED: see handle_embed above. Returns no results when
+    # disabled rather than 500ing on missing index.
+    if os.getenv("VECTOR_SEARCH_ENABLED") != "true":
+        return {"results": []}
 
     qv_result = await handle_embed(request)
     qv = qv_result["embedding"]
