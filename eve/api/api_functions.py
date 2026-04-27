@@ -478,6 +478,16 @@ async def cleanup_stuck_triggers():
 
 async def embed_recent_creations():
     """Embed recent creations (images & videos) that don't have embeddings yet."""
+    # VECTOR_SEARCH_DISABLED: do not generate new CLIP embeddings.
+    # The creations3.img_vec_idx Atlas Vector Search index was dropped to
+    # free cluster RAM. Without the index, the embeddings have nowhere to
+    # be searched against, so generating them is pure cost (CLIP GPU + disk).
+    # Re-enable by setting VECTOR_SEARCH_ENABLED=true and rebuilding the index.
+    import os as _os
+
+    if _os.getenv("VECTOR_SEARCH_ENABLED") != "true":
+        logger.info("embed_recent_creations skipped (VECTOR_SEARCH_ENABLED!=true)")
+        return
     try:
         import io
         import json
