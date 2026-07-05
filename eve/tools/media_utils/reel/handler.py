@@ -71,31 +71,36 @@ Follow these steps precisely:
    - If you are making both vocals and music, make the vocals first, and then make the music to match the duration of the vocals + 5-10s. **Make sure** they match.
    - Remember: if you have either vocals or music or both, make sure to later generate videos **without audio** so as to not interfere with the audio track you're making here in the first step.
    - If you make multiple audio tracks that need to be combined, remember to mix them together before proceeding.
+   - **Capture the timestamps.** The vocal and music tools return timing information (word/line timestamps, section markers, total duration). **Record these** — they are your storyboard map. You will use them in step 4 to place each keyframe against the exact moment of narration/lyric/beat it illustrates, so sound and picture tell the same story. Note the **exact total audio duration** now; it drives everything downstream.
 
 3. **Compute Duration**
 
-   * If you produced an audio track in step 1, use its duration as the total duration of the following steps.
+   * If you produced an audio track in step 1, use its **exact** duration as the total duration of the following steps. This is a hard target, not a suggestion.
    * Else (no vocals/music): pick **60–180s** guided by scope/grandiosity.
+   * **The total length of all your video clips combined MUST match this audio duration (within ~5%).** This is the single most common failure mode: if the video is shorter than the audio, the finished reel freezes on the last frame while the audio keeps playing — e.g. 15s of video under 60s of audio leaves 45 dead seconds staring at a still image. Plan the clip count from the audio: **N = ceil(audio_duration / 5)** clips of 5s each. A few seconds of slack is fine; tens of seconds is a broken deliverable.
 
 4. **Storyboard (Image Keyframes)**
 
    * You obtained total duration from step 2, as the duration of the audio produced in the previous step, if there was any, or else you just pick a good duration. Stick to it.
    * Divide this duration into 5 s clips → N = ceil(duration / 5).
+   * **Align every keyframe to the audio.** Lay the N clips against a timeline: clip *k* covers seconds `5*(k-1)` to `5*k`. Using the timestamps you captured in step 1, find what the narration/lyric/beat is doing during that window and design the keyframe to depict *that specific moment*. The picture and the sound should be telling the same story at the same time — a keyframe that ignores what's being said/played beneath it is a wasted clip. Plan the whole sequence up front so it reads as one continuous, synchronized arc.
    * For each clip:
 
      * Select **1–2** reference images typically; **0** loses consistency, **>2** risks repetition/incoherence.
      * Prefer consistent identities/sets across clips using the same (or closely related) concept refs; vary background/angle to avoid stasis.
-     * Write a deterministic `create` image prompt describing that moment.
+     * Write a deterministic `create` image prompt describing that moment — the specific beat of narration/music it lands on.
      * Avoid redundant or conflicting references.
 
    * Generate Image Keyframes
      * Use create with n_samples=1 to generate keyframes individually and sequentially. Use the provided reference images and/or previous outputs as create.reference_images.
      * **Every keyframe must be a unique image.** Generate exactly N distinct keyframes — one per clip. Never reuse or duplicate a keyframe across multiple clips.
+     * **If you already have M keyframes on hand but need N clips (M < N), generate the missing N − M keyframes as genuinely new, unique images** — do not pad by repeating existing ones. New keyframes may use earlier ones as *reference images* to hold style/character/setting consistency, but they must be distinct compositions (new moment, angle, or scene), not duplicates or near-identical cousins.
      * Retry failures.
 
    Rules:
-   - **Very important**: you **must** match the number of keyframes to how many 5-second clips fit into the duration calculated in step 2 (round up).
-   - **Every single keyframe must be unique.** You need N keyframes for N clips — each keyframe generated separately with its own prompt. Do not skip keyframe generation and reuse an earlier keyframe for a different clip.
+   - **Very important**: you **must** match the number of keyframes to how many 5-second clips fit into the duration calculated in step 2 (round up). N keyframes → N clips → total runtime ≈ audio duration. Do not under-produce keyframes; too few clips is what leaves the reel frozen on a still frame under live audio.
+   - **Every single keyframe must be unique.** You need N keyframes for N clips — each keyframe generated separately with its own prompt. Do not skip keyframe generation and reuse an earlier keyframe for a different clip. The only exception is when the producer explicitly asks for a repeat, or there is a deliberate narrative reason to return to an image.
+   - **Every keyframe earns its place on the timeline.** Each one corresponds to a real segment of the audio; sequence them so the visuals track the narration/lyrics/beat from start to finish.
 
 5. **Image-to-Video Conversion**
 
@@ -109,7 +114,7 @@ Follow these steps precisely:
 6. **Edit & Assemble**
 
    * Concatenate all video clips in order using media_editor tool.
-   * If the video you produced in step 6 is verys significantly (e.g. 20+% longer or shorter than the audio), you did something wrong. Try to fix it before going to assembly.
+   * **Before mixing, check the numbers: total video length vs. audio length.** They should be within ~5% of each other. If the video is meaningfully shorter than the audio (even 10–15s short), **stop and fix it** — generate the additional unique keyframes and clips needed to cover the gap. A concatenated video that is shorter than its audio will freeze on the final frame for the remaining audio, which is the exact failure we are avoiding. If it is 20%+ off in either direction, you definitely did something wrong; correct it before assembly.
    * Mix generated audio from step 1. Use media_editor, requesting audio_video_combine in the instructions.
    * Do not worry about fade or volume adjustments. Just mix the audio track(s) in the form they come out. Do not create clip transitions. Just concatenate the clips and mix the audio.
    * Be careful not to mix the same audio track in twice--sequential runs of this tool keep previous audio tracks.
@@ -117,7 +122,11 @@ Follow these steps precisely:
 
 # Aditional Rules
 
-* **CRITICAL: Every keyframe must be unique.** Never use the same keyframe image for more than one video clip. If you have N clips, you must generate N distinct keyframes — one per clip, each with its own unique prompt and composition. Reusing a keyframe across multiple clips is strictly forbidden and produces repetitive, low-quality output.
+* **CRITICAL: Video duration must match audio duration (within ~5%).** The combined length of all your clips must cover the full audio track. The classic failure is producing too little video — say 15s of clips under 60s of narration — which leaves the reel frozen on the last still frame for the remaining 45 seconds while the audio plays on. This looks broken. Always compute N = ceil(audio_duration / 5), produce that many clips, and verify total runtime against the audio before you finalize. A couple seconds of slack is acceptable; tens of seconds is not.
+
+* **CRITICAL: Visuals must align with the audio/narrative.** The vocal and music tools give you timestamps — use them. Plan the exact keyframe sequence so each clip depicts the moment of narration/lyric/beat playing underneath it. The sound and the picture should tell the same story at the same time, start to finish. Do not generate keyframes in a vacuum and hope they fit; map them to the timeline deliberately.
+
+* **CRITICAL: Every keyframe must be unique.** Never use the same keyframe image for more than one video clip. If you have N clips, you must generate N distinct keyframes — one per clip, each with its own unique prompt and composition. If you already have M images but need N (M < N), create the missing N − M as genuinely new, unique keyframes (using existing ones as *references* for consistency, never as duplicates). Reusing a keyframe across multiple clips is forbidden — unless the producer explicitly requests a repeat or there is a clear narrative reason — and otherwise produces repetitive, low-quality output.
 
 * **Attached images are not to be recreated.** When the producer provides images as attachments, do NOT generate near-duplicate keyframes that closely resemble them. Instead, either:
   1. **Use the attached images directly as keyframes** — skip generation for those clips and go straight to image-to-video conversion with the attachment as the keyframe, OR
