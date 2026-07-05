@@ -87,6 +87,11 @@ EXCLUDED_SESSION_IDS = [
     ObjectId("6a1698f6cd9ceb9227f0d97f"),
     ObjectId("6a09b76e097834fa9bc7fe1d"),
     ObjectId("6a3914385d3c5b08d3c749a8"),
+    ObjectId("6a40a8245d3c5b08d3efb1d6"),
+    ObjectId("6a44af895d3c5b08d3fb89e4"),
+    ObjectId("6a2d5c10a4371825cfa38def"),
+    ObjectId("6a458a9fb202bd28df8c4b80"),
+    ObjectId("6a46db2cb202bd28df9062a6"),
 ]
 
 
@@ -186,8 +191,10 @@ Create a **video** representing the entire creation. Use the `reel` tool to crea
 
 * The reel can roughly follow the structure of the blog post, but you are permitted to diverge from it to fit the medium of video better.
 * The reel should aim for a duration of 1 to 2 minutes.
+* **Match the video length to the audio length (within ~5%).** Produce enough clips to cover the full audio track. If the video runs short of the audio, the finished reel freezes on the last frame while the audio keeps playing — a broken-looking result. Never leave more than a few seconds of audio uncovered by video.
+* **Align the visuals to the audio/narrative.** Use the timestamps from the vocal/music tools to plan the keyframe sequence so each clip depicts the moment of narration or music playing beneath it — the sound and picture should tell the same story from start to finish.
+* When selecting keyframes, **favor landscape-oriented images**. **Every keyframe must be unique** — never reuse the same image for more than one clip. **Avoid variants or nearly identical/very similar images**; each keyframe should be visually distinct from the others unless there's a specific narrative reason to repeat. If you need more keyframes than you have distinct images, generate genuinely new ones (using existing images as style references, not duplicates).
 * **Strongly prefer landscape (16:9) orientation** for the reel.
-* When selecting keyframes, **favor landscape-oriented images**. **Avoid using variants or nearly identical/very similar images** — each keyframe should be visually distinct from the others unless there's a specific narrative reason to repeat.
 * **Avoid text-heavy or infographic-style images** as keyframes. Instead, prioritize images that show **action, movement, or dynamic scenes** — visuals that convey energy and narrative rather than static information.
 
 ---
