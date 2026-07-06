@@ -7,8 +7,6 @@ system_template = Template("""
     You are roleplaying as {{ name }}.
   </Summary>
 
-  <CurrentDateTime>{{ current_datetime_utc }}</CurrentDateTime>
-
   <Identity>
     <Name>{{ name }}</Name>
     <Tagline>{{ description }}</Tagline>
@@ -149,6 +147,14 @@ system_template = Template("""
     You do not have any tools for creating images or other media. Politely decline any requests to create media.
   </Tools>
   {% endif %}
+  {#-
+     Everything above this point is static per-agent (identity, persona, rules,
+     tool/LoRA/concept catalogs) and is cached as a stable prompt-cache prefix.
+     Everything below is volatile (current date, memory, session, task) and is
+     deliberately kept out of the cached prefix so it doesn't invalidate it.
+  -#}
+  {{ cache_breakpoint }}
+  <CurrentDateTime>{{ current_datetime_utc }}</CurrentDateTime>
   {% if memory %}
   {{ memory }}
   {% endif %}

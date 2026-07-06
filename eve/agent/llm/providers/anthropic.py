@@ -16,6 +16,7 @@ from pydantic import BaseModel
 
 from eve.agent.llm.formatting import (
     construct_anthropic_tools,
+    split_system_for_cache,
 )
 from eve.agent.llm.providers import LLMProvider
 from eve.agent.llm.util import (
@@ -43,6 +44,18 @@ TOOL_SEARCH_TOOL_BM25 = {
     "name": "tool_search_tool_bm25",
 }
 
+# Prompt-cache breakpoint marker applied to system/message blocks.
+CACHE_CONTROL = {"type": "ephemeral"}
+
+# Anthropic list prices, $ per token (input, output). Used for accurate cost
+# accounting including cache read (0.1x input) and 5-min cache write (1.25x input).
+# Unknown models fall back to litellm (see _compute_cost).
+_ANTHROPIC_PRICE = {
+    "claude-haiku-4-5": (1.0e-6, 5.0e-6),
+    "claude-sonnet-4-6": (3.0e-6, 15.0e-6),
+    "claude-opus-4-6": (5.0e-6, 25.0e-6),
+}
+
 
 class AnthropicProvider(LLMProvider):
     provider_name = "anthropic"
@@ -60,8 +73,11 @@ class AnthropicProvider(LLMProvider):
             raise RuntimeError("ANTHROPIC_API_KEY is required for AnthropicProvider")
         self.client = AsyncAnthropic(api_key=api_key)
 
-    # Models that support structured outputs (as of Nov 2025)
+    # Models that support structured outputs. Haiku 4.5 DOES support them, so it
+    # must be listed here - otherwise structured-output calls on a Haiku agent are
+    # silently upgraded to the Sonnet fallback below at ~3x the cost.
     STRUCTURED_OUTPUT_MODELS = {
+        "claude-haiku-4-5",
         "claude-sonnet-4-6",
         "claude-sonnet-4-5",
         "claude-sonnet-4-5-20250929",
@@ -72,11 +88,106 @@ class AnthropicProvider(LLMProvider):
     # Fallback model for structured outputs when using unsupported models
     STRUCTURED_OUTPUT_FALLBACK = "claude-sonnet-4-6"
 
+    def _build_system_param(self, system_prompt: Optional[str]):
+        """Return the Anthropic `system` param as cache-annotated text blocks.
+
+        The system prompt is split at the cache breakpoint marker into a static
+        per-agent prefix (identity, persona, rules, tools) and a volatile tail
+        (date, memory, session, task). Both get an ephemeral cache breakpoint:
+        the static block is reused across the whole session and across sessions
+        of the same agent within the TTL; the volatile block is reused within a
+        session until memory changes. Tools render before system, so the static
+        block's breakpoint also caches the (identical) tool schemas.
+        """
+        if not system_prompt:
+            return system_prompt
+        static, volatile = split_system_for_cache(system_prompt)
+        blocks: List[Dict[str, Any]] = []
+        if static:
+            blocks.append(
+                {"type": "text", "text": static, "cache_control": CACHE_CONTROL}
+            )
+        if volatile:
+            blocks.append(
+                {"type": "text", "text": volatile, "cache_control": CACHE_CONTROL}
+            )
+        if not blocks:
+            blocks.append(
+                {"type": "text", "text": system_prompt, "cache_control": CACHE_CONTROL}
+            )
+        return blocks
+
+    def _apply_message_cache_control(
+        self, conversation: List[Dict[str, Any]]
+    ) -> List[Dict[str, Any]]:
+        """Add ONE ephemeral cache breakpoint to the last message so the growing
+        conversation history is cached incrementally across agentic-loop turns.
+
+        Copies the last message (and the block it annotates) instead of mutating
+        in place, so callers that reuse message dicts can never accumulate extra
+        breakpoints and blow past Anthropic's 4-breakpoint-per-request limit.
+        """
+        if not conversation:
+            return conversation
+        last = dict(conversation[-1])
+        content = last.get("content")
+        if isinstance(content, str):
+            if not content.strip():
+                return conversation
+            last["content"] = [
+                {"type": "text", "text": content, "cache_control": CACHE_CONTROL}
+            ]
+        elif isinstance(content, list) and content:
+            new_content = [dict(b) if isinstance(b, dict) else b for b in content]
+            for block in reversed(new_content):
+                if isinstance(block, dict):
+                    block["cache_control"] = CACHE_CONTROL
+                    break
+            last["content"] = new_content
+        else:
+            return conversation
+        conversation = list(conversation)
+        conversation[-1] = last
+        return conversation
+
+    def _input_output_price(self, model: str):
+        key = (model or "").lower()
+        for base, price in _ANTHROPIC_PRICE.items():
+            if key == base or key.startswith(base):
+                return price
+        return None
+
+    def _compute_cost(self, model: str, usage) -> Optional[float]:
+        """Accurate USD cost including prompt-cache read/write multipliers."""
+        if usage is None:
+            return None
+        input_tokens = getattr(usage, "input_tokens", 0) or 0
+        output_tokens = getattr(usage, "output_tokens", 0) or 0
+        cache_read = getattr(usage, "cache_read_input_tokens", 0) or 0
+        cache_write = getattr(usage, "cache_creation_input_tokens", 0) or 0
+        price = self._input_output_price(model)
+        if price is None:
+            # Unknown model: approximate via litellm (cache tokens at base input).
+            _, _, total = calculate_cost_usd(
+                model,
+                prompt_tokens=input_tokens + cache_read + cache_write,
+                completion_tokens=output_tokens,
+            )
+            return total
+        in_price, out_price = price
+        return (
+            input_tokens * in_price
+            + cache_read * in_price * 0.1
+            + cache_write * in_price * 1.25
+            + output_tokens * out_price
+        )
+
     async def prompt(self, context: LLMContext) -> LLMResponse:
         include_thoughts = bool(context.config.reasoning_effort)
         system_prompt, conversation = self._prepare_messages(
             context.messages, include_thoughts=include_thoughts
         )
+        conversation = self._apply_message_cache_control(conversation)
         tools = construct_anthropic_tools(context)
 
         # Check if we have a Pydantic class for structured outputs (for streaming)
@@ -144,73 +255,20 @@ class AnthropicProvider(LLMProvider):
 
                     request_kwargs = {
                         "model": effective_model,
-                        "system": system_prompt,
+                        "system": self._build_system_param(system_prompt),
                         "messages": conversation,
                         "max_tokens": context.config.max_tokens or 32000,
                     }
 
-                    # Log the actual messages being sent to the API
                     session_info = llm_call_metadata.get("session", "unknown")
                     logger.info(
-                        "[ANTHROPIC_PAYLOAD] ========== FULL LLM PAYLOAD =========="
+                        f"[anthropic] request session={session_info} "
+                        f"model={effective_model} messages={len(conversation)} "
+                        f"tools={len(tools_payload or [])} "
+                        f"system_chars={len(system_prompt or '')}"
                     )
-                    logger.info(f"[ANTHROPIC_PAYLOAD] Session: {session_info}")
-                    logger.info(f"[ANTHROPIC_PAYLOAD] Model: {effective_model}")
-                    logger.info(
-                        f"[ANTHROPIC_PAYLOAD] Total messages: {len(conversation)}"
-                    )
-
-                    # Log system prompt (first 500 chars)
-                    if system_prompt:
-                        logger.info(
-                            f"[ANTHROPIC_PAYLOAD] System prompt length: {len(system_prompt)}"
-                        )
-                        logger.info(
-                            f"[ANTHROPIC_PAYLOAD] System prompt (first 500): {system_prompt[:500]}..."
-                        )
-
-                    # Log FULL content of first 3 messages to debug session.context
-                    logger.info(
-                        "[ANTHROPIC_PAYLOAD] --- First 3 messages (FULL CONTENT) ---"
-                    )
-                    for i, msg in enumerate(conversation[:3]):
-                        role = msg.get("role", "unknown")
-                        content = msg.get("content", "")
-                        # Handle content that might be a list (for multimodal)
-                        if isinstance(content, list):
-                            # For list content, show first text block fully
-                            text_blocks = [
-                                b
-                                for b in content
-                                if isinstance(b, dict) and b.get("type") == "text"
-                            ]
-                            if text_blocks:
-                                full_content = text_blocks[0].get("text", "")
-                            else:
-                                full_content = str(content)
-                        else:
-                            full_content = content or ""
-
-                        has_system_tag = "<SystemMessage>" in str(full_content)
-                        logger.info(
-                            f"[ANTHROPIC_PAYLOAD] msg[{i}]: role={role}, len={len(full_content)}, has_system_tag={has_system_tag}"
-                        )
-                        # Log full content for debugging (up to 2000 chars)
-                        if len(full_content) > 2000:
-                            logger.info(
-                                f"[ANTHROPIC_PAYLOAD] msg[{i}] CONTENT (first 2000):\n{full_content[:2000]}\n... (truncated)"
-                            )
-                        else:
-                            logger.info(
-                                f"[ANTHROPIC_PAYLOAD] msg[{i}] CONTENT:\n{full_content}"
-                            )
-
-                    if len(conversation) > 3:
-                        logger.info(
-                            f"[ANTHROPIC_PAYLOAD] ... and {len(conversation) - 3} more messages"
-                        )
-                    logger.info(
-                        "[ANTHROPIC_PAYLOAD] =========================================="
+                    logger.debug(
+                        f"[anthropic] system_prompt (first 500): {(system_prompt or '')[:500]}"
                     )
 
                     # Build tools list with web search support
@@ -248,7 +306,7 @@ class AnthropicProvider(LLMProvider):
                             else None,
                         )
                         llm_call.save()
-                        logger.info(
+                        logger.debug(
                             f"[ANTHROPIC_LLMCALL] Created LLMCall id={llm_call.id}"
                         )
                     except Exception as e:
@@ -301,6 +359,15 @@ class AnthropicProvider(LLMProvider):
 
                     end_time = datetime.now(timezone.utc)
                     llm_response = self._to_llm_response(response)
+
+                    # Accurate cost (incl. cache read/write) computed BEFORE the
+                    # DB write so cost_usd is actually persisted (previously it
+                    # was set later in _record_usage, after this update ran, and
+                    # only when instrumentation was enabled -> always null).
+                    if llm_response.usage:
+                        llm_response.usage.cost_usd = self._compute_cost(
+                            effective_model, getattr(response, "usage", None)
+                        )
 
                     # Update LLMCall with response data
                     if llm_call:
@@ -358,16 +425,17 @@ class AnthropicProvider(LLMProvider):
         raise RuntimeError("Failed to obtain Anthropic response")
 
     def _supports_structured_output(self, model_name: str) -> bool:
-        """Check if a model supports structured outputs."""
+        """Check if a model supports structured outputs.
+
+        Matches an entry in STRUCTURED_OUTPUT_MODELS exactly, or by base prefix so
+        dated snapshots also match (e.g. "claude-haiku-4-5-20251001" matches the
+        base "claude-haiku-4-5").
+        """
         normalized = model_name.lower().strip()
-        # Check exact match or prefix match for versioned models
         for supported in self.STRUCTURED_OUTPUT_MODELS:
-            if normalized == supported or normalized.startswith(
-                supported.split("-202")[0]
-            ):
-                # e.g., "claude-sonnet-4-6" matches "claude-sonnet-4-6-YYYYMMDD"
-                if "sonnet-4-6" in normalized or "sonnet-4-5" in normalized or "opus-4-1" in normalized:
-                    return True
+            base = supported.split("-202")[0]
+            if normalized == supported or normalized.startswith(base):
+                return True
         return False
 
     def _supports_web_search(self, model_name: str) -> bool:
@@ -437,6 +505,7 @@ class AnthropicProvider(LLMProvider):
         system_prompt, conversation = self._prepare_messages(
             context.messages, include_thoughts=include_thoughts
         )
+        conversation = self._apply_message_cache_control(conversation)
         tools = construct_anthropic_tools(context)
 
         response_format = context.config.response_format
@@ -473,7 +542,7 @@ class AnthropicProvider(LLMProvider):
             tools_payload = self._build_tools_payload(tools, model_name)
             request_kwargs = {
                 "model": model_name,
-                "system": system_prompt,
+                "system": self._build_system_param(system_prompt),
                 "messages": conversation,
                 "max_tokens": context.config.max_tokens or 32000,
             }
@@ -515,7 +584,7 @@ class AnthropicProvider(LLMProvider):
                     else None,
                 )
                 llm_call.save()
-                logger.info(
+                logger.debug(
                     f"[ANTHROPIC_STREAM_LLMCALL] Created LLMCall id={llm_call.id}"
                 )
             except Exception as e:
@@ -527,6 +596,7 @@ class AnthropicProvider(LLMProvider):
             tool_calls: Dict[int, Dict[str, Any]] = {}
             accumulated_content = ""
             final_message = None
+            finalized = False
             try:
                 if betas:
                     stream_manager = self.client.beta.messages.stream(
@@ -634,14 +704,8 @@ class AnthropicProvider(LLMProvider):
                             else None
                         )
 
-                        # Calculate cost
-                        cost_usd = None
-                        if prompt_tokens and completion_tokens:
-                            _, _, cost_usd = calculate_cost_usd(
-                                model_name,
-                                prompt_tokens=prompt_tokens,
-                                completion_tokens=completion_tokens,
-                            )
+                        # Accurate cost including prompt-cache read/write.
+                        cost_usd = self._compute_cost(model_name, usage)
 
                         # Build response payload
                         response_payload = {
@@ -672,7 +736,7 @@ class AnthropicProvider(LLMProvider):
                             cost_usd=cost_usd,
                         )
                         llm_call_id = llm_call.id
-                        logger.info(
+                        logger.debug(
                             f"[ANTHROPIC_STREAM_LLMCALL] Updated LLMCall id={llm_call.id} "
                             f"status=completed tokens={total_tokens}"
                         )
@@ -699,6 +763,7 @@ class AnthropicProvider(LLMProvider):
                     ),
                     llm_call_id=llm_call_id,
                 )
+                finalized = True
                 return
             except Exception as exc:
                 last_error = exc
@@ -714,10 +779,29 @@ class AnthropicProvider(LLMProvider):
                         logger.error(
                             f"[ANTHROPIC_STREAM_LLMCALL] Failed to update LLMCall with error: {update_err}"
                         )
+                finalized = True
                 logger.warning(
                     f"[ANTHROPIC_STREAM] Failed streaming with {model_name}: {exc}"
                 )
                 continue
+            finally:
+                # Reaching here without a terminal status means the consumer
+                # stopped draining the stream early (GeneratorExit) - otherwise
+                # the LLMCall stays "pending" forever. Mark it so it's not
+                # counted as in-flight. (SIGKILL can't be caught here; reap old
+                # pending/streaming rows out-of-band.)
+                if llm_call is not None and not finalized:
+                    try:
+                        llm_call.update(
+                            status="incomplete",
+                            end_time=datetime.now(timezone.utc),
+                            response_payload={
+                                "content": accumulated_content,
+                                "stop": stop_reason,
+                            },
+                        )
+                    except Exception:
+                        pass
 
         if last_error:
             raise last_error
@@ -728,29 +812,12 @@ class AnthropicProvider(LLMProvider):
         system_prompt_parts: List[str] = []
         conversation: List[Dict[str, Any]] = []
 
-        logger.info(
-            f"[ANTHROPIC_PREPARE] === _prepare_messages input ({len(messages)} messages) ==="
-        )
         for idx, chat_message in enumerate(messages):
-            content_preview = (
-                (chat_message.content[:150] + "...")
-                if chat_message.content and len(chat_message.content) > 150
-                else chat_message.content
-            )
-            has_system_tag = (
-                chat_message.content and "<SystemMessage>" in chat_message.content
-                if chat_message.content
-                else False
-            )
-            logger.info(
-                f"[ANTHROPIC_PREPARE] input[{idx}]: role={chat_message.role}, "
-                f"has_system_tag={has_system_tag}, content_preview={content_preview}"
-            )
-
             schemas = chat_message.anthropic_schema(include_thoughts=include_thoughts)
             if not schemas:
                 logger.warning(
-                    f"[ANTHROPIC_PREPARE] input[{idx}] returned EMPTY schema - filtered out!"
+                    f"[anthropic] message[{idx}] (role={chat_message.role}) "
+                    "produced an empty schema and was filtered out"
                 )
             for schema in schemas:
                 role = schema.get("role")
@@ -759,28 +826,11 @@ class AnthropicProvider(LLMProvider):
                 else:
                     conversation.append(schema)
 
-        logger.info(
-            f"[ANTHROPIC_PREPARE] === _prepare_messages output ({len(conversation)} conversation msgs) ==="
+        logger.debug(
+            f"[anthropic] prepared {len(messages)} messages -> "
+            f"{len(conversation)} conversation msgs, "
+            f"{len(system_prompt_parts)} system parts"
         )
-        for idx, msg in enumerate(conversation[:5]):
-            content = msg.get("content", "")
-            if isinstance(content, list):
-                content_preview = (
-                    str(content)[:150] + "..."
-                    if len(str(content)) > 150
-                    else str(content)
-                )
-            else:
-                content_preview = (
-                    (content[:150] + "...")
-                    if content and len(content) > 150
-                    else content
-                )
-            has_system_tag = "<SystemMessage>" in str(content) if content else False
-            logger.info(
-                f"[ANTHROPIC_PREPARE] output[{idx}]: role={msg.get('role')}, "
-                f"has_system_tag={has_system_tag}, content_preview={content_preview}"
-            )
 
         system_prompt = (
             "\n\n".join(part for part in system_prompt_parts if part) or None
@@ -1003,7 +1053,10 @@ class AnthropicProvider(LLMProvider):
         prompt_cost, completion_cost, total_cost = calculate_cost_usd(
             model, prompt_tokens=prompt_tokens, completion_tokens=completion_tokens
         )
-        if llm_response.usage:
+        # Don't clobber the accurate, cache-aware cost already set by the caller
+        # (prompt()); only fill it in if it wasn't computed. total_cost here is a
+        # non-cache-aware litellm figure used solely for Langfuse cost_details.
+        if llm_response.usage and llm_response.usage.cost_usd is None:
             llm_response.usage.cost_usd = total_cost
 
         self.instrumentation.record_counter("llm.prompt_tokens", prompt_tokens or 0)
