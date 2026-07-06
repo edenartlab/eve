@@ -10,6 +10,7 @@ from jinja2 import Template
 from loguru import logger
 
 from eve.agent.agent import Agent
+from eve.agent.llm.formatting import SYSTEM_CACHE_BREAKPOINT
 from eve.agent.llm.prompts.agent_session_template import agent_session_template
 from eve.agent.llm.prompts.social_media_template import social_media_template
 from eve.agent.llm.prompts.system_template import system_template
@@ -499,13 +500,16 @@ async def build_system_message(
     instrumentation=None,
     trigger_context: Optional[dict] = None,  # {"name": str, "prompt": str}
 ):
-    # Get concepts
-    concepts = Concept.find({"agent": actor.id, "deleted": {"$ne": True}})
+    # Get concepts. Sort by _id: these render into the cached static system
+    # prefix, and Mongo find() has no guaranteed order without an explicit sort,
+    # so an unsorted result would reorder between turns and bust the prompt cache.
+    concepts = Concept.find({"agent": actor.id, "deleted": {"$ne": True}}, sort="_id")
 
-    # Get loras
+    # Get loras (sorted by _id for the same cache-stability reason)
     lora_dict = {m["lora"]: m for m in actor.models or []}
     lora_docs = Model.find(
-        {"_id": {"$in": list(lora_dict.keys())}, "deleted": {"$ne": True}}
+        {"_id": {"$in": list(lora_dict.keys())}, "deleted": {"$ne": True}},
+        sort="_id",
     )
     loras = [doc.model_dump() for doc in lora_docs]
     for doc in loras:
@@ -598,15 +602,17 @@ async def build_system_message(
             f"[build_system_message] Telegram social_instructions generated: {len(social_instructions) if social_instructions else 0} chars"
         )
 
-    # Current datetime with timezone - this stays in the system message (never ages out)
-    current_datetime_utc = datetime.now(timezone.utc).strftime(
-        "%Y %b %-d, %-I:%M%p UTC"
-    )
+    # Current date - kept to day granularity (no time-of-day) so it stays stable
+    # across a day's requests and doesn't invalidate the Anthropic prompt cache.
+    # It also lives in the volatile tail of the system prompt (below the cache
+    # breakpoint), so even the daily change never invalidates the cached prefix.
+    current_datetime_utc = datetime.now(timezone.utc).strftime("%Y %b %-d UTC")
 
     # Build system prompt with memory context
     content = system_template.render(
         name=actor.name,
         current_datetime_utc=current_datetime_utc,
+        cache_breakpoint=SYSTEM_CACHE_BREAKPOINT,
         description=actor.description,
         persona=actor.persona,
         tools=tools,
@@ -1043,13 +1049,16 @@ async def build_agent_session_system_message(
     from eve.concepts import Concept
     from eve.models import Model
 
-    # Get concepts
-    concepts = Concept.find({"agent": actor.id, "deleted": {"$ne": True}})
+    # Get concepts. Sort by _id: these render into the cached static system
+    # prefix, and Mongo find() has no guaranteed order without an explicit sort,
+    # so an unsorted result would reorder between turns and bust the prompt cache.
+    concepts = Concept.find({"agent": actor.id, "deleted": {"$ne": True}}, sort="_id")
 
-    # Get loras
+    # Get loras (sorted by _id for the same cache-stability reason)
     lora_dict = {m["lora"]: m for m in actor.models or []}
     lora_docs = Model.find(
-        {"_id": {"$in": list(lora_dict.keys())}, "deleted": {"$ne": True}}
+        {"_id": {"$in": list(lora_dict.keys())}, "deleted": {"$ne": True}},
+        sort="_id",
     )
     loras = [doc.model_dump() for doc in lora_docs]
     for doc in loras:

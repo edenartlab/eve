@@ -1,9 +1,38 @@
 from __future__ import annotations
 
 import json
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 
 from eve.agent.session.models import ChatMessage, LLMContext
+
+# Marker rendered into the system prompt (see system_template.py) at the boundary
+# between the static, per-agent prefix (identity, persona, rules, tool guidance)
+# and the volatile tail (memory, session context, current date, trigger task).
+# The Anthropic provider splits on it to place prompt-cache breakpoints; other
+# providers strip it. It is a harmless XML comment if it ever leaks to a model.
+SYSTEM_CACHE_BREAKPOINT = "<!--eve:cache-breakpoint-->"
+
+
+def split_system_for_cache(
+    system: Optional[str],
+) -> Tuple[Optional[str], Optional[str]]:
+    """Split a rendered system prompt into (static_prefix, volatile_tail).
+
+    Returns (whole, None) when no breakpoint marker is present.
+    """
+    if not system:
+        return system, None
+    if SYSTEM_CACHE_BREAKPOINT not in system:
+        return system, None
+    static, _, volatile = system.partition(SYSTEM_CACHE_BREAKPOINT)
+    return (static.strip() or None), (volatile.strip() or None)
+
+
+def strip_cache_breakpoint(system: Optional[str]) -> Optional[str]:
+    """Remove the cache-breakpoint marker (for non-Anthropic providers)."""
+    if not system:
+        return system
+    return system.replace(SYSTEM_CACHE_BREAKPOINT, "").strip() or None
 
 
 def add_anthropic_cache_control(messages: List[dict]) -> List[dict]:
@@ -81,6 +110,10 @@ def construct_anthropic_tools(context: LLMContext) -> Optional[List[dict]]:
         iter_tools = tools
 
     tool_schemas = [tool.anthropic_schema(exclude_hidden=True) for tool in iter_tools]
+
+    # Stable order so the tool block is a byte-identical, cacheable prefix across
+    # turns (tools render before system, so their order affects the whole cache).
+    tool_schemas.sort(key=lambda t: t.get("name", ""))
 
     return tool_schemas
 
