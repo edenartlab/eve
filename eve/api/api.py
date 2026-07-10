@@ -715,7 +715,7 @@ run_3h = app.function(
 
 run_task = app.function(
     image=image,
-    min_containers=2,
+    min_containers=0,  # cost: cold-start OK on wind-down (was 2 warm 24/7)
     max_containers=10,
     timeout=3600,
     volumes={
@@ -727,7 +727,7 @@ run_task = app.function(
 
 run_task_replicate = app.function(
     image=image,
-    min_containers=2,
+    min_containers=0,  # cost: cold-start OK (was 2 warm 24/7)
     max_containers=10,
     timeout=3600,
     volumes={
@@ -738,7 +738,7 @@ run_task_replicate = app.function(
 
 
 cleanup_stale_busy_states_modal = app.function(
-    image=image, max_containers=1, schedule=modal.Period(minutes=2), timeout=3600
+    image=image, max_containers=1, schedule=modal.Period(minutes=10), timeout=3600
 )(cleanup_stale_busy_states)
 
 
@@ -775,7 +775,7 @@ memory2_process_cold_sessions = app.function(
 
 create_concept_thumbnail = app.function(
     image=image,
-    min_containers=1,
+    min_containers=0,  # cost: cold-start OK (was 1 warm 24/7)
     max_containers=10,
     timeout=600,
     volumes={"/data/media-cache": media_cache_vol},
@@ -798,7 +798,7 @@ async def execute_trigger_fn(
 
 
 @app.function(
-    image=image, max_containers=1, schedule=modal.Period(minutes=2), timeout=300
+    image=image, max_containers=1, schedule=modal.Period(minutes=5), timeout=300
 )
 async def run_scheduled_triggers_fn():
     current_time = datetime.now(timezone.utc)
@@ -909,7 +909,7 @@ async def process_twitter_tweet_fn(
 @app.function(
     image=image,
     max_containers=1,
-    schedule=modal.Period(minutes=1),
+    schedule=modal.Period(minutes=15),
     timeout=600,
 )
 async def poll_twitter_gateway_fn():

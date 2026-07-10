@@ -25,7 +25,7 @@ def get_mongo_client():
         _mongo_client = MongoClient(
             MONGO_URI,
             maxPoolSize=50,
-            minPoolSize=10,
+            minPoolSize=0,  # was 10: every warm container held >=10 idle Atlas connections
             maxIdleTimeMS=60000,
             connectTimeoutMS=5000,
             serverSelectionTimeoutMS=3000,

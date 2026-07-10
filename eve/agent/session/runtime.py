@@ -235,7 +235,19 @@ class PromptSessionRuntime:
                     self.rate_limiter = RateLimiter()
 
             prompt_session_finished = False
+            # Hard backstop: the loop otherwise only exits on LLM stop-reason,
+            # and the manna/rate-limit guards are feature-flagged. Without this,
+            # an always-erroring tool can burn tokens until the Modal timeout.
+            max_turns = int(os.getenv("MAX_PROMPT_SESSION_TURNS", "25"))
+            turn_count = 0
             while not prompt_session_finished:
+                turn_count += 1
+                if turn_count > max_turns:
+                    logger.error(
+                        f"Prompt session exceeded {max_turns} turns; force-stopping "
+                        f"(session={getattr(self.session, 'id', None)})"
+                    )
+                    break
                 self._ensure_not_cancelled()
                 await self._refresh_llm_messages()
                 self._maybe_disable_tools()
