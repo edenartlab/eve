@@ -382,7 +382,10 @@ async def deployment_email_inbound(request: Request):
 
 
 @web_app.post("/v2/deployments/emission")
-async def deployment_emission(request: DeploymentEmissionRequest):
+async def deployment_emission(
+    request: DeploymentEmissionRequest,
+    _: dict = Depends(auth.authenticate_admin),
+):
     return await handle_v2_deployment_emission(request)
 
 
@@ -454,6 +457,8 @@ async def dev_poll_twitter(request: Request):
     Optional query params:
         ?key=<secret> - Simple auth for dev endpoint
     """
+    if db == "PROD":
+        return JSONResponse(status_code=404, content={"error": "not found"})
     # Simple dev auth (optional)
     secret_key = request.query_params.get("key")
     expected_key = os.getenv("DEV_API_KEY", "dev")
@@ -489,6 +494,8 @@ async def dev_process_tweet(request: Request):
         }
     }
     """
+    if db == "PROD":
+        return JSONResponse(status_code=404, content={"error": "not found"})
     # Simple dev auth
     secret_key = request.query_params.get("key")
     expected_key = os.getenv("DEV_API_KEY", "dev")
