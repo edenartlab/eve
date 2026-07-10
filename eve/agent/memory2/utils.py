@@ -179,23 +179,45 @@ def select_messages(
             # Add a small buffer to account for edge cases
             effective_limit = max(selection_limit, messages_since_last + 5)
 
-    # Select all messages including eden messages - they all share the same limit
-    selected_messages = messages.find({"session": session.id}).sort("createdAt", -1)
-
+    # Cache-stable "hysteresis" window instead of a sliding last-N window.
+    # A sliding window (sort desc + limit N) shifts the FIRST message of the
+    # prompt every turn once a session exceeds N messages, which busts the
+    # Anthropic prompt-cache prefix on every request (full input price each
+    # turn). Here the window start only advances in N-sized chunks: the window
+    # grows from N+1 up to 2N messages, then jumps forward by N. The prefix
+    # stays byte-identical for ~N turns at a time, so cached-input pricing
+    # (10% of full rate) applies to the whole history on most turns.
     if effective_limit is not None:
-        selected_messages = selected_messages.limit(effective_limit)
-    selected_messages = list(selected_messages)
+        total = messages.count_documents({"session": session.id})
+        max_window = effective_limit * 2
+        start = 0
+        if total > max_window:
+            # ceil((total - max_window) / effective_limit), integer-only
+            steps = -(-(total - max_window) // effective_limit)
+            start = effective_limit * steps
+        cursor = (
+            messages.find({"session": session.id})
+            .sort([("createdAt", 1), ("_id", 1)])
+            .skip(start)
+        )
+    else:
+        cursor = messages.find({"session": session.id}).sort(
+            [("createdAt", 1), ("_id", 1)]
+        )
+    selected_messages = list(cursor)
 
-    pinned_messages = messages.find({"session": session.id, "pinned": True})
-    pinned_messages = list(pinned_messages)
+    # Pinned messages outside the window are prepended, sorted by _id so their
+    # order never changes between turns (an unordered find() can reorder them
+    # and bust the cache prefix — same fix as concepts/loras in context.py).
+    window_ids = {msg["_id"] for msg in selected_messages}
     pinned_messages = [
         m
-        for m in pinned_messages
-        if m["_id"] not in [msg["_id"] for msg in selected_messages]
+        for m in messages.find({"session": session.id, "pinned": True}).sort(
+            [("_id", 1)]
+        )
+        if m["_id"] not in window_ids
     ]
-    selected_messages.extend(pinned_messages)
-
-    selected_messages.reverse()
+    selected_messages = pinned_messages + selected_messages
 
     # Convert to ChatMessage objects, skipping any with validation errors
     valid_messages = []

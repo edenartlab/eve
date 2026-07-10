@@ -99,6 +99,17 @@ if not os.getenv("WORKSPACE"):
 db = os.getenv("DB", "STAGE").upper()
 workspace_name = os.getenv("WORKSPACE")
 app_name = f"comfyui-{workspace_name}-{db}"
+
+# Per-workspace compute overrides (cost): image workspaces don't need an A100.
+# fast = SDXL/flux/sd15 images -> A10G 24GB at ~1/3 the GPU rate, cpu 8->4.
+# slow = sd15 AnimateDiff video -> L40S 48GB (more VRAM than A100-40) at ~70% the rate.
+# wan (14B video) intentionally NOT overridden - needs the A100.
+WORKSPACE_COMPUTE_OVERRIDES = {
+    "fast": {"gpu": "A10G", "cpu": 4.0},
+    "slow": {"gpu": "L40S"},
+}
+if workspace_name in WORKSPACE_COMPUTE_OVERRIDES:
+    DEFAULT_CONFIG.update(WORKSPACE_COMPUTE_OVERRIDES[workspace_name])
 workflows_filter = os.getenv("WORKFLOWS")
 root_workflows_folder = (
     "../private_workflows" if os.getenv("PRIVATE") else "../workflows"
