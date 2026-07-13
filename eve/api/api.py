@@ -620,7 +620,7 @@ image = (
 
 @app.function(
     image=image,
-    min_containers=1,
+    min_containers=1 if db == "PROD" else 0,  # STAGE cold-starts (cost)
     max_containers=10,
     scaledown_window=60,
     timeout=3600 * 3,  # 3 hours

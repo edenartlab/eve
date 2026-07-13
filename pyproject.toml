@@ -49,7 +49,7 @@ dependencies = [
     "motor>=3.6.0",
     "beanie==1.22.6",
     "apscheduler>=3.11.0",
-    "modal>=1.0.1",
+    "modal>=1.1.3",
     "pytz>=2025.2",
     "fal-client==0.5.9",
     "torch==2.7.0",
