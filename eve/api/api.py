@@ -23,10 +23,7 @@ from eve.api.api_functions import (
     cleanup_expired_exports_fn,
     cleanup_stale_busy_states,
     cleanup_stuck_triggers,
-    embed_recent_creations,
-    generate_lora_thumbnails_fn,
     memory2_process_cold_sessions_fn,
-    rotate_agent_metadata_fn,
     run_task_replicate,
 )
 from eve.api.api_functions import (
@@ -385,7 +382,10 @@ async def deployment_email_inbound(request: Request):
 
 
 @web_app.post("/v2/deployments/emission")
-async def deployment_emission(request: DeploymentEmissionRequest):
+async def deployment_emission(
+    request: DeploymentEmissionRequest,
+    _: dict = Depends(auth.authenticate_admin),
+):
     return await handle_v2_deployment_emission(request)
 
 
@@ -457,6 +457,8 @@ async def dev_poll_twitter(request: Request):
     Optional query params:
         ?key=<secret> - Simple auth for dev endpoint
     """
+    if db == "PROD":
+        return JSONResponse(status_code=404, content={"error": "not found"})
     # Simple dev auth (optional)
     secret_key = request.query_params.get("key")
     expected_key = os.getenv("DEV_API_KEY", "dev")
@@ -492,6 +494,8 @@ async def dev_process_tweet(request: Request):
         }
     }
     """
+    if db == "PROD":
+        return JSONResponse(status_code=404, content={"error": "not found"})
     # Simple dev auth
     secret_key = request.query_params.get("key")
     expected_key = os.getenv("DEV_API_KEY", "dev")
@@ -603,7 +607,7 @@ workflows_dir = root_dir / ".." / "workflows"
 
 image = (
     modal.Image.debian_slim(python_version="3.11")
-    .env({"DB": db, "MODAL_SERVE": "1"})
+    .env({"DB": db, "MODAL_SERVE": "1", "FF_MANNA_BILLING": "yes"})
     .apt_install("git", "libmagic1", "ffmpeg", "wget")
     .pip_install_from_pyproject(str(root_dir / "pyproject.toml"))
     .run_function(download_clip_models)
@@ -631,18 +635,40 @@ def fastapi_app():
     return web_app
 
 
-cancel_stuck_tasks_modal = app.function(
-    image=image, max_containers=1, schedule=modal.Period(minutes=15), timeout=3600
-)(cancel_stuck_tasks_fn)
+# --- Scheduled-function budget. Modal Starter caps the WHOLE workspace at 5
+# scheduled functions across all apps, so api-PROD uses exactly ONE cron (every
+# 5 min) that runs everything; api-STAGE registers none. All the sub-tasks are
+# idempotent/early-returning, so running the less-frequent ones (twitter poll,
+# memory cold-processing) at 5-min cadence is harmless. Removed dead crons:
+#   - generate_lora_thumbnails / rotate_agent_metadata: cosmetic.
+#   - embed_recent_creations: fed the DISABLED vector search.
+def _sched(period):
+    return period if db == "PROD" else None
 
-generate_lora_thumbnails_modal = app.function(
-    image=image, max_containers=1, schedule=modal.Period(minutes=15), timeout=3600
-)(generate_lora_thumbnails_fn)
+
+async def periodic_fn():
+    """Single consolidated periodic worker (one scheduled fn for all of api)."""
+    for fn in (
+        run_scheduled_triggers_fn,  # fire due user/agent scheduled sessions
+        cancel_stuck_tasks_fn,
+        cleanup_stale_busy_states,
+        cleanup_stuck_triggers,
+        cleanup_expired_exports_fn,
+        memory2_process_cold_sessions_fn,  # roll cold sessions into memory
+        poll_twitter_gateway_fn,  # early-returns if no twitter deployments
+    ):
+        try:
+            await fn()
+        except Exception as e:
+            logger.error(f"periodic: {getattr(fn, '__name__', fn)} failed: {e}")
 
 
-rotate_agent_metadata_modal = app.function(
-    image=image, max_containers=1, schedule=modal.Period(hours=2), timeout=3600
-)(rotate_agent_metadata_fn)
+periodic_modal = app.function(
+    image=image,
+    max_containers=1,
+    schedule=_sched(modal.Period(minutes=5)),
+    timeout=3600,
+)(periodic_fn)
 
 
 # run_scheduled_triggers_modal = app.function(
@@ -737,28 +763,9 @@ run_task_replicate = app.function(
 )(modal.concurrent(max_inputs=4)(run_task_replicate))
 
 
-cleanup_stale_busy_states_modal = app.function(
-    image=image, max_containers=1, schedule=modal.Period(minutes=10), timeout=3600
-)(cleanup_stale_busy_states)
-
-
-cleanup_stuck_triggers_modal = app.function(
-    image=image, max_containers=1, schedule=modal.Period(minutes=5), timeout=300
-)(cleanup_stuck_triggers)
-
-
-embed_recent_creations_modal = app.function(
-    image=image, max_containers=1, schedule=modal.Period(minutes=5), timeout=600
-)(embed_recent_creations)
-
-cleanup_expired_exports_modal = app.function(
-    image=image, max_containers=1, schedule=modal.Period(hours=1), timeout=600
-)(cleanup_expired_exports_fn)
-
-
-memory2_process_cold_sessions = app.function(
-    image=image, max_containers=1, schedule=modal.Period(minutes=10), timeout=3600
-)(memory2_process_cold_sessions_fn)
+# All periodic maintenance (housekeeping, scheduled triggers, memory cold-session
+# processing, twitter poll) is now driven by the single `periodic_fn` cron above.
+# embed_recent_creations removed: it fed the disabled vector-search feature.
 
 # topup_mars_college_manna_modal = app.function(
 #     image=image,
@@ -797,9 +804,7 @@ async def execute_trigger_fn(
     return await execute_trigger_async(trigger_id, skip_message_add=skip_message_add)
 
 
-@app.function(
-    image=image, max_containers=1, schedule=modal.Period(minutes=5), timeout=300
-)
+# Plain async helper (driven by periodic_fn, not separately scheduled).
 async def run_scheduled_triggers_fn():
     current_time = datetime.now(timezone.utc)
 
@@ -906,14 +911,9 @@ async def process_twitter_tweet_fn(
     )
 
 
-@app.function(
-    image=image,
-    max_containers=1,
-    schedule=modal.Period(minutes=15),
-    timeout=600,
-)
+# Plain async helper (driven by periodic_fn, not separately scheduled).
 async def poll_twitter_gateway_fn():
-    """Modal scheduled function for Twitter polling gateway"""
+    """Twitter polling gateway (early-returns if no active twitter deployments)."""
     from eve.agent.deployments.twitter import poll_twitter_gateway
 
     return await poll_twitter_gateway()

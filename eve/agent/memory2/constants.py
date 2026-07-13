@@ -33,7 +33,9 @@ MEMORY_LLM_MODEL_FAST = "gemini-3-flash-preview"
 
 # Model names for slow model (reflection extraction, consolidation)
 _MEMORY_LLM_MODEL_SLOW_FREE = "gemini-3-flash-preview"
-_MEMORY_LLM_MODEL_SLOW_PREMIUM = "gemini-3-pro-preview"
+# gemini-3-pro-preview 404s on the current key (100% of premium reflection/
+# consolidation calls fail and hang 'pending'); flash works. See overnight audit 2026-07-10.
+_MEMORY_LLM_MODEL_SLOW_PREMIUM = "gemini-3-flash-preview"
 
 # =============================================================================
 # Memory Formation Triggers
