@@ -1,6 +1,8 @@
 import logging
 from typing import Any, AsyncGenerator, Callable, List, Optional, Tuple
 
+import sentry_sdk
+
 from eve.agent.llm.constants import MODEL_PROVIDER_OVERRIDES, ModelProvider
 from eve.agent.llm.providers import LLMProvider
 from eve.agent.llm.token_tracker import token_tracker
@@ -40,6 +42,16 @@ class FallbackChainProvider(LLMProvider):
                 logger.warning(
                     f"Provider {provider.__class__.__name__} failed, trying next: {exc}"
                 )
+                # Fallover must be LOUD: silently shifting traffic to the next
+                # provider changes cost/behavior (e.g. haiku -> gpt-5.4).
+                try:
+                    sentry_sdk.capture_message(
+                        f"LLM provider fallover: {provider.__class__.__name__} failed, "
+                        f"falling back. Error: {exc}",
+                        level="warning",
+                    )
+                except Exception:
+                    pass
                 last_error = exc
         if last_error:
             raise last_error
@@ -56,6 +68,14 @@ class FallbackChainProvider(LLMProvider):
                 logger.warning(
                     f"Provider {provider.__class__.__name__} failed (stream), trying next: {exc}"
                 )
+                try:
+                    sentry_sdk.capture_message(
+                        f"LLM provider fallover (stream): {provider.__class__.__name__} "
+                        f"failed, falling back. Error: {exc}",
+                        level="warning",
+                    )
+                except Exception:
+                    pass
                 last_error = exc
         if last_error:
             raise last_error
@@ -228,6 +248,7 @@ def _extract_system_message(messages: List[ChatMessage]) -> str:
     """Extract concatenated system message from messages list."""
     system_parts = [m.content for m in messages if m.role == "system" and m.content]
     return "\n\n".join(system_parts)
+
 
 async def async_prompt(
     context: LLMContext,

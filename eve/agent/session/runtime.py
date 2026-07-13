@@ -235,7 +235,19 @@ class PromptSessionRuntime:
                     self.rate_limiter = RateLimiter()
 
             prompt_session_finished = False
+            # Hard backstop: the loop otherwise only exits on LLM stop-reason,
+            # and the manna/rate-limit guards are feature-flagged. Without this,
+            # an always-erroring tool can burn tokens until the Modal timeout.
+            max_turns = int(os.getenv("MAX_PROMPT_SESSION_TURNS", "25"))
+            turn_count = 0
             while not prompt_session_finished:
+                turn_count += 1
+                if turn_count > max_turns:
+                    logger.error(
+                        f"Prompt session exceeded {max_turns} turns; force-stopping "
+                        f"(session={getattr(self.session, 'id', None)})"
+                    )
+                    break
                 self._ensure_not_cancelled()
                 await self._refresh_llm_messages()
                 self._maybe_disable_tools()
@@ -813,6 +825,22 @@ class PromptSessionRuntime:
             llm_call=llm_result.get("llm_call_id"),
         )
         assistant_message.save()
+
+        # Cost-plus LLM billing: the flat pre-turn charge (2 manna) acts as the
+        # minimum/reservation; if the actual provider cost (+12.5% markup)
+        # exceeds it, charge the difference. 1 manna == $0.01, so
+        # manna_due = cost_usd * 1.125 * 100.
+        if os.environ.get("FF_MANNA_BILLING"):
+            try:
+                _cost_usd = usage_obj.cost_usd if usage_obj else None
+                if _cost_usd:
+                    _excess = round(_cost_usd * 1.125 * 100.0 - 2.0, 2)
+                    if _excess > 0:
+                        self._charge_manna_for_message(amount=_excess)
+            except Exception as e:
+                # Post-hoc charge failure must not kill a response the user
+                # already received; the balance floor is enforced pre-turn.
+                logger.warning(f"Cost-plus manna charge failed: {e}")
 
         # Increment message count for the agent (sender)
         increment_message_count(assistant_message.sender)
