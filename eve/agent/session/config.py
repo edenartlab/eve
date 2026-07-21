@@ -7,8 +7,10 @@ from eve.agent.session.models import LLMConfig
 DEFAULT_SESSION_SELECTION_LIMIT = 25
 
 MODEL_TIERS: Dict[str, List[str]] = {
+    # chain[0] is the tier's model, chain[1:3] its fallbacks — keep a
+    # cross-provider fallback in slot 2 (Anthropic outages take out slot 1 too).
     "high": [
-        "claude-sonnet-4-6",
+        "claude-sonnet-5",
         "claude-haiku-4-5",
         "gpt-5.4-nano",
         "gpt-4o-mini",

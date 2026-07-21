@@ -245,7 +245,7 @@ async def generate_ffmpeg_command(
         messages = [{"role": "user", "content": "\n\n".join(prompt_parts)}]
 
         prompt = {
-            "model": "claude-sonnet-4-6",
+            "model": "claude-sonnet-5",
             "max_tokens": 2048,
             "messages": messages,
             "system": "You are an expert at generating FFmpeg commands. Respond with a JSON object containing just the ffmpeg command and output path.",

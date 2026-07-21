@@ -84,7 +84,7 @@ ALL_TOOLS = [
     # "stable_audio",
     "transcription",
     "elevenlabs_music",
-    "elevenlabs_fx",
+    # "elevenlabs_fx",  # pruned 2026-07: 0 invocations across 847 calls/wk; still used internally by reel_audio
     # editing
     # search
     # "search_agents",
@@ -188,12 +188,13 @@ TOOL_SETS = {
     "create_audio": [
         "elevenlabs_speech",
         "elevenlabs_music",
-        "elevenlabs_fx",
+        # "elevenlabs_fx",  # pruned 2026-07: 0 invocations across 847 calls/wk
         "elevenlabs_search_voices",
     ],
     "vj_tools": ["texture_flow", "video_FX", "reel"],
     "news": [],  # deprecated
-    "manage_collections": ["eden_search", "add_to_collection", "create_collection"],
+    # add_to_collection/create_collection pruned 2026-07: 0 invocations across 847 calls/wk
+    "manage_collections": ["eden_search"],
     "social_media_tools": SOCIAL_MEDIA_TOOLS,
     "context7_mcp_tools": CONTEXT7_MCP_TOOLS,
     "calculator_mcp_tools": CALCULATOR_MCP_TOOLS,

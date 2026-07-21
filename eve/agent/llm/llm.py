@@ -60,11 +60,18 @@ class FallbackChainProvider(LLMProvider):
     async def prompt_stream(self, context: LLMContext) -> AsyncGenerator[Any, None]:
         last_error: Optional[Exception] = None
         for provider in self._providers:
+            yielded = False
             try:
                 async for chunk in provider.prompt_stream(context):
+                    yielded = True
                     yield chunk
                 return
             except Exception as exc:
+                if yielded:
+                    # The consumer already received partial output from this
+                    # provider; restarting on the next one would duplicate it
+                    # (partial text + full retry). Surface the error instead.
+                    raise
                 logger.warning(
                     f"Provider {provider.__class__.__name__} failed (stream), trying next: {exc}"
                 )
