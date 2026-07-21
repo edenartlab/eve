@@ -174,7 +174,7 @@ async def handler(context: ToolContext):
             session=session,
             initiating_user_id=str(user.id),
             message=new_message,
-            llm_config=LLMConfig(model="claude-sonnet-4-6-20250929"),
+            llm_config=LLMConfig(model="claude-sonnet-5"),
         )
         new_message.save()
 
@@ -212,7 +212,7 @@ async def handler(context: ToolContext):
                 session=session,
                 initiating_user_id=str(user.id),
                 message=new_message,
-                llm_config=LLMConfig(model="claude-sonnet-4-6-20250929"),
+                llm_config=LLMConfig(model="claude-sonnet-5"),
             )
 
             if context.args.get("extra_tools"):
@@ -309,8 +309,9 @@ async def _extract_media_response(session_id: str) -> dict:
             ),
         ],
         config=LLMConfig(
-            model="claude-sonnet-4-6",
+            model="claude-sonnet-5",
             response_format=MediaSessionResponse,
+            prompt_cache=False,  # one-shot extraction; cache writes are never read
         ),
     )
 
@@ -348,8 +349,9 @@ async def _extract_seed_response(session_id: str) -> dict:
             ),
         ],
         config=LLMConfig(
-            model="claude-sonnet-4-6",
+            model="claude-sonnet-5",
             response_format=SeedSessionResponse,
+            prompt_cache=False,  # one-shot extraction; cache writes are never read
         ),
     )
 

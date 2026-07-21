@@ -950,6 +950,9 @@ class LLMConfig:
     model: Optional[str] = "gpt-4o-mini"
     fallback_models: Optional[List[str]] = None
     max_tokens: Optional[int] = None
+    # Set False for one-shot helper calls (extractors, classifiers): their
+    # prompt-cache writes are never read back, so caching costs 1.25x for nothing.
+    prompt_cache: bool = True
     response_format: Optional[BaseModel] = None
     thinking: Optional[LLMThinkingSettings] = None
     reasoning_effort: Optional[str] = (

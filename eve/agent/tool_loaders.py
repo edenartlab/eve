@@ -88,12 +88,11 @@ def get_agent_specific_tools(
     if username == "abraham":
         result.extend(
             [
-                "abraham_publish",
+                # abraham_publish/seed/remember pruned 2026-07: 0 invocations
+                # (daily/covenant/rest still in active use)
                 "abraham_daily",
                 "abraham_covenant",
                 "abraham_rest",
-                "abraham_seed",
-                "abraham_remember",
             ]
         )
     elif username == "verdelis":

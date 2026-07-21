@@ -17,6 +17,7 @@ from pydantic import BaseModel
 from eve.agent.llm.formatting import (
     construct_anthropic_tools,
     split_system_for_cache,
+    strip_cache_breakpoint,
 )
 from eve.agent.llm.providers import LLMProvider
 from eve.agent.llm.util import (
@@ -46,6 +47,13 @@ TOOL_SEARCH_TOOL_BM25 = {
 
 # Prompt-cache breakpoint marker applied to system/message blocks.
 CACHE_CONTROL = {"type": "ephemeral"}
+# The static prefix (tool schemas + per-agent persona) is identical across all
+# sessions of an agent but our traffic has many 5m-60m gaps (human turn pacing,
+# between-session lulls), so the default 5m TTL kept expiring and rewriting it.
+# Measured on llm_calls: eve 17% of inter-call gaps >5m but only 6% >1h;
+# abraham 30%/10% - 1h TTL (2x write vs 1.25x) is strictly cheaper for both.
+# Volatile/message breakpoints stay 5m: memory updates invalidate them anyway.
+CACHE_CONTROL_STATIC = {"type": "ephemeral", "ttl": "1h"}
 
 # Anthropic list prices, $ per token (input, output). Used for accurate cost
 # accounting including cache read (0.1x input) and 5-min cache write (1.25x input).
@@ -53,8 +61,24 @@ CACHE_CONTROL = {"type": "ephemeral"}
 _ANTHROPIC_PRICE = {
     "claude-haiku-4-5": (1.0e-6, 5.0e-6),
     "claude-sonnet-4-6": (3.0e-6, 15.0e-6),
+    # Sticker price; intro pricing is $2/$10 per MTok through 2026-08-31, so
+    # cost_usd slightly overestimates until then. Note Sonnet 5's tokenizer
+    # yields ~30% more tokens than 4.6 for the same text.
+    "claude-sonnet-5": (3.0e-6, 15.0e-6),
     "claude-opus-4-6": (5.0e-6, 25.0e-6),
 }
+
+# Models where adaptive thinking is ON by default when the `thinking` param is
+# omitted. We don't send thinking config anywhere, and _prepare_messages strips
+# thought blocks on replay, so we explicitly disable thinking on these models
+# to keep behavior (and output-token cost) identical to the 4.6-era default.
+_THINKING_DEFAULT_ON_MODELS = ("claude-sonnet-5",)
+
+
+def _default_thinking_param(model: str) -> Optional[Dict[str, str]]:
+    if (model or "").startswith(_THINKING_DEFAULT_ON_MODELS):
+        return {"type": "disabled"}
+    return None
 
 
 class AnthropicProvider(LLMProvider):
@@ -78,6 +102,7 @@ class AnthropicProvider(LLMProvider):
     # silently upgraded to the Sonnet fallback below at ~3x the cost.
     STRUCTURED_OUTPUT_MODELS = {
         "claude-haiku-4-5",
+        "claude-sonnet-5",
         "claude-sonnet-4-6",
         "claude-sonnet-4-5",
         "claude-sonnet-4-5-20250929",
@@ -86,9 +111,9 @@ class AnthropicProvider(LLMProvider):
     }
 
     # Fallback model for structured outputs when using unsupported models
-    STRUCTURED_OUTPUT_FALLBACK = "claude-sonnet-4-6"
+    STRUCTURED_OUTPUT_FALLBACK = "claude-sonnet-5"
 
-    def _build_system_param(self, system_prompt: Optional[str]):
+    def _build_system_param(self, system_prompt: Optional[str], use_cache: bool = True):
         """Return the Anthropic `system` param as cache-annotated text blocks.
 
         The system prompt is split at the cache breakpoint marker into a static
@@ -101,12 +126,18 @@ class AnthropicProvider(LLMProvider):
         """
         if not system_prompt:
             return system_prompt
+        if not use_cache:
+            # One-shot calls (config.prompt_cache=False): no breakpoints, so we
+            # pay 1.0x input instead of 1.25x cache-write for entries never read.
+            return strip_cache_breakpoint(system_prompt)
         static, volatile = split_system_for_cache(system_prompt)
         blocks: List[Dict[str, Any]] = []
         if static:
-            blocks.append(
-                {"type": "text", "text": static, "cache_control": CACHE_CONTROL}
-            )
+            # 1h TTL only for the true template-split static prefix; a prompt
+            # without the marker (volatile is None) has unknown stability, and
+            # paying the 2x 1h-write premium on churning content is a loss.
+            static_cc = CACHE_CONTROL_STATIC if volatile else CACHE_CONTROL
+            blocks.append({"type": "text", "text": static, "cache_control": static_cc})
         if volatile:
             blocks.append(
                 {"type": "text", "text": volatile, "cache_control": CACHE_CONTROL}
@@ -118,7 +149,7 @@ class AnthropicProvider(LLMProvider):
         return blocks
 
     def _apply_message_cache_control(
-        self, conversation: List[Dict[str, Any]]
+        self, conversation: List[Dict[str, Any]], use_cache: bool = True
     ) -> List[Dict[str, Any]]:
         """Add ONE ephemeral cache breakpoint to the last message so the growing
         conversation history is cached incrementally across agentic-loop turns.
@@ -127,7 +158,7 @@ class AnthropicProvider(LLMProvider):
         in place, so callers that reuse message dicts can never accumulate extra
         breakpoints and blow past Anthropic's 4-breakpoint-per-request limit.
         """
-        if not conversation:
+        if not conversation or not use_cache:
             return conversation
         last = dict(conversation[-1])
         content = last.get("content")
@@ -184,10 +215,11 @@ class AnthropicProvider(LLMProvider):
 
     async def prompt(self, context: LLMContext) -> LLMResponse:
         include_thoughts = bool(context.config.reasoning_effort)
+        use_cache = getattr(context.config, "prompt_cache", True)
         system_prompt, conversation = self._prepare_messages(
             context.messages, include_thoughts=include_thoughts
         )
-        conversation = self._apply_message_cache_control(conversation)
+        conversation = self._apply_message_cache_control(conversation, use_cache)
         tools = construct_anthropic_tools(context)
 
         # Check if we have a Pydantic class for structured outputs (for streaming)
@@ -255,10 +287,12 @@ class AnthropicProvider(LLMProvider):
 
                     request_kwargs = {
                         "model": effective_model,
-                        "system": self._build_system_param(system_prompt),
+                        "system": self._build_system_param(system_prompt, use_cache),
                         "messages": conversation,
                         "max_tokens": context.config.max_tokens or 32000,
                     }
+                    if thinking := _default_thinking_param(effective_model):
+                        request_kwargs["thinking"] = thinking
 
                     session_info = llm_call_metadata.get("session", "unknown")
                     logger.info(
@@ -502,10 +536,11 @@ class AnthropicProvider(LLMProvider):
 
     async def prompt_stream(self, context: LLMContext):
         include_thoughts = bool(context.config.reasoning_effort)
+        use_cache = getattr(context.config, "prompt_cache", True)
         system_prompt, conversation = self._prepare_messages(
             context.messages, include_thoughts=include_thoughts
         )
-        conversation = self._apply_message_cache_control(conversation)
+        conversation = self._apply_message_cache_control(conversation, use_cache)
         tools = construct_anthropic_tools(context)
 
         response_format = context.config.response_format
@@ -542,10 +577,12 @@ class AnthropicProvider(LLMProvider):
             tools_payload = self._build_tools_payload(tools, model_name)
             request_kwargs = {
                 "model": model_name,
-                "system": self._build_system_param(system_prompt),
+                "system": self._build_system_param(system_prompt, use_cache),
                 "messages": conversation,
                 "max_tokens": context.config.max_tokens or 32000,
             }
+            if thinking := _default_thinking_param(model_name):
+                request_kwargs["thinking"] = thinking
             if tools_payload:
                 request_kwargs["tools"] = tools_payload
 

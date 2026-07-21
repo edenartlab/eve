@@ -447,7 +447,17 @@ class PromptSessionRuntime:
         return dm_pattern in session_key
 
     def _inject_social_reminder(self, config: Dict[str, Any]):
-        """Inject SystemReminder into the last platform user message."""
+        """Append an ephemeral platform reminder as the final user message.
+
+        Must NOT mutate an existing message: the reminder targets the *latest*
+        platform message, a moving target across requests. Editing that message
+        in place rewrites bytes mid-history, which invalidates the prompt-cache
+        prefix from that point — and because the nearest surviving cache entry
+        then sits more than 20 content blocks back, Anthropic's breakpoint
+        lookback fails entirely (observed as read=0, full ~30-50k rewrite on
+        every new social notification). A trailing message keeps history
+        byte-stable; at worst the next request re-processes one turn.
+        """
         from eve.user import User
 
         channel_type = config["channel_type"]
@@ -530,7 +540,9 @@ class PromptSessionRuntime:
                         f"├─────────────────────────────────────"
                     )
 
-                msg.content = (msg.content or "") + reminder
+                self.llm_context.messages.append(
+                    ChatMessage(role="user", content=reminder.strip())
+                )
                 break
 
     def _restrict_social_tool(self, config: Dict[str, Any]):
@@ -585,10 +597,22 @@ class PromptSessionRuntime:
             ):
                 platform_tool.parameters[restriction_param]["hide_from_agent"] = True
         elif "reply_param" in config:
-            # Reply-based platforms (Twitter, Farcaster)
+            # Reply-based platforms (Twitter, Farcaster): the target is the
+            # *triggering message id*, which changes on every notification.
+            # Baking it into the schema (enum/default) changes the tool bytes,
+            # and tools are position 0 of the prompt-cache prefix - so every
+            # new notification invalidated the ENTIRE cache (tools + system +
+            # history; observed as read=0 full rewrites). Enforce at execution
+            # time instead (_process_tool_calls overwrites the param), which is
+            # stronger than a schema default and keeps tool bytes stable.
             reply_config_field = config["reply_config_field"]
             target_id = getattr(self.context.update_config, reply_config_field, None)
             param_name = config["reply_param"]
+            if target_id and param_name:
+                if not hasattr(self, "_social_forced_params"):
+                    self._social_forced_params = {}
+                self._social_forced_params[tool_name] = {param_name: target_id}
+            return
         else:
             # Channel-based platforms
             trigger_field = config["trigger_field"]
@@ -980,6 +1004,15 @@ class PromptSessionRuntime:
     async def _process_tool_calls(self, assistant_message: ChatMessage):
         if not assistant_message.tool_calls:
             return
+
+        # Enforce reply-target restriction for reply-based social platforms
+        # (set by _restrict_social_tool; replaces the old cache-busting schema
+        # enum/default so the model can't reply outside the triggering thread).
+        forced = getattr(self, "_social_forced_params", None)
+        if forced:
+            for tc in assistant_message.tool_calls:
+                for param, value in (forced.get(tc.tool) or {}).items():
+                    tc.args[param] = value
 
         # Track if the active platform's post tool was used
         if self.active_platform:
