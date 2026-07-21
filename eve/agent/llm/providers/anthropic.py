@@ -47,6 +47,13 @@ TOOL_SEARCH_TOOL_BM25 = {
 
 # Prompt-cache breakpoint marker applied to system/message blocks.
 CACHE_CONTROL = {"type": "ephemeral"}
+# The static prefix (tool schemas + per-agent persona) is identical across all
+# sessions of an agent but our traffic has many 5m-60m gaps (human turn pacing,
+# between-session lulls), so the default 5m TTL kept expiring and rewriting it.
+# Measured on llm_calls: eve 17% of inter-call gaps >5m but only 6% >1h;
+# abraham 30%/10% - 1h TTL (2x write vs 1.25x) is strictly cheaper for both.
+# Volatile/message breakpoints stay 5m: memory updates invalidate them anyway.
+CACHE_CONTROL_STATIC = {"type": "ephemeral", "ttl": "1h"}
 
 # Anthropic list prices, $ per token (input, output). Used for accurate cost
 # accounting including cache read (0.1x input) and 5-min cache write (1.25x input).
@@ -126,9 +133,11 @@ class AnthropicProvider(LLMProvider):
         static, volatile = split_system_for_cache(system_prompt)
         blocks: List[Dict[str, Any]] = []
         if static:
-            blocks.append(
-                {"type": "text", "text": static, "cache_control": CACHE_CONTROL}
-            )
+            # 1h TTL only for the true template-split static prefix; a prompt
+            # without the marker (volatile is None) has unknown stability, and
+            # paying the 2x 1h-write premium on churning content is a loss.
+            static_cc = CACHE_CONTROL_STATIC if volatile else CACHE_CONTROL
+            blocks.append({"type": "text", "text": static, "cache_control": static_cc})
         if volatile:
             blocks.append(
                 {"type": "text", "text": volatile, "cache_control": CACHE_CONTROL}
