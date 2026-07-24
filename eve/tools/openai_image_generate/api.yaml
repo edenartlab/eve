@@ -1,7 +1,8 @@
 name: OpenAI Image Generate
 description: Generate images using OpenAI's gpt-image-1 model.
 output_type: image
-cost_estimate: 'quality == "high" ? 16 : 8'
+# gpt-image-1: high $0.167/img, medium $0.042, low $0.011 — was flat and ignored n_samples
+cost_estimate: '(quality == "high" ? 20 : 5) * n_samples'
 handler: modal
 thumbnail: app/openai_generate.jpg
 visible: true

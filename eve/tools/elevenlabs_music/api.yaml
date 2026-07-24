@@ -72,7 +72,8 @@ tip: |-
   - Total duration = sum of all section duration_ms values
   - For instrumental, leave `lines` as empty arrays
   - Use respect_sections_durations=True to enforce the duration_ms of each section for more precise choreography
-cost_estimate: 0.5 * duration
+# ElevenLabs Music API $0.40/min = 0.67 manna/s; 0.8/s = ~20% markup (was 0.5/s = -25%)
+cost_estimate: 0.8 * duration
 thumbnail: app/elevenlabs58.webp
 output_type: audio
 active: true

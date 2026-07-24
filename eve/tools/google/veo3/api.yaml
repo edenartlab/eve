@@ -1,7 +1,8 @@
 name: Veo-3
 description: Generate a video including sound from a text prompt using Google Veo-3
 tip: Only use this tool if user specifically asks for Veo or requests a very high quality video or one with native audio. Note, this tool is expensive -- ask the user for confirmation before proceeding to use this tool.
-cost_estimate: 60 * duration * n_samples
+# veo-3.1 standard $0.50/s ($0.75/s with audio), fast $0.15/s — ~20% markup on each path
+cost_estimate: '(fast ? 25 : (generate_audio ? 90 : 60)) * duration * n_samples'
 output_type: video
 visible: true
 active: true

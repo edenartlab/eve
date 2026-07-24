@@ -3,7 +3,9 @@ description: Creates an edited or extended image given one or more source images
 tip: |-
   This endpoint can take a mask image to enable inpainting but can also be used to combine context from multiple images into a single image.
 output_type: image
-cost_estimate: 'quality == "high" ? 16 : 8'
+# handler sends no quality => OpenAI "auto" (often high, $0.167/img); tool has no quality param
+# so the old ternary always hit the 8 branch and n_samples was unbilled
+cost_estimate: 20 * n_samples
 handler: modal
 thumbnail: app/openai_edit.jpg
 visible: true

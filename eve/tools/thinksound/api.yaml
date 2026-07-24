@@ -2,7 +2,9 @@ name: Add sound to video
 description: Generate audio that matches given video content + prompt using ThinkSound.
 tip: |-
   This tool synthesizes audio from video content using ThinkSound, enabling video-to-audio generation. The tool can generate various audio effects that match the video content and automatically timed correctly.
-cost_estimate: 0.5 * duration
+# was `0.5 * duration` but this tool HAS no duration param -> always evaluated to 0 (free).
+# Flat price covering a typical replicate GPU run (~$0.06).
+cost_estimate: 8
 output_type: video
 active: true
 visible: true
