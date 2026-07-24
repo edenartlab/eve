@@ -37,7 +37,7 @@ tip: |-
   video and audio references.
 # fal token formula: (h*w*24/1024) tokens/s; $0.014/1K (<=1080p), $0.008/1K (4k)
 # => $/s: 480p .135, 720p .302, 1080p .680, 4k 1.555 — manna/s at ~18-19% markup
-cost_estimate: '(resolution == "4k" ? 185 : resolution == "1080p" ? 80 : resolution == "480p" ? 16 : 36) * (duration == "auto" ? 8 : duration)'
+cost_estimate: '(resolution == "4k" ? 185 : resolution == "1080p" ? 80 : resolution == "480p" ? 16 : 36) * (duration == "auto" ? 10 : duration)'
 output_type: video
 handler: modal
 visible: true

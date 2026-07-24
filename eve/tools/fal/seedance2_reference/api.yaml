@@ -46,7 +46,7 @@ tip: |-
 # output rate; the expression can't see clip lengths, so we charge a flat
 # adder sized for ~8s of combined input at 720p (follow-up: reprice from
 # measured billing once real usage exists).
-cost_estimate: '(resolution == "4k" ? 185 : resolution == "1080p" ? 80 : resolution == "480p" ? 16 : 36) * (duration == "auto" ? 8 : duration) + (reference_videos ? 290 : 0)'
+cost_estimate: '(resolution == "4k" ? 185 : resolution == "1080p" ? 80 : resolution == "480p" ? 16 : 36) * (duration == "auto" ? 10 : duration) + (reference_videos ? 290 : 0)'
 output_type: video
 handler: modal
 visible: true
