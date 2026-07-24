@@ -1,0 +1,92 @@
+name: FLUX Dev (fast)
+description: FLUX.1-dev served on fal — the same base model and LoRAs as Eden's classic flux_dev, but generating in seconds instead of a ~40s queue. Supports up to two stacked custom LoRAs and image-to-image.
+tip: |-
+  Fast serving of the classic FLUX.1-dev stack: your trained Eden LoRAs work
+  here unchanged (up to two, with independent strengths), plus img2img via
+  init_image. Use this for everyday LoRA generation.
+
+  Not supported here (use the classic flux_dev tool instead): ControlNet
+  conditioning. Everything else — single/double LoRA, init image, guidance,
+  steps — is covered.
+base_model: flux-dev
+# fal flux-lora: $0.021/MP text-to-image, $0.035/MP image-to-image
+cost_estimate: '(init_image ? 4 : 2.5) * n_samples * ((width * height) > 1200000 ? 2 : 1)'
+output_type: image
+handler: modal
+visible: false
+active: true
+thumbnail: app/flux_dev.jpg
+parameters:
+  prompt:
+    type: string
+    label: Prompt
+    required: true
+  lora:
+    type: lora
+    label: LoRA
+    description: Trained Eden LoRA to apply.
+  lora_strength:
+    type: float
+    label: LoRA strength
+    default: 0.8
+    minimum: 0.0
+    maximum: 1.2
+  lora2:
+    type: lora
+    label: Second LoRA
+    description: Optional second LoRA, stacked with the first.
+  lora2_strength:
+    type: float
+    label: Second LoRA strength
+    default: 0.8
+    minimum: 0.0
+    maximum: 1.2
+  init_image:
+    type: image
+    label: Init image
+    description: Optional starting image (image-to-image).
+  denoise:
+    type: float
+    label: Denoise strength
+    description: How much to depart from the init image (1.0 = ignore it).
+    default: 0.75
+    minimum: 0.0
+    maximum: 1.0
+  width:
+    type: integer
+    label: Width
+    default: 1024
+    minimum: 256
+    maximum: 1920
+  height:
+    type: integer
+    label: Height
+    default: 1024
+    minimum: 256
+    maximum: 1920
+  n_samples:
+    type: integer
+    label: Number of images
+    default: 1
+    minimum: 1
+    maximum: 4
+  flux_guidance:
+    type: float
+    label: Guidance
+    default: 3.5
+    minimum: 1.0
+    maximum: 10.0
+    hide_from_user: true
+  steps:
+    type: integer
+    label: Steps
+    default: 28
+    minimum: 4
+    maximum: 50
+    hide_from_user: true
+  seed:
+    type: integer
+    label: Seed
+    minimum: 0
+    maximum: 2147483647
+    default: random

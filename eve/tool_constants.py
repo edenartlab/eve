@@ -212,6 +212,14 @@ TOOL_SETS = {
 
 FEATURE_FLAG_TOOL_SETS = {}
 
+# Premium generation tier: standalone tools removed from agent toolsets unless
+# the agent owner opts in (generation_settings.premium_models_enabled) AND the
+# paying user is entitled — see eve.agent.generation. Deliberately NOT wired
+# through FEATURE_FLAG_TOOL_SETS: flag grants must not bypass the owner opt-in.
+PREMIUM_IMAGE_TOOLS = ["gpt_image_2"]
+PREMIUM_VIDEO_TOOLS = ["seedance2", "seedance2_reference"]
+PREMIUM_STANDALONE_TOOLS = [*PREMIUM_IMAGE_TOOLS, *PREMIUM_VIDEO_TOOLS]
+
 BASE_TOOLS = [
     "create",
 ]

@@ -157,9 +157,15 @@ parameters:
     label: Quality
     description: Quality vs speed tradeoff
     tip: |-
-      For videos: "standard" is fast and cheap but lower quality. "pro" is slower and more expensive but highest quality.
-      For images: "standard" uses a fast, cost-effective model (nano_banana_2). "pro" uses the premium model (nano_banana_pro, requires subscription). If omitted, auto-selects based on subscription status.
-      Use standard for most cases unless user specifically requests high quality.
+      "standard": cost-effective models — nano_banana_2 for images; kling_v3
+      (img2vid) / veo_31_lite (txt2vid) for video.
+      "pro": premium models, SIGNIFICANTLY more expensive — gpt_image_2 for
+      images and seedance2 for video when the agent has premium models enabled
+      (and the payer is subscribed); otherwise nano_banana_pro / veo3.
+      Default to standard. Only pass "pro" when the user explicitly asks for
+      high/best quality — and mention that it costs more. (If the agent owner
+      has set default_quality="pro" in this agent's settings, the default is
+      reversed and this tip is overridden.)
     default: "standard"
     choices: ["standard", "pro"]
   model_preference:
@@ -167,10 +173,15 @@ parameters:
     label: Model preference
     description: Optional preference for specific model provider
     tip: |-
-      If omitted, auto-selects based on task.
-      Videos: kling, seedance, runway, veo. Images: seedream, nano_banana, openai.
-      For images, use quality="standard" (nano_banana_2, default) or quality="pro" (nano_banana_pro, requires subscription).
-    choices: ["kling", "seedream", "seedance", "sdxl", "runway", "openai", "flux", "veo", "nano_banana"]
+      If omitted, auto-selects: the request arg wins, then the agent's stored
+      preference, then the paying user's preference, then the default.
+      Videos: kling (Kling 3 — default for img2vid, best first-pass motion),
+      wan (Wan 2.7 — best value, 1080p included), seedance (Seedance 2 when
+      quality="pro" and premium models are enabled, else Seedance 1),
+      veo (Veo 3.1 for pro subscribers, Veo 3.1 Lite otherwise),
+      runway (legacy). Images: nano_banana (default), seedream, openai
+      (GPT Image 2 when premium enabled), flux, sdxl (legacy, for SDXL loras).
+    choices: ["kling", "wan", "seedream", "seedance", "sdxl", "runway", "openai", "flux", "veo", "nano_banana"]
   audio:
     type: audio
     label: Audio track
