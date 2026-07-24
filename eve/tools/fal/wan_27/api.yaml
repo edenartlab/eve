@@ -1,0 +1,71 @@
+name: Wan 2.7
+description: Alibaba's Wan 2.7 — excellent quality-per-cost video generation (text-to-video and image-to-video) at up to 1080p with native audio, voice cloning via audio reference, and first/last-frame control.
+tip: |-
+  The best value-for-money video model on Eden: near-frontier quality at a
+  mid-tier price, with 1080p included. Great default when the user wants good
+  video without premium cost. Strengths: commercially polished look (clean
+  backgrounds, sharp detail), multi-shot storytelling, iterative control.
+  For the absolute best first-take motion quality use kling_v3; for the
+  premium flagship use seedance2.
+
+  HOW TO USE IT WELL:
+  - Provide start_image for image-to-video; add end_image to control the final
+    frame (Wan's first/last-frame interpolation is best-in-class).
+  - audio_reference (3-5s of clean speech) conditions voice timbre, pacing and
+    tone for spoken lines — write dialogue in the prompt and the model
+    lip-syncs it in that voice.
+  - When you pass a reference/start image, do NOT re-describe the subject in
+    text — the model reconciles text vs image and conflicts degrade identity.
+    Use text for action, environment, and camera only.
+  - Rhythm-referencing prompts ("cuts on the beat", "sways in time with the
+    music") get accurate beat-matched motion.
+  - 720p is ~33% cheaper than 1080p — iterate at 720p, final at 1080p.
+# fal: $0.10/s @720p, $0.15/s @1080p (audio included)
+cost_estimate: '(resolution == "1080p" ? 18 : 12) * duration'
+output_type: video
+handler: modal
+visible: true
+active: true
+thumbnail: app/wan27.mp4
+parameters:
+  prompt:
+    type: string
+    label: Prompt
+    description: Description of the video — action, environment, camera. Dialogue is lip-synced (add an audio_reference to control the voice).
+    required: true
+  start_image:
+    type: image
+    label: Start image (first frame)
+    description: Optional exact first frame — switches to image-to-video mode.
+  end_image:
+    type: image
+    label: End image (last frame)
+    description: Optional exact last frame (requires start_image). Wan's first/last-frame interpolation is a signature strength.
+  audio_reference:
+    type: audio
+    label: Voice/audio reference
+    description: 3-5s of clean speech conditions the voice (timbre, pacing, tone) for dialogue; or music to drive rhythm.
+  resolution:
+    type: string
+    label: Resolution
+    default: '1080p'
+    choices: ['720p', '1080p']
+    description: 720p is ~33% cheaper — iterate at 720p, finalize at 1080p.
+  duration:
+    type: integer
+    label: Duration (seconds)
+    default: 5
+    minimum: 2
+    maximum: 15
+    description: Video length in seconds (2-15).
+  aspect_ratio:
+    type: string
+    label: Aspect ratio
+    default: '16:9'
+    choices: ['16:9', '9:16', '1:1', '4:3', '3:4']
+  seed:
+    type: integer
+    label: Seed
+    minimum: 0
+    maximum: 2147483647
+    default: random

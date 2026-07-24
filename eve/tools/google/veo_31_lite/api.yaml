@@ -1,0 +1,72 @@
+name: Veo 3.1 Lite
+description: Google's budget video tier — Veo 3.1 Lite generates 4/6/8s clips at 720p or 1080p with native synchronized audio, at a fraction of full Veo's cost. Eden's cheap/fast video workhorse.
+tip: |-
+  The go-to tool for quick, inexpensive video: quality is close to full Veo 3.1
+  at roughly 1/8 the price. Use it for drafts, social clips, iterations, and
+  whenever the user hasn't asked for premium quality. Escalate to veo3 (higher
+  fidelity, 4K) or seedance2 (premium flagship) only when the user wants top
+  quality.
+
+  Notes:
+  - Supports text-to-video and image-to-video (provide image as first frame).
+  - Durations are fixed at 4, 6, or 8 seconds.
+  - Audio (ambience, effects, speech) is generated natively and included in
+    the price — describe the soundscape in the prompt.
+  - 720p vs 1080p: 1080p costs ~60% more; iterate at 720p.
+# Google: $0.05/s 720p, $0.08/s 1080p (audio incl.) -> ~18% markup
+cost_estimate: '(resolution == "1080p" ? 9.5 : 6) * duration * n_samples'
+output_type: video
+handler: modal
+visible: true
+active: true
+thumbnail: app/veo_lite.mp4
+parameters:
+  prompt:
+    type: string
+    label: Prompt
+    description: Description of the video, including any sounds/dialogue for the native audio track.
+    required: true
+  image:
+    type: image
+    label: Start image
+    description: Optional first frame (image-to-video).
+  duration:
+    type: integer
+    label: Duration (seconds)
+    default: 8
+    choices: [4, 6, 8]
+    description: Clip length — Veo Lite supports exactly 4, 6, or 8 seconds.
+  resolution:
+    type: string
+    label: Resolution
+    default: '720p'
+    choices: ['720p', '1080p']
+    description: 1080p costs ~60% more; iterate at 720p.
+  aspect_ratio:
+    type: string
+    label: Aspect ratio
+    default: '16:9'
+    choices: ['16:9', '9:16']
+  generate_audio:
+    type: boolean
+    label: Generate audio
+    default: true
+    description: Native synchronized audio (included in price).
+  n_samples:
+    type: integer
+    label: Number of videos
+    default: 1
+    minimum: 1
+    maximum: 2
+    hide_from_user: true
+  negative_prompt:
+    type: string
+    label: Negative prompt
+    description: What to avoid in the generation.
+  seed:
+    type: integer
+    label: Seed
+    minimum: 0
+    maximum: 2147483647
+    default: random
+    hide_from_user: true

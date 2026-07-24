@@ -15,13 +15,11 @@ import os
 from bson import ObjectId
 from loguru import logger
 
-from eve.agent import Agent
 from eve.models import Model
 from eve.s3 import get_full_url
 from eve.tool import Tool, ToolContext
 
 # from eve.api.api import create
-from eve.user import User
 from eve.utils import get_media_attributes
 
 
@@ -1069,6 +1067,102 @@ async def handle_video_creation(
 
     #########################################################
     # Seedance
+    elif video_tool == "seedance2":
+        seedance2 = Tool.load("seedance2")
+
+        args = {
+            "prompt": prompt,
+            "duration": str(max(4, min(int(duration), 15))),
+            "resolution": "1080p" if quality == "pro" else "720p",
+            "generate_audio": True,
+        }
+        if aspect_ratio != "auto":
+            args["aspect_ratio"] = aspect_ratio
+        if start_image:
+            args["start_image"] = start_image
+        if end_image:
+            args["end_image"] = end_image
+        if seed:
+            args["seed"] = seed
+
+        if check_cancelled():
+            return {"status": "cancelled", "output": None}
+        result = await seedance2.async_run(
+            args, save_thumbnails=True, cancellation_event=cancellation_event
+        )
+
+    elif video_tool == "seedance2_reference":
+        seedance2_reference = Tool.load("seedance2_reference")
+
+        args = {
+            "prompt": prompt,
+            "duration": str(max(4, min(int(duration), 15))),
+            "resolution": "1080p" if quality == "pro" else "720p",
+            "generate_audio": True,
+            "reference_videos": [reference_video],
+        }
+        if reference_images:
+            args["reference_images"] = reference_images[:9]
+        if aspect_ratio != "auto":
+            args["aspect_ratio"] = aspect_ratio
+        if audio:
+            args["reference_audio"] = [audio]
+
+        if check_cancelled():
+            return {"status": "cancelled", "output": None}
+        result = await seedance2_reference.async_run(
+            args, save_thumbnails=True, cancellation_event=cancellation_event
+        )
+
+    elif video_tool == "wan_27":
+        wan_27 = Tool.load("wan_27")
+
+        args = {
+            "prompt": prompt,
+            "duration": max(2, min(int(duration), 15)),
+            "resolution": "1080p" if quality == "pro" else "720p",
+        }
+        if aspect_ratio != "auto" and aspect_ratio in ("16:9", "9:16", "1:1", "4:3", "3:4"):
+            args["aspect_ratio"] = aspect_ratio
+        if start_image:
+            args["start_image"] = start_image
+        if end_image:
+            args["end_image"] = end_image
+        if audio:
+            args["audio_reference"] = audio
+        if seed:
+            args["seed"] = seed
+
+        if check_cancelled():
+            return {"status": "cancelled", "output": None}
+        result = await wan_27.async_run(
+            args, save_thumbnails=True, cancellation_event=cancellation_event
+        )
+
+    elif video_tool == "veo_31_lite":
+        veo_31_lite = Tool.load("veo_31_lite")
+
+        # Veo Lite supports exactly 4, 6, or 8 seconds
+        lite_duration = min((4, 6, 8), key=lambda d: abs(d - duration))
+
+        args = {
+            "prompt": prompt,
+            "duration": lite_duration,
+            "resolution": "1080p" if quality == "pro" else "720p",
+            "generate_audio": True,
+            "n_samples": 1,
+        }
+        if aspect_ratio in ("16:9", "9:16"):
+            args["aspect_ratio"] = aspect_ratio
+        if start_image:
+            args["image"] = start_image
+
+        if check_cancelled():
+            return {"status": "cancelled", "output": None}
+        result = await veo_31_lite.async_run(
+            args, save_thumbnails=True, cancellation_event=cancellation_event
+        )
+
     elif video_tool == "seedance1":
         seedance1 = Tool.load("seedance1")
 

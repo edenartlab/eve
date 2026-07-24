@@ -1,9 +1,22 @@
 name: Kling O3 Reference to Video
 description: Generate 3-15s videos with reference images and elements using Kling O3 Pro. Supports character/object consistency, native audio, and multi-shot generation.
 tip: |-
-  Generate high-quality videos from a starting image with reference images for style/character consistency. Reference images influence the look and feel of the generated video.
-  For custom elements, reference them in your prompt as @Element1, @Element2, etc.
-  For reference images, reference them in your prompt as @Image1, @Image2, etc.
+  Kling O3 Pro reference-to-video: strong character/object consistency from
+  reference images, with native audio and multi-shot support. Cheaper than
+  seedance2_reference; use it when the user wants reference-guided video
+  without premium cost.
+
+  HOW TO USE REFERENCES WELL:
+  - Elements (@Element1, ...) lock IDENTITY: give a clean frontal image plus
+    1-3 side/detail shots per character/object, then use only "@Element1" in
+    the prompt — never re-describe their appearance in words (conflicting text
+    degrades likeness; text should carry action, environment, camera).
+  - Reference images (@Image1, ...) guide STYLE/look-and-feel: color grade,
+    lighting, composition ("match the grade of @Image1 throughout").
+  - Multi-shot: master anchor prompt + explicit cuts ("cut to..."), up to ~6
+    shots in 15s; add anti-drift negatives for long sequences ("jittery eyes,
+    frozen lips, character drift, warping hands").
+  - Dialogue: [Character A: voice quality]: "line" — ~8-12 words per 5s.
 output_type: video
 cost_estimate: 25 * duration
 handler: fal

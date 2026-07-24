@@ -1,0 +1,116 @@
+name: Seedance 2.0 Reference
+description: ByteDance's reference-guided video model (PREMIUM) — compose a video from up to 9 reference images, 3 reference video clips, and 3 audio references, woven together with @Image1/@Video1/@Audio1 prompt syntax. The most controllable character-consistency video tool on Eden.
+tip: |-
+  PREMIUM MODEL — expensive; only use when the user has affirmed high quality or
+  the agent is configured for pro-by-default. This tool is the pinnacle of
+  controlled video generation: it lets you direct a shot the way a filmmaker
+  assembles a moodboard, cast, and score.
+
+  THE REFERENCE SYSTEM (the whole point of this tool):
+  You provide assets in three lists and refer to them IN THE PROMPT by index:
+  - reference_images (up to 9): identity, wardrobe, props, sets, style frames.
+    Reference as @Image1, @Image2, ... in prompt text.
+  - reference_videos (up to 3, each 480-720p, combined 2-15s): motion, camera
+    rhythm, choreography, and VOICE (a speaking clip carries the voice).
+    Reference as @Video1, ...
+  - reference_audio (up to 3, combined <=15s): music, voice timbre, sound
+    design. Reference as @Audio1, ...
+  Hard limit: 12 files total across the three lists. If you supply audio, you
+  must also supply at least one image or video reference.
+
+  RECIPES THAT WORK:
+  - Character consistency: 1 clean frontal face image + 1-2 three-quarter/body
+    shots of the same person as @Image1-3, then "@Image1 walks through a neon
+    market at night, cut to close-up as she turns" — do NOT re-describe her
+    appearance in words; conflicting text degrades likeness. Let images carry
+    identity, use text only for action, environment, and camera.
+  - Motion transfer: a dance/gesture clip as @Video1 + character stills:
+    "@Image1 performs the movement of @Video1 on an empty stage, locked-off
+    wide shot."
+  - Voice + dialogue: a 3-5s clean speech sample as @Audio1 (or a talking clip
+    as @Video1), then dialogue in double quotes for lip-sync.
+  - Multi-shot storyboards: describe explicit cuts ("cut to...", "then...");
+    consistency holds across shots within the 15s window.
+  - Style frames: a graded still as the last @Image slot and "match the color
+    grade and lighting of @ImageN throughout".
+
+  Prompt structure still matters: subject -> motion -> environment -> look ->
+  camera -> audio. Precise camera vocabulary (dolly, crane, rack focus) beats
+  adjectives. Say "no music" if you don't want a score.
+
+  COST NOTES: iterate at 5s/720p before committing to 1080p/4K finals.
+  duration "auto" fits length to content. When reference VIDEOS are provided,
+  billed duration includes the input clips' combined length.
+# same token pricing as seedance2. When reference VIDEOS are supplied, fal
+# additionally bills the input clips' combined duration (capped at 15s) at the
+# output rate; the expression can't see clip lengths, so we charge a flat
+# adder sized for ~8s of combined input at 720p (follow-up: reprice from
+# measured billing once real usage exists).
+cost_estimate: '(resolution == "4k" ? 185 : resolution == "1080p" ? 80 : resolution == "480p" ? 16 : 36) * (duration == "auto" ? 8 : duration) + (reference_videos ? 290 : 0)'
+output_type: video
+handler: modal
+visible: true
+active: true
+thumbnail: app/seedance2.mp4
+parameters:
+  prompt:
+    type: string
+    label: Prompt
+    description: The shot description. Weave in assets as @Image1, @Video1, @Audio1. Dialogue in double quotes gets lip-synced.
+    required: true
+  reference_images:
+    type: array
+    items:
+      type: image
+    label: Reference images
+    description: Up to 9 images — characters, wardrobe, props, sets, style frames. Reference in prompt as @Image1, @Image2, ...
+    max_length: 9
+  reference_videos:
+    type: array
+    items:
+      type: video
+    label: Reference videos
+    description: Up to 3 clips (480-720p, combined 2-15s) for motion/camera/voice reference. Reference as @Video1, ... Billed duration includes input clip length.
+    max_length: 3
+  reference_audio:
+    type: array
+    items:
+      type: audio
+    label: Reference audio
+    description: Up to 3 audio files (combined <=15s) — music, voice timbre, sound design. Reference as @Audio1, ... Requires at least one image or video reference.
+    max_length: 3
+  resolution:
+    type: string
+    label: Resolution
+    default: '720p'
+    choices: ['480p', '720p', '1080p', '4k']
+    description: Output resolution. 720p for iteration, 1080p/4k for finals.
+  duration:
+    type: string
+    label: Duration (seconds)
+    default: 'auto'
+    choices: ['auto', '4', '5', '6', '7', '8', '9', '10', '11', '12', '13', '14', '15']
+    description: 4-15 seconds, or "auto" to fit content.
+  aspect_ratio:
+    type: string
+    label: Aspect ratio
+    default: 'auto'
+    choices: ['auto', '21:9', '16:9', '4:3', '1:1', '3:4', '9:16']
+    description: Frame aspect ratio.
+  generate_audio:
+    type: boolean
+    label: Generate audio
+    description: Native synchronized audio (sound effects, ambience, lip-synced speech). No extra cost.
+    default: true
+  bitrate_mode:
+    type: string
+    label: Bitrate
+    default: standard
+    choices: ['standard', 'high']
+    hide_from_user: true
+  seed:
+    type: integer
+    label: Seed
+    minimum: 0
+    maximum: 2147483647
+    default: random
