@@ -501,6 +501,30 @@ async def handle_image_creation(
         )
 
     #########################################################
+    # GPT Image 2 (premium flagship — generation and editing)
+    elif image_tool == "gpt_image_2":
+        gpt_image_2 = Tool.load("gpt_image_2")
+
+        args = {
+            "prompt": prompt,
+            "n_samples": n_samples,
+            # pro billing tier maps to OpenAI "high"; keep drafts on medium
+            "quality": "high" if quality == "pro" else "medium",
+        }
+        if reference_images:
+            args["input_images"] = reference_images[:16]
+        if aspect_ratio in ("9:16", "3:4", "2:3"):
+            args["image_size"] = "portrait"
+        elif aspect_ratio in ("16:9", "4:3", "3:2", "21:9"):
+            args["image_size"] = "landscape"
+
+        if check_cancelled():
+            return {"status": "cancelled", "output": []}
+        result = await gpt_image_2.async_run(
+            args, save_thumbnails=True, cancellation_event=cancellation_event
+        )
+
+    #########################################################
     # OpenAI Image Generate
     elif image_tool == "openai_image_generate":
         openai_image_generate = Tool.load("openai_image_generate")
