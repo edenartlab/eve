@@ -15,7 +15,7 @@ output_type: image
 handler: modal
 visible: false
 active: true
-thumbnail: app/flux_dev.jpg
+thumbnail: app/flux.jpg
 parameters:
   prompt:
     type: string

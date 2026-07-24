@@ -26,7 +26,7 @@ output_type: video
 handler: modal
 visible: true
 active: true
-thumbnail: app/wan27.mp4
+thumbnail: app/wan27.jpg
 parameters:
   prompt:
     type: string

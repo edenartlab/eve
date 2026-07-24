@@ -8,29 +8,32 @@ T2I_ENDPOINT = "fal-ai/flux-lora"
 I2I_ENDPOINT = "fal-ai/flux-lora/image-to-image"
 
 
-def _lora_url(lora_id):
-    """Resolve a models3 LoRA id to its public CloudFront URL."""
+def _load_lora(lora_id):
+    """Resolve a models3 LoRA id to (public CloudFront URL, trigger text)."""
     from eve.models import Model
 
     model = Model.from_mongo(ObjectId(str(lora_id)))
     if not model or not model.checkpoint:
         raise ValueError(f"LoRA {lora_id} not found or has no checkpoint")
-    return get_full_url(model.checkpoint)
+    return get_full_url(model.checkpoint), (model.lora_trigger_text or "").strip()
 
 
 async def handler(context: ToolContext):
     args = context.args
 
     loras = []
-    if args.get("lora"):
-        loras.append({"path": _lora_url(args["lora"]),
-                      "scale": float(args.get("lora_strength") or 0.8)})
-    if args.get("lora2"):
-        loras.append({"path": _lora_url(args["lora2"]),
-                      "scale": float(args.get("lora2_strength") or 0.8)})
+    prompt = args["prompt"]
+    for id_key, strength_key in (("lora", "lora_strength"), ("lora2", "lora2_strength")):
+        if args.get(id_key):
+            url, trigger = _load_lora(args[id_key])
+            loras.append({"path": url, "scale": float(args.get(strength_key) or 0.8)})
+            # Mirror the comfy pipeline: ensure the trigger token is present so
+            # the LoRA actually activates even when the caller forgets it.
+            if trigger and trigger.lower() not in prompt.lower():
+                prompt = f"{trigger}, {prompt}"
 
     payload = {
-        "prompt": args["prompt"],
+        "prompt": prompt,
         "num_images": int(args.get("n_samples") or 1),
         "image_size": {
             "width": int(args.get("width") or 1024),
