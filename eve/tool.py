@@ -552,7 +552,10 @@ class Tool(Document, ABC):
         cost_estimate = utils.eval_cost(
             self.cost_estimate, **self.prepare_args(args.copy())
         )
-        return cost_estimate
+        # Never negative: a bad expression or unbounded numeric arg could
+        # otherwise drive cost below zero, which downstream would credit
+        # rather than charge.
+        return max(cost_estimate or 0, 0)
 
     def prepare_args(self, args: dict):
         # Resolve parameter aliases (e.g., session_id -> session)

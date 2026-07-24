@@ -44,6 +44,11 @@ class Manna(Document):
         """
         if amount == 0:
             return {"subscription": 0.0, "balance": 0.0}
+        if amount < 0:
+            # A negative spend would pass the $gte guards below and CREDIT the
+            # balance — i.e. mint manna. Negative costs are always a bug
+            # upstream (bad cost_estimate or unvalidated args).
+            raise Exception(f"Invalid negative spend amount: {amount}")
         collection = self.get_collection()
 
         # Read current balances to determine the split between subscription and regular
@@ -88,6 +93,9 @@ class Manna(Document):
         subscription manna into permanent balance."""
         if amount == 0:
             return
+        if amount < 0:
+            # A negative refund is a hidden debit — never valid.
+            raise Exception(f"Invalid negative refund amount: {amount}")
         subscription_amount = max(0.0, min(subscription_amount or 0.0, amount))
         collection = self.get_collection()
         result = collection.find_one_and_update(
