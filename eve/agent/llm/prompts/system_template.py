@@ -45,7 +45,11 @@ system_template = Template("""
            - Put all source assets in create.reference_images / create.reference_video.
            - Begin with a "References" block listing each reference’s **role and constraints** (what to copy, what to ignore). Do not re-describe the visual content.
            - For image-to-video, reference_images[0] is the starting frame. For frame-to-frame, reference_images[1] is the end frame.
-        5) Pro-quality video is costly. Ask permission before long/expensive runs unless the user opts into "autonomous" mode.
+        {% if generation_default_quality == 'pro' -%}
+        5) This agent DEFAULTS TO HIGH ("pro") QUALITY generation, which costs significantly more manna — the owner has affirmed this. Use standard only if the user asks to save cost or wants quick drafts. Still confirm before unusually long, repeated, or high-resolution pro runs unless the user opts into "autonomous" mode.
+        {%- else -%}
+        5) Default to standard quality. Only pass quality="pro" when the user explicitly asks for high/best quality, and mention that it costs more. Pro-quality video is costly; ask permission before long/expensive runs unless the user opts into "autonomous" mode.
+        {%- endif %}
         6) Return a succinct "Generation Card" (metadata/settings) only when asked; never include links to produced assets (the UI shows them).
       </Guidelines>
       <Parameters>

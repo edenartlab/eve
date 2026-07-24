@@ -375,7 +375,7 @@ def filter_tools_by_feature_flags(
 
 
 def filter_premium_generation_tools(
-    tools: Dict, agent, auth_user: Optional[str] = None
+    tools: Dict, agent, auth_user: Optional[str] = None, access=None
 ) -> Dict:
     """Remove premium generation tools (Seedance 2, GPT Image 2, ...) from an
     agent's toolset unless BOTH keys are present: the owner's opt-in on the
@@ -389,10 +389,11 @@ def filter_premium_generation_tools(
     if not any(t in tools for t in PREMIUM_STANDALONE_TOOLS):
         return tools
 
-    from .generation import resolve_generation_access
-
     try:
-        access = resolve_generation_access(user=auth_user, agent=agent)
+        if access is None:
+            from .generation import resolve_generation_access
+
+            access = resolve_generation_access(user=auth_user, agent=agent)
         allowed = access.premium_enabled
     except Exception:
         allowed = False
@@ -400,6 +401,55 @@ def filter_premium_generation_tools(
     if not allowed:
         for tool in PREMIUM_STANDALONE_TOOLS:
             tools.pop(tool, None)
+    return tools
+
+
+def inject_generation_parameters(tools: Dict, access) -> Dict:
+    """Reflect the agent's generation posture and preferences into the create
+    tool's schema so the LLM knows the default without hidden overrides.
+
+    Injecting the DEFAULT (not just a tip) when posture is pro is load-bearing:
+    billing computes cost from submitted args before routing, so the quality
+    value the LLM sends must match the posture for billing to line up.
+    Preferences are tip-only (no default) so an unset arg stays detectable and
+    the handler-side merge remains the single source of truth."""
+    create = tools.get("create")
+    if create is None or access is None:
+        return tools
+
+    try:
+        params = {}
+        if access.default_quality == "pro":
+            params["quality"] = {
+                "default": "pro",
+                "tip": (
+                    "This agent's owner set it to DEFAULT TO HIGH QUALITY "
+                    "(pro) generation, which costs significantly more manna. "
+                    'Use quality="standard" only when the user asks to save '
+                    "cost or wants a quick draft. Still confirm before "
+                    "unusually long, repeated, or high-resolution pro runs."
+                ),
+            }
+        pref_bits = []
+        if access.image_model_preference:
+            pref_bits.append(f"images: {access.image_model_preference}")
+        if access.video_model_preference:
+            pref_bits.append(f"video: {access.video_model_preference}")
+        if pref_bits:
+            existing_tip = (create.parameters.get("model_preference") or {}).get(
+                "tip", ""
+            )
+            params["model_preference"] = {
+                "tip": existing_tip
+                + "\nOwner-preferred models ("
+                + ", ".join(pref_bits)
+                + ") — used automatically when the user expresses no "
+                "preference; you don't need to pass them explicitly."
+            }
+        if params:
+            create.update_parameters(params)
+    except Exception as e:
+        logger.error(f"Error injecting generation parameters: {e}")
     return tools
 
 

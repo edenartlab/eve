@@ -282,11 +282,25 @@ class Agent(User):
         # Filter tools based on feature flags
         tools = filter_tools_by_feature_flags(tools, self.featureFlags, {})
 
-        # Remove premium generation tools unless the owner opted this agent in
-        # AND the paying user is entitled (eve/agent/generation.py)
-        from .tool_loaders import filter_premium_generation_tools
+        # Resolve generation access once: premium filtering + posture injection
+        # + system-template rendering all share it (eve/agent/generation.py)
+        from .generation import resolve_generation_access
+        from .tool_loaders import (
+            filter_premium_generation_tools,
+            inject_generation_parameters,
+        )
 
-        tools = filter_premium_generation_tools(tools, self, auth_user)
+        try:
+            self._generation_access = resolve_generation_access(
+                user=auth_user, agent=self
+            )
+        except Exception:
+            self._generation_access = None
+
+        tools = filter_premium_generation_tools(
+            tools, self, auth_user, access=self._generation_access
+        )
+        tools = inject_generation_parameters(tools, self._generation_access)
 
         # Inject LoRA parameters for tools that use loras
         tools = inject_lora_parameters(
