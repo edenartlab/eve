@@ -101,6 +101,10 @@ dev-dependencies = [
     "pytest-asyncio>=0.24.0",
 ]
 
+[tool.rye.scripts]
+api-dummy = { cmd = "eve api --db STAGE --host 127.0.0.1 --port 8000 --reload", env = { ENV_PATH = "/Users/jmill/projects-old/eden/eve/.env.DUMMY", DB = "STAGE" } }
+api-dummy-mock = { cmd = "eve api --db STAGE --host 127.0.0.1 --port 8000 --reload --mock", env = { ENV_PATH = "/Users/jmill/projects-old/eden/eve/.env.DUMMY", DB = "STAGE" } }
+
 [project.scripts]
 eve = "eve.cli:cli"
 check-imports = "scripts.check_imports:main"

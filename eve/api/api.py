@@ -26,12 +26,8 @@ from eve.api.api_functions import (
     memory2_process_cold_sessions_fn,
     run_task_replicate,
 )
-from eve.api.api_functions import (
-    run as _run,
-)
-from eve.api.api_functions import (
-    run_task as _run_task,
-)
+from eve.api.api_functions import run as _run
+from eve.api.api_functions import run_task as _run_task
 from eve.api.api_requests import (
     AgentPromptsExtractionRequest,
     AgentToolsDeleteRequest,
@@ -173,7 +169,6 @@ class SentryContextMiddleware(BaseHTTPMiddleware):
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup
     yield
     # Shutdown - close all SSE connections
     from eve.api.sse_manager import sse_manager
