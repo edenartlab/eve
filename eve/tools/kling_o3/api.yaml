@@ -101,6 +101,7 @@ parameters:
           items:
             type: image
     hide_from_user: true
+    hide_from_ui: true
   shot_type:
     label: Shot Type
     type: string
@@ -130,3 +131,4 @@ parameters:
           description: Duration of this shot in seconds.
           required: true
     hide_from_user: true
+    hide_from_ui: true

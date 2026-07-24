@@ -111,18 +111,37 @@ parameters:
     hide_from_agent: true
   voice_ids:
     label: Voice IDs
-    type: list
+    type: array
+    items:
+      type: string
     required: false
     description: Voice IDs for voice control. Reference voices in your prompt with <<<voice_1>>> and <<<voice_2>>> (max 2 voices). Get voice IDs from the kling video create-voice endpoint.
     hide_from_agent: true
     hide_from_user: true
+    hide_from_ui: true
   elements:
     label: Elements
-    type: list
+    type: array
+    items:
+      type: object
+      properties:
+        frontal_image_url:
+          type: image
+          label: Frontal Image
+          description: Front-facing image of the character/object (primary identity reference).
+          required: true
+        reference_image_urls:
+          type: array
+          label: Reference Images
+          description: Additional angles of the same character/object.
+          required: false
+          items:
+            type: image
     required: false
     description: Characters or objects to include in the video. Each element can be an image set (frontal + reference images) or a video. Reference in prompt as @Element1, @Element2, etc.
     hide_from_agent: true
     hide_from_user: true
+    hide_from_ui: true
   shot_type:
     label: Shot Type
     type: string
@@ -135,8 +154,22 @@ parameters:
     hide_from_ui: true
   multi_prompt:
     label: Multi-Shot Prompts
-    type: list
+    type: array
+    items:
+      type: object
+      properties:
+        prompt:
+          type: string
+          label: Prompt
+          description: Text prompt for this shot.
+          required: true
+        duration:
+          type: string
+          label: Duration
+          description: Duration of this shot in seconds.
+          required: true
     required: false
     description: List of prompts for multi-shot video generation. Divides the video into multiple shots. Each element has a prompt and duration.
     hide_from_agent: true
     hide_from_user: true
+    hide_from_ui: true
