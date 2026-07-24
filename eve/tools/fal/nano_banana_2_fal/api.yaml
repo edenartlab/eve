@@ -2,7 +2,7 @@ name: Nano Banana 2 (FAL)
 description: Google's next-gen image generation and editing model via FAL.ai with resolution control and web search. Supports text-to-image and image editing.
 tip: Provide image_urls to enable editing mode. Supports multiple reference images. Use enable_web_search for current events or real-world references.
 output_type: image
-cost_estimate: '(resolution == "4K" ? 16 : resolution == "2K" ? 12 : resolution == "0.5K" ? 6 : 8) * num_images'
+cost_estimate: '((resolution == "4K" ? 18 : resolution == "2K" ? 14 : resolution == "0.5K" ? 7 : 9) + (enable_web_search ? 2 : 0)) * num_images'
 handler: modal
 thumbnail: app/nano_banana_pro.jpg
 visible: true

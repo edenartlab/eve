@@ -1,7 +1,8 @@
 name: Nano Banana
 description: Fast image generation and editing using Google's Gemini 2.5 Flash Image model
 tip: Use this for quick image generation tasks. Supports optional input images for editing.
-cost_estimate: 4
+# $0.039/output image + $0.000387 per input image, priced at ~15% markup on both terms
+cost_estimate: 4.5 + image_input.length * 0.045
 output_type: image
 visible: true
 active: true
@@ -21,8 +22,9 @@ parameters:
       type: image
     label: Input images
     description: Input images to transform or use as reference
+    max_length: 14
     tip: |-
-      Optional input images that will be used as context or reference for the generation. You can provide multiple images.
+      Optional input images that will be used as context or reference for the generation. You can provide multiple images (up to 14).
   aspect_ratio:
     type: string
     label: Aspect Ratio
