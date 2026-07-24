@@ -7,8 +7,9 @@ tip: |-
   - Use 16:9, 1:1, and 9:16 aspect ratios for landscape, square, and portrait images respectively. Only use the other ones if specifically requested of you. If no aspect ratio is specified, use your best judgment depending on the content requested. Cinematic content should be landscape while social media content should be square or portrait.
   - If you want to put specific lines of dialogue into the video, you must use Veo-3 (quality == "high_quality", sound_effects == true, and no start_image). Veo-3 is the most powerful and most expensive model, so only use it when the user demands the highest quality.
   - Audio files are *only* supported for the "talking_head" mode, so don't use one otherwise. If you want to mix an audio file over video, use the media_editor tool instead.
-# cost_estimate: "(quality == 'high_quality' ?  500 : 250)"
-cost_estimate: 250
+# Routes: fast=Runway gen4-turbo (~$0.05/s), standard=Kling Pro (~$0.10-0.34/s),
+# high_quality=Veo-3 ($0.50-0.75/s). Was flat 250 regardless of duration/quality.
+cost_estimate: '(quality == "high_quality" ? 90 : quality == "fast" ? 10 : 40) * duration'
 output_type: image
 active: true
 visible: false

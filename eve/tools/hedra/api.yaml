@@ -2,7 +2,9 @@ name: Talking Head
 description: Talking head generated with Hedra
 tip: |-
   This takes an image of a face and some speech audio and generates a talking head.
-cost_estimate: 100
+# Hedra bills ~$0.07/s of output video; output length tracks the input audio,
+# which isn't measurable in this expression -> flat price sized for ~20s clips.
+cost_estimate: 150
 output_type: video
 handler: modal
 thumbnail: app/hedra_opt.mp4

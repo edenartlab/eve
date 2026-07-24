@@ -36,8 +36,14 @@ class Manna(Document):
             raise e
 
     def spend(self, amount: float):
+        """Deduct manna, drawing subscription balance first.
+
+        Returns {"subscription": x, "balance": y} — the split actually
+        debited — so callers can record it and refunds can restore the
+        same buckets.
+        """
         if amount == 0:
-            return
+            return {"subscription": 0.0, "balance": 0.0}
         collection = self.get_collection()
 
         # Read current balances to determine the split between subscription and regular
@@ -73,14 +79,25 @@ class Manna(Document):
         # Update local state from the authoritative DB result
         self.subscriptionBalance = result.get("subscriptionBalance", 0)
         self.balance = result.get("balance", 0)
+        return {"subscription": subscription_spend, "balance": balance_spend}
 
-    def refund(self, amount: float):
+    def refund(self, amount: float, subscription_amount: float = 0.0):
+        """Credit manna back. `subscription_amount` (<= amount) is restored to
+        subscriptionBalance, the rest to balance — so refunds return manna to
+        the buckets it was debited from instead of converting expiring
+        subscription manna into permanent balance."""
         if amount == 0:
             return
+        subscription_amount = max(0.0, min(subscription_amount or 0.0, amount))
         collection = self.get_collection()
         result = collection.find_one_and_update(
             {"_id": self.id},
-            {"$inc": {"balance": amount}},
+            {
+                "$inc": {
+                    "balance": amount - subscription_amount,
+                    "subscriptionBalance": subscription_amount,
+                }
+            },
             return_document=True,
         )
         if not result:
@@ -96,6 +113,9 @@ class Transaction(Document):
     task: Optional[ObjectId] = None
     amount: float
     type: Literal["spend", "refund", "daily_topup_mars_college_26"]
+    # How much of a spend came out of subscriptionBalance (refunds use this
+    # to restore the same bucket). Absent on legacy docs -> assume balance.
+    subscription_amount: Optional[float] = None
 
 
 # todo: add more stats

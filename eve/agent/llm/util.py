@@ -184,6 +184,22 @@ def should_force_fake_response(context: LLMContext) -> bool:
     return is_fake_llm_mode()
 
 
+# $ per 1M tokens (input, output) for models litellm doesn't know yet.
+# A litellm miss otherwise returns $0 and the call bills only the floor.
+_FALLBACK_MODEL_PRICES = {
+    "gpt-5.4-nano": (0.20, 1.25),
+    "gemini-3-flash": (0.25, 1.50),  # covers -preview via prefix match
+}
+
+
+def _fallback_price_for(model: str):
+    m = (model or "").lower()
+    for prefix, prices in _FALLBACK_MODEL_PRICES.items():
+        if m.startswith(prefix):
+            return prices
+    return None
+
+
 def calculate_cost_usd(
     model: str,
     prompt_tokens: Optional[int],
@@ -200,6 +216,12 @@ def calculate_cost_usd(
             completion_tokens=completion_tokens,
         )
     except Exception as exc:
+        fallback = _fallback_price_for(model)
+        if fallback:
+            in_rate, out_rate = fallback
+            prompt_cost = prompt_tokens * in_rate / 1_000_000
+            completion_cost = completion_tokens * out_rate / 1_000_000
+            return prompt_cost, completion_cost, prompt_cost + completion_cost
         logger.warning(f"Failed to calculate cost for model {model}: {exc}")
         return 0.0, 0.0, 0.0
 

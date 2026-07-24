@@ -240,6 +240,13 @@ class PromptSessionRuntime:
             # an always-erroring tool can burn tokens until the Modal timeout.
             max_turns = int(os.getenv("MAX_PROMPT_SESSION_TURNS", "25"))
             turn_count = 0
+            # Per-run billing accumulators: the 2-manna floor is charged once
+            # per user turn (not per LLM call), and cost-plus top-ups are
+            # computed against the cumulative provider cost of the whole run
+            # so the user pays max(floor, total_cost * markup).
+            self._run_floor_charged = 0.0
+            self._run_cost_usd = 0.0
+            self._run_topups_charged = 0.0
             while not prompt_session_finished:
                 turn_count += 1
                 if turn_count > max_turns:
@@ -271,10 +278,17 @@ class PromptSessionRuntime:
                         )
                         return
 
-                # Always attempt billing once rate limits are cleared (or disabled)
-                if os.environ.get("FF_MANNA_BILLING"):
+                # Always attempt billing once rate limits are cleared (or disabled).
+                # The flat floor is a per-turn reservation: charge it on the
+                # first LLM call only — subsequent tool-loop calls are billed
+                # via the cumulative cost-plus top-up in
+                # _persist_assistant_message.
+                if os.environ.get("FF_MANNA_BILLING") and not getattr(
+                    self, "_run_floor_charged", 0
+                ):
                     try:
                         self._charge_manna_for_message()
+                        self._run_floor_charged = 2.0
                     except APIError as e:
                         billing_error_message = self._persist_billing_error_message(e)
                         yield SessionUpdate(
@@ -668,6 +682,9 @@ class PromptSessionRuntime:
         tool_calls_dict: Dict[int, Dict[str, Any]] = {}
         stop_reason = None
         tokens_spent = 0
+        final_prompt_tokens = None
+        final_completion_tokens = None
+        final_cost_usd = None
         llm_call_id = None
 
         async with trace_async_operation(
@@ -709,6 +726,11 @@ class PromptSessionRuntime:
 
                 if hasattr(chunk, "usage") and chunk.usage:
                     tokens_spent = chunk.usage.total_tokens
+                    final_prompt_tokens = getattr(chunk.usage, "prompt_tokens", None)
+                    final_completion_tokens = getattr(
+                        chunk.usage, "completion_tokens", None
+                    )
+                    final_cost_usd = getattr(chunk.usage, "cost_usd", None)
 
                 # Capture llm_call_id from chunk (will be in last chunk for true streaming)
                 if hasattr(chunk, "llm_call_id") and chunk.llm_call_id:
@@ -717,8 +739,11 @@ class PromptSessionRuntime:
         tool_calls = self._materialize_tool_calls(tool_calls_dict)
         usage_payload = LLMUsage(
             total_tokens=tokens_spent,
-            prompt_tokens=None,
-            completion_tokens=None,
+            prompt_tokens=final_prompt_tokens,
+            completion_tokens=final_completion_tokens,
+            # Providers attach the true provider cost (incl. cache pricing) to
+            # the final chunk; without it streamed calls bill only the floor.
+            cost_usd=final_cost_usd,
         )
         self._last_stream_result = {
             "content": content,
@@ -850,17 +875,29 @@ class PromptSessionRuntime:
         )
         assistant_message.save()
 
-        # Cost-plus LLM billing: the flat pre-turn charge (2 manna) acts as the
-        # minimum/reservation; if the actual provider cost (+12.5% markup)
-        # exceeds it, charge the difference. 1 manna == $0.01, so
-        # manna_due = cost_usd * 1.125 * 100.
+        # Cost-plus LLM billing: the flat per-turn charge (2 manna) acts as the
+        # minimum/reservation for the whole run; top-ups charge the cumulative
+        # provider cost (+17.5% markup) beyond what has already been collected,
+        # so a run totals max(2, sum(cost_usd) * 1.175 * 100) manna regardless
+        # of how many LLM calls the tool loop makes.
         if os.environ.get("FF_MANNA_BILLING"):
             try:
                 _cost_usd = usage_obj.cost_usd if usage_obj else None
                 if _cost_usd:
-                    _excess = round(_cost_usd * 1.125 * 100.0 - 2.0, 2)
+                    self._run_cost_usd = (
+                        getattr(self, "_run_cost_usd", 0.0) + _cost_usd
+                    )
+                    _already = getattr(self, "_run_floor_charged", 0.0) + getattr(
+                        self, "_run_topups_charged", 0.0
+                    )
+                    _excess = round(
+                        self._run_cost_usd * 1.175 * 100.0 - _already, 2
+                    )
                     if _excess > 0:
                         self._charge_manna_for_message(amount=_excess)
+                        self._run_topups_charged = (
+                            getattr(self, "_run_topups_charged", 0.0) + _excess
+                        )
             except Exception as e:
                 # Post-hoc charge failure must not kill a response the user
                 # already received; the balance floor is enforced pre-turn.

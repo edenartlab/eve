@@ -7,6 +7,7 @@ from typing import Any, Dict, List, Literal, Optional
 import sentry_sdk
 from bson import ObjectId
 from loguru import logger
+from pymongo.errors import DuplicateKeyError
 
 from . import utils
 from .mongo import Collection, Document
@@ -185,43 +186,80 @@ class Task(Document):
         if self.cost == 0:
             return
         manna = Manna.load(self.paying_user or self.user)
-        manna.spend(self.cost)
+        split = manna.spend(self.cost) or {}
         Transaction(
             manna=manna.id,
             task=self.id,
             amount=-self.cost,
             type="spend",
+            subscription_amount=split.get("subscription") or None,
         ).save()
 
+    def _count_delivered_outputs(self) -> int:
+        """Outputs the user actually received. `result` alone is not
+        trustworthy: cancellation clears it while the Creation docs saved
+        during the run persist — counting creations closes the
+        cancel-after-delivery full-refund exploit."""
+        delivered = len(self.result or [])
+        try:
+            creations = Creation.get_collection().count_documents(
+                {"task": self.id}
+            )
+            delivered = max(delivered, creations)
+        except Exception as e:
+            logger.warning(f"Could not count creations for task {self.id}: {e}")
+        return delivered
+
     def refund_manna(self):
-        n_samples = self.args.get("n_samples", 1)
-        refund_amount = (
-            (self.cost or 0) * (n_samples - len(self.result or [])) / n_samples
-        )
+        n_samples = max(int(self.args.get("n_samples") or 1), 1)
+        delivered = self._count_delivered_outputs()
+        undelivered_frac = max(n_samples - delivered, 0) / n_samples
+        refund_amount = (self.cost or 0) * undelivered_frac
 
         if refund_amount <= 0:
             return
 
         manna = Manna.load(self.paying_user or self.user)
 
+        # Restore the same buckets the spend came from, pro-rated by the
+        # refund fraction. Legacy spends without a recorded split refund to
+        # `balance` (old behavior).
+        refund_sub = 0.0
+        try:
+            spend_txn = Transaction.get_collection().find_one(
+                {"task": self.id, "type": "spend"}
+            )
+            if spend_txn and spend_txn.get("subscription_amount"):
+                refund_sub = float(spend_txn["subscription_amount"]) * undelivered_frac
+        except Exception as e:
+            logger.warning(f"Could not read spend split for task {self.id}: {e}")
+
         # Atomically insert the refund transaction only if one doesn't already
         # exist for this task.  The upsert filter {task, type} acts as a
         # de-duplication key: if a concurrent request already created the
         # refund document, upserted_id will be None (matched, not inserted).
+        # NOTE: this upsert is only race-proof because of the UNIQUE index on
+        # {task, type} (see Transaction.ensure_unique_refund_index) — without
+        # it two concurrent upserts can both insert and double-refund.
         txn_collection = Transaction.get_collection()
-        result = txn_collection.update_one(
-            {"task": self.id, "type": "refund"},
-            {
-                "$setOnInsert": {
-                    "manna": manna.id,
-                    "task": self.id,
-                    "amount": refund_amount,
-                    "type": "refund",
-                    "createdAt": datetime.now(timezone.utc),
-                }
-            },
-            upsert=True,
-        )
+        try:
+            result = txn_collection.update_one(
+                {"task": self.id, "type": "refund"},
+                {
+                    "$setOnInsert": {
+                        "manna": manna.id,
+                        "task": self.id,
+                        "amount": refund_amount,
+                        "type": "refund",
+                        "subscription_amount": refund_sub or None,
+                        "createdAt": datetime.now(timezone.utc),
+                    }
+                },
+                upsert=True,
+            )
+        except DuplicateKeyError:
+            logger.warning(f"Refund already issued for task {self.id} (index)")
+            return
 
         if result.upserted_id is None:
             # The document already existed -- another path already refunded
@@ -229,7 +267,7 @@ class Task(Document):
             return
 
         # Only credit the balance if *we* won the insert race
-        manna.refund(refund_amount)
+        manna.refund(refund_amount, subscription_amount=refund_sub)
 
 
 def task_handler_func(func):
