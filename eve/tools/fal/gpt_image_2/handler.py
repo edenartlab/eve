@@ -2,7 +2,7 @@ from eve.tool import ToolContext
 from eve.tools.fal.nano_banana_2_fal.handler import call_fal_with_retry
 
 T2I_ENDPOINT = "openai/gpt-image-2"
-EDIT_ENDPOINT = "openai/gpt-image-2/image-to-image"
+EDIT_ENDPOINT = "openai/gpt-image-2/edit"
 
 # yaml-size preset -> fal image_size value
 SIZE_MAP = {
