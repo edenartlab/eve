@@ -374,6 +374,35 @@ def filter_tools_by_feature_flags(
     return tools
 
 
+def filter_premium_generation_tools(
+    tools: Dict, agent, auth_user: Optional[str] = None
+) -> Dict:
+    """Remove premium generation tools (Seedance 2, GPT Image 2, ...) from an
+    agent's toolset unless BOTH keys are present: the owner's opt-in on the
+    agent (generation_settings.premium_models_enabled) and the paying user's
+    entitlement. Runs after all grant mechanisms so nothing can re-add a
+    premium tool for a non-opted-in agent. The create router re-checks at
+    execution time (defense in depth: neither check alone is sufficient —
+    this one runs at prompt time when the eventual payer may differ)."""
+    from ..tool_constants import PREMIUM_STANDALONE_TOOLS
+
+    if not any(t in tools for t in PREMIUM_STANDALONE_TOOLS):
+        return tools
+
+    from .generation import resolve_generation_access
+
+    try:
+        access = resolve_generation_access(user=auth_user, agent=agent)
+        allowed = access.premium_enabled
+    except Exception:
+        allowed = False
+
+    if not allowed:
+        for tool in PREMIUM_STANDALONE_TOOLS:
+            tools.pop(tool, None)
+    return tools
+
+
 def inject_lora_parameters(
     tools: Dict, lora_docs: List[Dict], models: List[Dict], agent_username: str = None
 ) -> Dict:

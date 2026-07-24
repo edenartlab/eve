@@ -69,6 +69,28 @@ class AgentLLMSettings(BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
 
+class AgentGenerationSettings(BaseModel):
+    """Generation-model routing preferences and premium opt-in for an agent.
+
+    default_quality is the agent's POSTURE, not a hard override: "standard"
+    means the agent uses cost-effective models unless the user explicitly asks
+    for high quality in conversation; "pro" reverses that default (and is only
+    honored when the paying user is entitled — see
+    eve.agent.generation.resolve_generation_access).
+    premium_models_enabled is the owner's opt-in that allows this agent to use
+    the premium tool tier (Seedance 2, GPT Image 2) at all; without it those
+    tools are removed from the agent's toolset and the create router will not
+    select them regardless of quality.
+    """
+
+    default_quality: Optional[Literal["standard", "pro"]] = "standard"
+    image_model_preference: Optional[str] = None
+    video_model_preference: Optional[str] = None
+    premium_models_enabled: Optional[bool] = False
+
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
+
 class AgentExtras(BaseModel):
     """Additional configuration and metadata for an agent."""
 
@@ -110,6 +132,9 @@ class Agent(User):
     test_args: Optional[List[Dict[str, Any]]] = None
 
     llm_settings: Optional[AgentLLMSettings] = Field(default_factory=AgentLLMSettings)
+    generation_settings: Optional[AgentGenerationSettings] = Field(
+        default_factory=AgentGenerationSettings
+    )
     tools: Optional[Dict[str, bool]] = {}  # tool sets specified by user
     tools_: Optional[Dict[str, Dict]] = Field({}, exclude=True)  # actual loaded tools
     lora_docs: Optional[List[Dict[str, Any]]] = Field([], exclude=True)
@@ -256,6 +281,12 @@ class Agent(User):
 
         # Filter tools based on feature flags
         tools = filter_tools_by_feature_flags(tools, self.featureFlags, {})
+
+        # Remove premium generation tools unless the owner opted this agent in
+        # AND the paying user is entitled (eve/agent/generation.py)
+        from .tool_loaders import filter_premium_generation_tools
+
+        tools = filter_premium_generation_tools(tools, self, auth_user)
 
         # Inject LoRA parameters for tools that use loras
         tools = inject_lora_parameters(

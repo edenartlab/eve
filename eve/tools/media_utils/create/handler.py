@@ -149,29 +149,13 @@ async def handle_image_creation(
             return True
         return False
 
-    # nano_banana_pro is enabled by default
-    # if a specific user is provided (e.g. from the website or api), check if paying user has access to veo3 and disable it if not
-    nano_banana_enabled = True
-    if user:
-        user = User.from_mongo(user)
+    # Consolidated entitlement + preference resolution (eve/agent/generation.py).
+    # subscriber == the old nano_banana_enabled gate; premium_enabled additionally
+    # requires the agent owner's premium opt-in.
+    from eve.agent.generation import resolve_generation_access
 
-        # if agent's owner pays, check their feature flags, otherwise user's
-        if agent:
-            agent = Agent.from_mongo(agent)
-            if agent.owner_pays in ["full", "deployments"]:
-                paying_user = User.from_mongo(agent.owner)
-            else:
-                paying_user = user
-        else:
-            paying_user = user
-
-        nano_banana_enabled = any(
-            [
-                t
-                for t in paying_user.featureFlags
-                if t in ["eden_admin", "free_tools", "preview"]
-            ]
-        ) or (paying_user.subscriptionTier and paying_user.subscriptionTier > 0)
+    access = resolve_generation_access(user=user, agent=agent)
+    nano_banana_enabled = access.subscriber or user is None
 
     # load tools
     # flux_dev_lora = Tool.load("flux_dev_lora")
@@ -194,6 +178,9 @@ async def handle_image_creation(
     aspect_ratio = args.get("aspect_ratio", "auto")
     model_preference = args.get("model_preference")
     model_preference = model_preference.lower() if model_preference else ""
+    # Merge precedence: request arg > agent setting > paying-user preference
+    if not model_preference and access.image_model_preference:
+        model_preference = access.image_model_preference.lower()
     quality = args.get("quality", "standard")
 
     # get loras
@@ -204,20 +191,17 @@ async def handle_image_creation(
     intermediate_outputs = {}
 
     # default image tools
-    # txt2img default: nano_banana_pro for subscribed, nano_banana_2_fal for non-subscribed
-    # quality="pro" forces nano_banana_pro (requires subscription), quality="standard" forces nano_banana_2_fal
-    if quality == "pro" and nano_banana_enabled:
+    # standard -> nano_banana_2_fal; pro -> gpt_image_2 (premium flagship, needs
+    # owner opt-in + entitlement), else nano_banana_pro for plain subscribers.
+    # Routing may only ever DOWNGRADE from the billed quality, never upgrade —
+    # billing computed cost from args before this handler ran.
+    if quality == "pro" and access.premium_enabled:
+        default_image_tool = "gpt_image_2"
+    elif quality == "pro" and nano_banana_enabled:
         default_image_tool = "nano_banana"
-    elif quality == "pro" and not nano_banana_enabled:
-        default_image_tool = "nano_banana_2_fal"  # fallback if not subscribed
     else:
         default_image_tool = "nano_banana_2_fal"
-
-    # image editing default: same logic
-    if quality == "pro" and nano_banana_enabled:
-        default_image_edit_tool = "nano_banana"
-    else:
-        default_image_edit_tool = "nano_banana_2_fal"
+    default_image_edit_tool = default_image_tool
 
     # Determine tool
     if init_image:
@@ -226,7 +210,9 @@ async def handle_image_creation(
         image_tool = {
             "flux": "flux_kontext",
             "seedream": "seedream45",
-            "openai": "gpt_image_15_edit",
+            "openai": "gpt_image_2"
+            if access.premium_enabled
+            else "gpt_image_15_edit",
             "nano_banana": "nano_banana",
             "sdxl": "txt2img",
         }.get(model_preference, default_image_edit_tool)
@@ -241,7 +227,9 @@ async def handle_image_creation(
             image_tool = {
                 "flux": "flux_dev_lora",
                 "seedream": "seedream45",
-                "openai": "openai_image_generate",
+                "openai": "gpt_image_2"
+                if access.premium_enabled
+                else "gpt_image_15_edit",
                 "nano_banana": "nano_banana",
                 "sdxl": "txt2img",
             }.get(model_preference, default_image_tool)
@@ -250,6 +238,11 @@ async def handle_image_creation(
     if image_tool == "flux_dev_lora":
         if len(loras) > 1 or controlnet:
             image_tool = "flux_dev"
+
+    # Premium backstop: gpt_image_2 unreachable without both keys (defense in
+    # depth with the toolset filter)
+    if image_tool == "gpt_image_2" and not access.premium_enabled:
+        image_tool = "nano_banana" if nano_banana_enabled else "nano_banana_2_fal"
 
     # Downgrade from Nano Banana Pro if not enabled
     if image_tool == "nano_banana" and not nano_banana_enabled:
@@ -811,33 +804,16 @@ async def handle_video_creation(
 
     # veo3 is enabled by default
     # if a specific user is provided (e.g. from the website or api), check if paying user has access to veo3 and disable it if not
-    veo3_enabled = True
-    if user:
-        user = User.from_mongo(user)
+    # Consolidated entitlement + preference resolution (eve/agent/generation.py)
+    from eve.agent.generation import resolve_generation_access
 
-        # if agent's owner pays, check their feature flags, otherwise user's
-        if agent:
-            agent = Agent.from_mongo(agent)
-            if agent.owner_pays in ["full", "deployments"]:
-                paying_user = User.from_mongo(agent.owner)
-            else:
-                paying_user = user
-        else:
-            paying_user = user
-
-        veo3_enabled = any(
-            [
-                t
-                for t in paying_user.featureFlags
-                if t in ["tool_access_veo3", "preview", "eden_admin", "free_tools"]
-            ]
-        ) or (paying_user.subscriptionTier and paying_user.subscriptionTier > 0)
+    access = resolve_generation_access(user=user, agent=agent)
+    veo3_enabled = access.subscriber or user is None
 
     """
-    reference_video -> runway3
-    txt2vid -> runway, veo3, seedance, kling
-    img2vid -> kling, runway, veo3 (fast/not), seedance
-    
+    reference_video -> seedance2_reference (premium)
+    txt2vid -> veo3 (pro/subscriber) | veo_31_lite (standard), wan, seedance, kling
+    img2vid -> kling_v3 (default), wan, seedance, veo, runway
     """
 
     # runway = Tool.load("runway")
@@ -877,33 +853,66 @@ async def handle_video_creation(
     # get loras
     loras = get_loras(args.get("lora"), args.get("lora2"))
 
+    # Merge precedence: request arg > agent setting > paying-user preference
+    if not model_preference and access.video_model_preference:
+        model_preference = access.video_model_preference.lower()
+
+    premium = access.premium_enabled
+    pro = quality == "pro"
+
     # Rules
     if reference_video:
-        # Always use Runway Aleph for video-to-video style transfer
-        video_tool = "runway3"
+        # Reference-guided video is a premium capability (Seedance 2).
+        # (runway3/Aleph route retired: deprecated upstream + broken.)
+        if premium:
+            video_tool = "seedance2_reference"
+        else:
+            raise Exception(
+                "Video-to-video with a reference video requires premium models. "
+                "Enable premium models in this agent's settings (requires an "
+                "active subscription), or generate without reference_video."
+            )
     elif talking_head and audio:
         video_tool = "hedra"
     # Go by model preference
     else:
-        # img2vid (with start_image): default to kling_v25
-        # txt2vid (no start_image): default to veo3
+        # img2vid default: kling_v3; txt2vid default: veo3 for pro subscribers,
+        # veo_31_lite otherwise (the cheap tier).
+        seedance_tool = "seedance2" if (pro and premium) else "seedance1"
+        veo_tool = "veo3" if veo3_enabled else "veo_31_lite"
         if start_image:
             video_tool = {
-                "kling": "kling_v25",
-                "seedance": "seedance1",
-                "veo": "veo3",
+                "kling": "kling_v3",
+                "wan": "wan_27",
+                "seedance": seedance_tool,
+                "veo": veo_tool,
                 "runway": "runway",
-            }.get(model_preference, "kling_v25")
+            }.get(
+                model_preference,
+                "seedance2" if (pro and premium) else "kling_v3",
+            )
         else:
+            # kling_v3 is img2vid-only; kling txt2vid preference maps to wan_27
+            # until a Kling 3 t2v endpoint is added
             video_tool = {
-                "kling": "kling",
-                "seedance": "seedance1",
-                "veo": "veo3",
+                "kling": "wan_27",
+                "wan": "wan_27",
+                "seedance": seedance_tool,
+                "veo": veo_tool,
                 "runway": "runway",
-            }.get(model_preference, "veo3")
+            }.get(
+                model_preference,
+                ("veo3" if veo3_enabled else "veo_31_lite")
+                if pro
+                else "veo_31_lite",
+            )
 
-        if not veo3_enabled and video_tool == "veo3":
-            video_tool = "seedance1"
+    # Premium backstop: premium tools unreachable without both keys (routing
+    # may only downgrade from the billed quality, never upgrade)
+    if video_tool in ("seedance2", "seedance2_reference") and not premium:
+        video_tool = "seedance1"
+    if video_tool == "veo3" and not veo3_enabled:
+        video_tool = "veo_31_lite"
 
     tool_calls = []
 
@@ -1036,24 +1045,25 @@ async def handle_video_creation(
 
     #########################################################
     # Kling v2.5 (img2vid via FAL)
-    elif video_tool == "kling_v25":
-        kling_v25 = Tool.load("kling_v25")
-
-        # Kling v2.5 can only produce 5 or 10s videos (as strings)
-        duration_str = "10" if duration > 7.5 else "5"
+    elif video_tool == "kling_v3":
+        kling_v3 = Tool.load("kling_v3")
 
         args = {
             "prompt": prompt,
-            "image_url": start_image,
-            "duration": duration_str,
+            "start_image_url": start_image,
+            "duration": max(3, min(int(duration), 15)),
+            # Only generate native audio when the user asked for sound effects;
+            # audio adds ~50% to the kling_v3 price.
+            "generate_audio": bool(sound_effects),
         }
-
         if end_image:
-            args["tail_image_url"] = end_image
+            args["end_image_url"] = end_image
+        if aspect_ratio != "auto":
+            args["aspect_ratio"] = aspect_ratio
 
         if check_cancelled():
             return {"status": "cancelled", "output": None}
-        result = await kling_v25.async_run(
+        result = await kling_v3.async_run(
             args, save_thumbnails=True, cancellation_event=cancellation_event
         )
 
@@ -1213,8 +1223,11 @@ async def handle_video_creation(
 
     tool_calls.append({"tool": video_tool, "args": args, "output": final_video})
 
-    # If sound effects are requested, try to add them
-    if sound_effects and video_tool != "veo3":
+    # If sound effects are requested, try to add them — but not for models
+    # that already generated native audio for this run
+    NATIVE_AUDIO_TOOLS = ("veo3", "kling_v3", "wan_27", "seedance2",
+                          "seedance2_reference", "veo_31_lite")
+    if sound_effects and video_tool not in NATIVE_AUDIO_TOOLS:
         try:
             args = {
                 "video": final_video,
