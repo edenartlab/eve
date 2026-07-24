@@ -4,7 +4,7 @@ tip: |-
   High-quality text-to-image generation with support for resolutions up to 2K. Offers flexible aspect ratios and precise prompt adherence control.
 cost_estimate: 4
 output_type: image
-active: true
+active: false
 visible: false
 replicate_model: bytedance/seedream-3
 handler: replicate

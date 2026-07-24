@@ -11,8 +11,8 @@ replicate_model_substitutions:
   quality==medium: kwaivgi/kling-v1.6-pro
   quality==low: kwaivgi/kling-v1.6-standard
 thumbnail: app/kling.mp4
-active: true
-visible: true
+active: false
+visible: false
 handler: replicate
 parameters:
   prompt:

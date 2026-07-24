@@ -6,8 +6,8 @@ output_type: image
 cost_estimate: 'quality == "high" ? 16 : 8'
 handler: modal
 thumbnail: app/openai_edit.jpg
-visible: true
-active: true
+visible: false
+active: false
 parameters:
   image:
     label: Input Image(s)
