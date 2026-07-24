@@ -6,6 +6,7 @@ import tempfile
 from urllib.parse import urlparse
 
 import httpx
+import sentry_sdk
 from loguru import logger
 
 from google import genai
@@ -170,25 +171,40 @@ async def veo_handler(args: dict, model: str):
 # ---- Nano Banana (Image Generation) ----
 
 
+class NanoBananaGCPError(ValueError):
+    """A GCP-side nano banana failure, tagged with the HTTP status when we have one."""
+
+    def __init__(self, message: str, status_code: int = None):
+        super().__init__(message)
+        self.status_code = status_code
+
+
+# Statuses FAL can serve instead: rate limits (429), capacity/server errors (5xx),
+# and model-availability errors (404 retired model id, 403 project not allowlisted).
+# 400 is excluded on purpose — a malformed request fails on FAL too.
+_FALLBACK_STATUS_CODES = frozenset({403, 404, 429, 500, 502, 503, 504})
+
+# Only used when the error carries no status code (e.g. an SDK-level failure).
+_FALLBACK_ERROR_TERMS = (
+    "rate limit",
+    "quota",
+    "server error",
+    "unavailable",
+    "overloaded",
+    "was not found",
+    "does not have access",
+)
+
+
 def _should_fallback_to_fal(error: Exception) -> bool:
     """Determine if error should trigger FAL fallback."""
+    status_code = getattr(error, "status_code", None)
+    if status_code is not None:
+        return status_code in _FALLBACK_STATUS_CODES
+    # Substring matching is a last resort: bare codes like "500" are deliberately
+    # not matched here since they collide with digits echoed back from the prompt.
     error_str = str(error).lower()
-    # Fallback on: rate limits (429), server errors (5xx), quota exceeded
-    return any(
-        term in error_str
-        for term in [
-            "rate limit",
-            "429",
-            "quota",
-            "server error",
-            "500",
-            "502",
-            "503",
-            "504",
-            "unavailable",
-            "overloaded",
-        ]
-    )
+    return any(term in error_str for term in _FALLBACK_ERROR_TERMS)
 
 
 def _map_args_to_fal(args: dict, is_pro: bool = False) -> dict:
@@ -362,17 +378,23 @@ async def _nano_banana_gcp(args: dict, model: str) -> dict:
                 delay *= 2
                 continue
             elif e.code == 429:
-                raise ValueError(
-                    "Rate limit 429 reached for this image model. Please try again later or use a different image model (e.g., model_preference='flux' or 'openai')."
+                raise NanoBananaGCPError(
+                    "Rate limit 429 reached for this image model. Please try again later or use a different image model (e.g., model_preference='flux' or 'openai').",
+                    status_code=429,
                 )
             elif e.code == 403:
-                raise ValueError(
-                    "Google API access denied. Please check your API credentials and quotas."
+                raise NanoBananaGCPError(
+                    "Google API access denied. Please check your API credentials and quotas.",
+                    status_code=403,
                 )
             elif e.code == 400:
-                raise ValueError(f"Invalid request to Google API: {e.message}")
+                raise NanoBananaGCPError(
+                    f"Invalid request to Google API: {e.message}", status_code=400
+                )
             else:
-                raise ValueError(f"Google API error ({e.code}): {e.message}")
+                raise NanoBananaGCPError(
+                    f"Google API error ({e.code}): {e.message}", status_code=e.code
+                )
 
         except genai_errors.ServerError as e:
             logger.error(
@@ -384,8 +406,9 @@ async def _nano_banana_gcp(args: dict, model: str) -> dict:
                 delay *= 2
                 continue
             else:
-                raise ValueError(
-                    f"Google API server error 5xx. Please try again later or use a different image model. ({e.code})"
+                raise NanoBananaGCPError(
+                    f"Google API server error 5xx. Please try again later or use a different image model. ({e.code})",
+                    status_code=e.code,
                 )
 
         except Exception as e:
@@ -467,6 +490,17 @@ async def nano_banana_handler(
             logger.info(
                 f"[NANO_BANANA] >>> FALLING BACK TO FAL <<< using {fal_fallback_tool}"
             )
+            # Fallover must be LOUD: FAL costs more per image than GCP, and a
+            # permanent 404/403 (retired model id, lost access) would otherwise
+            # look healthy forever while quietly eating the margin.
+            try:
+                sentry_sdk.capture_message(
+                    f"Nano banana fallover: GCP model={model} failed, "
+                    f"falling back to {fal_fallback_tool}. Error: {e}",
+                    level="warning",
+                )
+            except Exception:
+                pass
             result = await _nano_banana_fal_fallback(args, fal_fallback_tool)
             logger.info("[NANO_BANANA] FAL fallback succeeded")
             return result
