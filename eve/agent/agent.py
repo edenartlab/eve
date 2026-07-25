@@ -231,6 +231,14 @@ class Agent(User):
         if self.user_memory_enabled or self.agent_memory_enabled:
             tools_to_load.extend(RETRIEVAL_TOOLS)
 
+        # Premium generation tools: granted by the owner's opt-in. The
+        # entitlement half of the double key is enforced later by
+        # filter_premium_generation_tools in get_tools (payer must qualify).
+        if getattr(self.generation_settings, "premium_models_enabled", False):
+            from ..tool_constants import PREMIUM_STANDALONE_TOOLS
+
+            tools_to_load.extend(PREMIUM_STANDALONE_TOOLS)
+
         # Load extra tools
         tools_to_load.extend(extra_tools)
 
