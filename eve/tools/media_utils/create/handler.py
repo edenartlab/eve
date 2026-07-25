@@ -174,6 +174,69 @@ async def _create_video_with_policy_fallback(context, cancellation_event):
         raise last_exc
 
 
+def _permissive_image_fallbacks(args: dict) -> list:
+    """Permissive model_preference chain for a real-face EDIT rejection.
+
+    Only applies to pro-tier edits: gpt_image_2 has NO moderation relief (fal
+    exposes nothing; OpenAI's edit endpoint refuses moderation:low), so on a
+    real-person rejection we switch to nano_banana_pro — a DIFFERENT provider
+    (Google) that is permissive for ordinary faces. gpt_image_2 and
+    nano_banana_pro are both pro-tier, so this is billing-neutral (no
+    downgrade/overcharge). Standard-tier edits already use the permissive
+    nano_banana_2_fal (safety_tolerance=6), so no fallback there — and we must
+    not upgrade a standard edit to a pro model at Eden's expense.
+    """
+    reference_images = args.get("reference_images") or []
+    if not reference_images:
+        return []
+    if str(args.get("quality", "standard")).lower() != "pro":
+        return []
+    if (args.get("model_preference") or "").lower() == "nano_banana":
+        return []
+    return ["nano_banana"]
+
+
+async def _create_image_with_policy_fallback(context, cancellation_event):
+    args = context.args
+    try:
+        return await handle_image_creation(
+            args, context.user, context.agent, cancellation_event
+        )
+    except Exception as e:
+        if not _is_content_policy_error(e):
+            raise
+        fallbacks = _permissive_image_fallbacks(args)
+        if not fallbacks:
+            raise
+        last_exc = e
+        for pref in fallbacks:
+            fb_args = {**args, "model_preference": pref}
+            try:
+                result = await handle_image_creation(
+                    fb_args, context.user, context.agent, cancellation_event
+                )
+            except Exception as e2:
+                if _is_content_policy_error(e2):
+                    last_exc = e2
+                    continue
+                raise
+            note = (
+                "The requested model rejected the input under its real-person "
+                f"content policy; automatically re-rendered with a more permissive "
+                f"model (preference='{pref}') at the same price."
+            )
+            if isinstance(result, dict) and isinstance(result.get("subtool_calls"), list):
+                result["subtool_calls"].append(
+                    {
+                        "tool": "content_policy_fallback",
+                        "args": {"model_preference": pref},
+                        "output": note,
+                    }
+                )
+            return result
+        raise last_exc
+
+
 async def handler(context: ToolContext):
     if os.getenv("MOCK") == "1":
         return await handle_mock_creation(context)
@@ -189,9 +252,7 @@ async def handler(context: ToolContext):
     cancellation_event = context.cancellation_event
 
     if output_type == "image":
-        return await handle_image_creation(
-            context.args, context.user, context.agent, cancellation_event
-        )
+        return await _create_image_with_policy_fallback(context, cancellation_event)
     elif output_type == "video":
         return await _create_video_with_policy_fallback(context, cancellation_event)
     else:

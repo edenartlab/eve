@@ -221,6 +221,44 @@ async def test_content_policy_video_fallback():
 
 
 @pytest.mark.asyncio
+async def test_content_policy_image_fallback():
+    from eve.tools.media_utils.create import handler as ch
+
+    g = ch._permissive_image_fallbacks
+    # pro edit with gpt/openai -> nano_banana_pro (permissive, same pro tier)
+    assert g({"reference_images": ["a"], "quality": "pro", "model_preference": "openai"}) == ["nano_banana"]
+    assert g({"reference_images": ["a"], "quality": "pro"}) == ["nano_banana"]
+    # already nano_banana -> nothing further
+    assert g({"reference_images": ["a"], "quality": "pro", "model_preference": "nano_banana"}) == []
+    # standard edit -> NO fallback (already permissive; don't upgrade at our cost)
+    assert g({"reference_images": ["a"], "quality": "standard"}) == []
+    # generation (no reference images) -> no fallback
+    assert g({"quality": "pro"}) == []
+
+    calls = []
+
+    async def fake_hic(args, user, agent, cancellation_event):
+        pref = args.get("model_preference")
+        calls.append(pref)
+        if pref == "openai":
+            raise Exception("content policy: resembles a real person")
+        return {"output": ["http://img"], "subtool_calls": [{"tool": "nano_banana_pro"}]}
+
+    class Ctx:
+        pass
+
+    ctx = Ctx()
+    ctx.args = {"output": "image", "reference_images": ["a"], "quality": "pro",
+                "model_preference": "openai"}
+    ctx.user, ctx.agent = "u", None
+    with patch.object(ch, "handle_image_creation", side_effect=fake_hic):
+        res = await ch._create_image_with_policy_fallback(ctx, None)
+    assert res["output"] == ["http://img"]
+    assert any(sc["tool"] == "content_policy_fallback" for sc in res["subtool_calls"])
+    assert calls == ["openai", "nano_banana"]
+
+
+@pytest.mark.asyncio
 async def test_flux_kontext_never_loaded():
     """flux_kontext is retired — create must never Tool.load it, on any path."""
     for args in (

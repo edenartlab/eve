@@ -24,7 +24,9 @@ tip: |-
   content-policy error, switch the character references to a STYLIZED look
   (illustration, painterly, animation, stylized 3D) or use a non-human subject.
   Stylized character refs pass validation and still hold identity across shots;
-  photoreal human headshots will be blocked.
+  photoreal human headshots will be blocked. FOR REAL, PHOTOREALISTIC PEOPLE use
+  the vidu_reference tool instead — it does reference-to-video with real-person
+  images and does not reject them.
 
   RECIPES THAT WORK:
   - Character consistency: 1 clean frontal face image + 1-2 three-quarter/body

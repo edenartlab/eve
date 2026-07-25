@@ -41,7 +41,10 @@ async def handler(context: ToolContext):
         },
         "guidance_scale": float(args.get("flux_guidance") or 3.5),
         "num_inference_steps": int(args.get("steps") or 28),
-        "enable_safety_checker": True,
+        # Permissive default, matching Eden's self-hosted Modal FLUX (which has no
+        # safety filter): a lot of LoRAs are of real people. Overridable per call.
+        "enable_safety_checker": bool(args.get("enable_safety_checker", False)),
+        "safety_tolerance": str(args.get("safety_tolerance") or "5"),
     }
     if loras:
         payload["loras"] = loras

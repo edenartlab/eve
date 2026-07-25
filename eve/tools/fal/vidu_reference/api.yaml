@@ -1,0 +1,64 @@
+name: Vidu Reference-to-Video
+description: Vidu's reference-to-video — compose a video from up to 3 reference images for consistent subject appearance. Permissive with real people, making it the go-to reference-to-video tool for animating real subjects (unlike Seedance, which rejects real-person references).
+tip: |-
+  Reference-to-video that KEEPS REAL PEOPLE. Provide up to 3 images of your
+  subject(s) and describe the shot; Vidu carries their appearance into the
+  video. This is the tool to use when the reference is a real, identifiable
+  person — Seedance's reference-to-video rejects real-person likenesses, Vidu
+  does not.
+
+  HOW TO USE IT WELL:
+  - reference_images (up to 3): clean shots of the subject — a frontal face plus
+    a three-quarter/body shot hold identity best. For a scene, one subject image
+    plus a setting/style image also works.
+  - Describe ACTION, ENVIRONMENT, and CAMERA in the prompt; do NOT re-describe
+    the subject's appearance in words — the images carry identity, and
+    conflicting text degrades likeness. Keep prompts under 1500 characters.
+  - movement_amplitude controls how much motion: "small" for subtle/portrait
+    motion, "large" for dynamic action, "auto" to let the model decide.
+  - Fixed short duration and native resolution — iterate on the prompt/refs, not
+    length settings.
+
+  When to prefer something else: for a single start frame use image-to-video
+  (kling_v3/wan_27); for premium stylized multi-reference composition with audio
+  use seedance2_reference (but NOT with real-person references).
+# fal: ~$0.40/video flat (no duration/resolution knobs). 40 manna cost + ~25% margin.
+# VERIFY price at deploy — single pricing source.
+cost_estimate: '50'
+output_type: video
+handler: modal
+visible: true
+active: true
+thumbnail: app/wan27.jpg
+parameters:
+  prompt:
+    type: string
+    label: Prompt
+    description: The shot — action, environment, camera. Do not re-describe the subject (the reference images carry identity). Max 1500 characters.
+    required: true
+  reference_images:
+    type: array
+    items:
+      type: image
+    max_length: 3
+    label: Reference images
+    description: Up to 3 images of the subject(s) for consistent appearance. A frontal + a three-quarter/body shot hold identity best.
+    required: true
+  aspect_ratio:
+    type: string
+    label: Aspect ratio
+    default: '16:9'
+    choices: ['16:9', '9:16', '1:1']
+    description: Frame aspect ratio.
+  movement_amplitude:
+    type: string
+    label: Movement amount
+    default: 'auto'
+    choices: ['auto', 'small', 'medium', 'large']
+    description: How much motion — small for subtle/portrait, large for dynamic action, auto to let the model decide.
+  seed:
+    type: integer
+    label: Seed
+    minimum: 0
+    maximum: 2147483647
+    default: random

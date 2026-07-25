@@ -76,6 +76,7 @@ HANDLER_PATHS = {
     "nano_banana": "google.nano_banana.handler",
     "seedance2": "fal.seedance2.handler",
     "seedance2_reference": "fal.seedance2_reference.handler",
+    "vidu_reference": "fal.vidu_reference.handler",
     "wan_27": "fal.wan_27.handler",
     "gpt_image_2": "fal.gpt_image_2.handler",
     "flux_dev_fal": "fal.flux_dev_fal.handler",
