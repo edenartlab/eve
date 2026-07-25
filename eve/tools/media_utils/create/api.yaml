@@ -13,7 +13,8 @@ tip: |-
   Aspect ratio:
     - Use 16:9 (landscape), 1:1 (square), 9:16 (portrait) unless the user specifies otherwise.
     - If aspect_ratio != "auto", it overrides any aspect ratio inferred from references.
-cost_estimate: '(output == "video" ? (((quality == "pro" ? 50 : 25) + (sound_effects ? 10 : 0)) * duration) : (10 * n_samples))'
+# pro image tier covers gpt_image_2 high ($0.211/img) at ~+42%; standard covers nb2
+cost_estimate: '(output == "video" ? (((quality == "pro" ? 50 : 25) + (sound_effects ? 10 : 0)) * duration) : ((quality == "pro" ? 30 : 10) * n_samples))'
 output_type: image
 active: true
 visible: true
