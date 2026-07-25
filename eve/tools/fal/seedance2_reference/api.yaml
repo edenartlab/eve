@@ -18,6 +18,14 @@ tip: |-
   Hard limit: 12 files total across the three lists. If you supply audio, you
   must also supply at least one image or video reference.
 
+  CONTENT POLICY (IMPORTANT): the provider (ByteDance) rejects reference images
+  or videos that resemble REAL PEOPLE — and this fires on photorealistic
+  AI-generated humans too, not only photos of actual people. If you hit a
+  content-policy error, switch the character references to a STYLIZED look
+  (illustration, painterly, animation, stylized 3D) or use a non-human subject.
+  Stylized character refs pass validation and still hold identity across shots;
+  photoreal human headshots will be blocked.
+
   RECIPES THAT WORK:
   - Character consistency: 1 clean frontal face image + 1-2 three-quarter/body
     shots of the same person as @Image1-3, then "@Image1 walks through a neon

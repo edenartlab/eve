@@ -70,6 +70,20 @@ def _format_error_for_user(error: Exception) -> str:
     code = _fal_status_code(error)
     detail = _fal_detail(error)
 
+    # Provider content-policy rejections (e.g. ByteDance's reference-to-video
+    # partner validation rejects references that resemble real people — even
+    # photorealistic AI-generated humans). Surface actionable guidance instead
+    # of a bare 422 so an agent can adapt rather than assume an outage.
+    detail_l = detail.lower()
+    if "content_policy_violation" in detail_l or "likeness" in detail_l:
+        return (
+            "Rejected by the provider's content policy: input/reference media that "
+            "resembles a real person (or contains private information) can't be "
+            "processed. Use stylized, illustrated, or non-photorealistic references "
+            "— or a non-human subject — and retry. "
+            f"(provider detail: {detail})"
+        )
+
     if code == 429:
         return f"Rate limit reached (FAL 429). {detail} Try again shortly or use a different model."
     if code in (401, 403):
