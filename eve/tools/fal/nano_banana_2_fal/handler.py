@@ -202,6 +202,12 @@ async def handler(context: ToolContext):
     # Add image_urls for img2img mode
     if image_urls:
         fal_args["image_urls"] = image_urls
+        # Relax content moderation to the permissive end for real-face edits
+        # (a large share of Eden usage edits photos of real people). Gemini's
+        # hard limits (minors, explicit content) still apply server-side.
+        # safety_tolerance is a STRING enum "1" (strictest) .. "6" (least
+        # strict); provider default is "4". Overridable if the caller sets it.
+        fal_args["safety_tolerance"] = str(args.get("safety_tolerance") or "6")
 
     # Make the API call with retry logic
     result = await call_fal_with_retry(endpoint, fal_args)
