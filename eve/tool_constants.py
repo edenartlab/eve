@@ -57,7 +57,7 @@ BASE_MODELS = Literal[
 ALL_TOOLS = [
     "flux_dev_lora",
     "flux_dev",
-    "flux_kontext",
+    # flux_kontext retired 2026-07 (bottom-tier editor; agents edit via `create` -> NB2)
     "txt2img",
     # more image generation
     "outpaint",

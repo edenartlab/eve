@@ -205,8 +205,12 @@ async def handle_image_creation(
     if init_image:
         # just use one of the image editing tools for now, even when there's a lora
         # init image takes precedence over lora
+        # NOTE: no "flux" entry — flux_kontext is retired (superseded per the
+        # editing-arena data; bottom-tier vs Nano Banana 2). A "flux" edit
+        # preference now falls through to default_image_edit_tool (NB2 standard,
+        # gpt_image_2 / nano_banana_pro premium). LoRA *generation* is a
+        # different path (flux_dev_lora, below) and stays on FLUX.1-dev.
         image_tool = {
-            "flux": "flux_kontext",
             "seedream": "seedream45",
             "openai": "gpt_image_2"
             if access.premium_enabled
@@ -402,29 +406,10 @@ async def handle_image_creation(
         # Todo: incorporate style_image / style_strength ?
 
     #########################################################
-    # Flux Kontext
-    elif image_tool == "flux_kontext":
-        flux_kontext = Tool.load("flux_kontext")
-
-        if aspect_ratio == "auto":
-            aspect_ratio = "match_input_image"
-
-        args = {
-            "prompt": prompt,
-            "init_image": init_image,
-            "n_samples": n_samples,
-            "aspect_ratio": aspect_ratio,
-            "fast": False,
-        }
-
-        if seed:
-            args["seed"] = seed
-
-        if check_cancelled():
-            return {"status": "cancelled", "output": []}
-        result = await flux_kontext.async_run(
-            args, save_thumbnails=True, cancellation_event=cancellation_event
-        )
+    # Flux Kontext — RETIRED 2026-07 (superseded per editing-arena data; bottom
+    # tier vs Nano Banana 2). Nothing routes here anymore; the "flux" edit
+    # preference falls through to the tier default. LoRA generation is a separate
+    # path (flux_dev_lora) and is unaffected.
 
     # Nano Banana (original)
     # elif image_tool == "nano_banana":

@@ -153,6 +153,25 @@ async def route_image(args, access):
      {"premium": True}, "gpt_image_2"),
     # stored image preference applies
     ({"prompt": "p"}, {"image_pref": "seedream"}, "seedream45"),
+    # flux EDIT preference no longer routes to the retired flux_kontext; it falls
+    # through to the tier default (NB2). Regression guard for the 2026-07 retirement.
+    ({"prompt": "p", "model_preference": "flux",
+      "reference_images": ["https://example.com/a.png"]}, {}, "nano_banana_2_fal"),
+    # flux GENERATION preference is a DIFFERENT path and stays on the FLUX.1 LoRA
+    # tool — retiring flux_kontext must not touch LoRA workflows.
+    ({"prompt": "p", "model_preference": "flux"}, {}, "flux_dev_lora"),
 ])
 async def test_image_routing(args, access_kw, expected):
     assert await route_image(args, make_access(**access_kw)) == expected
+
+
+@pytest.mark.asyncio
+async def test_flux_kontext_never_loaded():
+    """flux_kontext is retired — create must never Tool.load it, on any path."""
+    for args in (
+        {"prompt": "p", "model_preference": "flux",
+         "reference_images": ["https://example.com/a.png"]},
+        {"prompt": "p", "model_preference": "flux"},
+    ):
+        tool = await route_image(args, make_access())
+        assert tool != "flux_kontext"
