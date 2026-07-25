@@ -69,3 +69,14 @@ parameters:
     minimum: 0
     maximum: 2147483647
     default: random
+  enable_safety_checker:
+    type: boolean
+    label: Content safety checker
+    description: Provider content moderation on input and output. Set false to animate photos of real people — Wan otherwise flags some real-person inputs. The provider still enforces its own hard limits.
+    tip: |-
+      Default is on. Turn OFF when animating a photo of a real, ordinary person
+      and the request is being wrongly rejected as sensitive content. `create`
+      sets this automatically when it falls back to Wan after another model
+      rejects a real-person input.
+    default: true
+    hide_from_ui: true

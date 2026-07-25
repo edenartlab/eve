@@ -166,6 +166,61 @@ async def test_image_routing(args, access_kw, expected):
 
 
 @pytest.mark.asyncio
+async def test_content_policy_video_fallback():
+    from eve.tools.media_utils.create import handler as ch
+
+    # 1. detection
+    assert ch._is_content_policy_error(
+        Exception("Rejected by the provider's content policy: resembles a real person"))
+    assert ch._is_content_policy_error(Exception("content_policy_violation likeness"))
+    assert not ch._is_content_policy_error(Exception("FAL server error (500): boom"))
+
+    # 2. fallback chain
+    f = ch._permissive_video_fallbacks
+    assert f({"reference_images": ["a"], "model_preference": "seedance"}) == ["kling", "wan"]
+    assert f({"reference_images": ["a"]}) == ["wan"]              # default i2v == kling -> skip
+    assert f({"reference_images": ["a"], "model_preference": "kling"}) == ["wan"]
+    assert f({"reference_images": ["a"], "model_preference": "wan"}) == ["kling", "wan"]
+    assert f({}) == []                                            # no start image (txt2vid)
+    assert f({"reference_video": "v", "reference_images": ["a"]}) == []  # reference-to-video
+
+    # 3. full path: strict rejects, kling also rejects, permissive wan succeeds
+    calls = []
+
+    async def fake_hvc(args, user, agent, cancellation_event):
+        pref = args.get("model_preference")
+        calls.append((pref, args.get("_permissive_fallback", False)))
+        if pref == "seedance":
+            raise Exception("content policy: resembles a real person")
+        if pref == "kling":
+            raise Exception("content_policy_violation likeness")
+        return {"output": "http://vid", "subtool_calls": [{"tool": "wan_27", "args": {}}]}
+
+    class Ctx:
+        pass
+
+    ctx = Ctx()
+    ctx.args = {"output": "video", "reference_images": ["a"], "model_preference": "seedance"}
+    ctx.user, ctx.agent = "u", None
+    with patch.object(ch, "handle_video_creation", side_effect=fake_hvc):
+        res = await ch._create_video_with_policy_fallback(ctx, None)
+    assert res["output"] == "http://vid"
+    assert any(sc["tool"] == "content_policy_fallback" for sc in res["subtool_calls"])
+    assert calls == [("seedance", False), ("kling", True), ("wan", True)]
+
+    # 4. a NON-policy error is never swallowed by the fallback
+    async def fake_raise(args, user, agent, cancellation_event):
+        raise Exception("FAL server error (503): down")
+
+    ctx2 = Ctx()
+    ctx2.args = {"output": "video", "reference_images": ["a"]}
+    ctx2.user, ctx2.agent = "u", None
+    with patch.object(ch, "handle_video_creation", side_effect=fake_raise):
+        with pytest.raises(Exception, match="503"):
+            await ch._create_video_with_policy_fallback(ctx2, None)
+
+
+@pytest.mark.asyncio
 async def test_flux_kontext_never_loaded():
     """flux_kontext is retired — create must never Tool.load it, on any path."""
     for args in (

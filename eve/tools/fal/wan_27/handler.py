@@ -19,6 +19,10 @@ async def handler(context: ToolContext):
         payload["audio_url"] = args["audio_reference"]
     if args.get("seed") is not None:
         payload["seed"] = args["seed"]
+    # Content moderation (input+output). Default on; disabled when animating a
+    # real person's photo that the checker would otherwise wrongly reject.
+    if args.get("enable_safety_checker") is not None:
+        payload["enable_safety_checker"] = bool(args["enable_safety_checker"])
 
     if start_image:
         payload["image_url"] = start_image

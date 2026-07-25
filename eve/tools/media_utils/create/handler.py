@@ -86,6 +86,94 @@ def validate_media_types(reference_images, reference_video):
             # Don't error on URLs without extensions, they might be valid
 
 
+# --- Real-person content-policy handling ---------------------------------------
+# Some providers reject inputs that resemble real people: ByteDance/Seedance
+# (reference-to-video AND image-to-video), Google/Veo (minors, public figures,
+# some regions). A lot of Eden usage is animating real people, so on such a
+# rejection we auto-switch to a more permissive model. This is BILLING-NEUTRAL:
+# `create` is billed once by tool.py on output/quality/duration — not on which
+# underlying model runs — and create's internal sub-tool calls do not re-bill.
+_CONTENT_POLICY_MARKERS = (
+    "content policy",
+    "content_policy",
+    "resembles a real person",
+    "real person",
+    "real people",
+    "likeness",
+    "sensitive content",
+    "privacyinformation",
+)
+
+
+def _is_content_policy_error(exc: Exception) -> bool:
+    return any(m in str(exc).lower() for m in _CONTENT_POLICY_MARKERS)
+
+
+def _permissive_video_fallbacks(args: dict) -> list:
+    """Permissive model_preference chain for a real-person content-policy
+    rejection. Only image-to-video (animate-a-photo) has an in-Eden permissive
+    route today; reference-to-video has no permissive Eden tool yet, and a
+    txt2vid rejection is a prompt problem a model swap won't fix.
+
+    Kling is permissive for ordinary faces (no safety knob). Wan 2.7 is the
+    guaranteed-accept backstop — its input+output safety checker is disabled on
+    the fallback call (see handle_video_creation `permissive_fallback`).
+    """
+    reference_images = args.get("reference_images") or []
+    start_image = reference_images[0] if reference_images else None
+    if args.get("reference_video") or not start_image:
+        return []
+    original = (args.get("model_preference") or "").lower()
+    chain = []
+    # Default i2v and an explicit "kling" both resolve to kling_v3 — no point
+    # retrying it identically (it has no permissiveness parameter).
+    if original not in ("", "kling"):
+        chain.append("kling")
+    chain.append("wan")  # always — the permissive (checker-off) retry differs
+    return chain
+
+
+async def _create_video_with_policy_fallback(context, cancellation_event):
+    args = context.args
+    try:
+        return await handle_video_creation(
+            args, context.user, context.agent, cancellation_event
+        )
+    except Exception as e:
+        if not _is_content_policy_error(e):
+            raise
+        fallbacks = _permissive_video_fallbacks(args)
+        if not fallbacks:
+            raise
+        last_exc = e
+        for pref in fallbacks:
+            fb_args = {**args, "model_preference": pref, "_permissive_fallback": True}
+            try:
+                result = await handle_video_creation(
+                    fb_args, context.user, context.agent, cancellation_event
+                )
+            except Exception as e2:
+                if _is_content_policy_error(e2):
+                    last_exc = e2
+                    continue
+                raise
+            note = (
+                "The requested model rejected the input under its real-person "
+                f"content policy; automatically re-rendered with a more permissive "
+                f"model (preference='{pref}') at the same price."
+            )
+            if isinstance(result, dict) and isinstance(result.get("subtool_calls"), list):
+                result["subtool_calls"].append(
+                    {
+                        "tool": "content_policy_fallback",
+                        "args": {"model_preference": pref},
+                        "output": note,
+                    }
+                )
+            return result
+        raise last_exc
+
+
 async def handler(context: ToolContext):
     if os.getenv("MOCK") == "1":
         return await handle_mock_creation(context)
@@ -105,9 +193,7 @@ async def handler(context: ToolContext):
             context.args, context.user, context.agent, cancellation_event
         )
     elif output_type == "video":
-        return await handle_video_creation(
-            context.args, context.user, context.agent, cancellation_event
-        )
+        return await _create_video_with_policy_fallback(context, cancellation_event)
     else:
         raise Exception(f"Invalid output type: {output_type}")
 
@@ -851,6 +937,10 @@ async def handle_video_creation(
     talking_head = "talking_head" in extras
     audio = args.get("audio", None)
     sound_effects = args.get("sound_effects", None)
+    # Set only when this run is an auto-fallback for a real-person content-policy
+    # rejection (see _create_video_with_policy_fallback). Used to disable Wan's
+    # safety checker so the previously-rejected input is accepted.
+    permissive_fallback = bool(args.get("_permissive_fallback", False))
 
     intermediate_outputs = {}
 
@@ -1141,6 +1231,10 @@ async def handle_video_creation(
             args["audio_reference"] = audio
         if seed:
             args["seed"] = seed
+        if permissive_fallback:
+            # This Wan run is a permissive fallback for a real-person rejection:
+            # disable the provider content moderation so the input is accepted.
+            args["enable_safety_checker"] = False
 
         if check_cancelled():
             return {"status": "cancelled", "output": None}
