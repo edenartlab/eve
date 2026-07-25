@@ -2,6 +2,7 @@ import asyncio
 import os
 
 import fal_client
+import httpx
 from loguru import logger
 
 from eve.tool import ToolContext
@@ -15,57 +16,76 @@ MAX_RETRIES = 3
 INITIAL_DELAY = 1.0
 
 
+def _fal_status_code(error: Exception):
+    """Best-effort extraction of the HTTP status code from a fal_client error.
+
+    fal_client raises ``FalClientError(detail) from httpx.HTTPStatusError`` (see
+    fal_client.client._raise_for_status), so the real status code lives on the
+    chained cause's response — NOT reliably in the stringified message. Relying on
+    digit-substring matching of the message misclassifies e.g. a 422 whose detail
+    contains a pixel size or byte count as a "5xx server error".
+    """
+    for candidate in (getattr(error, "__cause__", None), error):
+        resp = getattr(candidate, "response", None)
+        code = getattr(resp, "status_code", None)
+        if isinstance(code, int):
+            return code
+    return None
+
+
+def _fal_detail(error: Exception) -> str:
+    """The real fal error detail (FalClientError carries response.json()['detail'])."""
+    detail = str(error).strip()
+    if len(detail) > 500:
+        detail = detail[:500] + "…"
+    return detail
+
+
 def _is_retryable_error(error: Exception) -> bool:
-    """Determine if an error is retryable."""
+    """Determine if an error is retryable, preferring the real HTTP status code."""
+    code = _fal_status_code(error)
+    if code is not None:
+        # Rate limit / transient conflicts / server errors. 4xx validation
+        # errors (400/403/404/422 …) are NOT retryable — retrying wastes time
+        # and hides an actionable request problem.
+        return code in (408, 409, 429) or code >= 500
+
+    # No HTTP status (transport-level failure): treat network/timeouts as retryable.
     error_str = str(error).lower()
-
-    # Rate limit errors (429)
-    if (
-        "429" in error_str
-        or "rate limit" in error_str
-        or "too many requests" in error_str
-    ):
-        return True
-
-    # Server errors (5xx)
-    if any(f"{code}" in error_str for code in range(500, 600)):
-        return True
-
-    # Network/timeout errors
-    if any(
+    return any(
         term in error_str
-        for term in ["timeout", "connection", "network", "unavailable"]
-    ):
-        return True
-
-    return False
+        for term in ["timeout", "connection", "network", "unavailable", "read error"]
+    )
 
 
 def _format_error_for_user(error: Exception) -> str:
-    """Format error message for user-friendly display."""
-    error_str = str(error).lower()
+    """User-facing message that ALWAYS preserves fal's real status + detail.
 
-    if "429" in error_str or "rate limit" in error_str:
-        return "Rate limit reached for this image model. Please try again later or use a different image model."
+    Keeping the detail is the whole point: a 5xx with detail "Internal Server
+    Error" is a provider outage, but a 5xx/4xx whose detail is "failed to fetch
+    image_urls[1]" is our own bad input — previously both were flattened to an
+    identical opaque "FAL API server error", making outages indistinguishable
+    from request bugs.
+    """
+    code = _fal_status_code(error)
+    detail = _fal_detail(error)
 
-    if (
-        "401" in error_str
-        or "unauthorized" in error_str
-        or "authentication" in error_str
-    ):
-        return "Authentication error with FAL API. Please check API credentials."
+    if code == 429:
+        return f"Rate limit reached (FAL 429). {detail} Try again shortly or use a different model."
+    if code in (401, 403):
+        return f"FAL access/authentication error ({code}): {detail}"
+    if code == 404:
+        return f"FAL endpoint not found (404): {detail}"
+    if code is not None and code >= 500:
+        return f"FAL server error ({code}): {detail}. Please try again later."
+    if code is not None:
+        # Other 4xx — surface the real validation detail so it's actionable.
+        return f"FAL rejected the request ({code}): {detail}"
 
-    if "403" in error_str or "forbidden" in error_str:
-        return "Access denied to FAL API. Please check API permissions."
-
-    if any(f"{code}" in error_str for code in range(500, 600)):
-        return "FAL API server error. Please try again later."
-
-    if "timeout" in error_str:
-        return "Request timed out. Please try again."
-
-    # Return original error for unknown cases
-    return str(error)
+    # No HTTP status: transport-level failure.
+    if "timeout" in detail.lower():
+        return f"FAL request timed out: {detail}"
+    return detail or "FAL request failed."
 
 
 async def call_fal_with_retry(endpoint: str, args: dict) -> dict:
