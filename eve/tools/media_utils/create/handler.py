@@ -1429,8 +1429,10 @@ async def handle_video_creation(
             aspect_ratio, "veo3", start_image_attributes
         )
 
-        # Veo can only produce 5-8s videos
-        duration = 4 if duration < 5 else 6 if duration < 7 else 8
+        # Veo only produces 4/6/8s. Round DOWN to the nearest supported length:
+        # create bills the user's requested duration, so rounding UP made veo3
+        # cost more than we charged (a 5s request ran 6s = 360 against a 250 bill).
+        duration = 8 if duration >= 8 else 6 if duration >= 6 else 4
 
         args = {
             "prompt": f"{prompt}. AUDIO: {sound_effects}" if sound_effects else prompt,
