@@ -50,7 +50,9 @@ parameters:
     label: Denoise strength
     description: How much to depart from the init image (1.0 = ignore it).
     default: 0.75
-    minimum: 0.0
+    # fal's `strength` is minimum 0.01 — a value in (0, 0.01) passes our
+    # validation but is rejected by the provider
+    minimum: 0.01
     maximum: 1.0
   width:
     type: integer

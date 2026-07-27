@@ -1245,8 +1245,7 @@ async def handle_video_creation(
             args["start_image"] = start_image
         if end_image:
             args["end_image"] = end_image
-        if seed:
-            args["seed"] = seed
+        # no seed: Seedance 2.0 does not accept one
 
         if check_cancelled():
             return {"status": "cancelled", "output": None}
@@ -1285,8 +1284,9 @@ async def handle_video_creation(
             "duration": max(2, min(int(duration), 15)),
             "resolution": "1080p" if quality == "pro" else "720p",
         }
-        # fal wan v2.7 accepts ONLY auto/16:9/9:16/1:1 — sending 4:3 or 3:4 is rejected
-        if aspect_ratio != "auto" and aspect_ratio in ("16:9", "9:16", "1:1"):
+        # wan v2.7 t2v supports 16:9/9:16/1:1/4:3/3:4 (no "auto"); the wan_27
+        # handler drops this on the i2v branch, where the schema has no such field
+        if aspect_ratio != "auto" and aspect_ratio in ("16:9", "9:16", "1:1", "4:3", "3:4"):
             args["aspect_ratio"] = aspect_ratio
         if start_image:
             args["start_image"] = start_image

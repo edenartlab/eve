@@ -118,9 +118,5 @@ parameters:
     default: standard
     choices: ['standard', 'high']
     hide_from_user: true
-  seed:
-    type: integer
-    label: Seed
-    minimum: 0
-    maximum: 2147483647
-    default: random
+  # NOTE: no `seed` parameter — Seedance 2.0 does not accept one (output schema
+  # only); see seedance2.

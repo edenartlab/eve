@@ -37,6 +37,7 @@ parameters:
     type: string
     label: Prompt
     description: The shot — action, environment, camera. Do not re-describe the subject (the reference images carry identity). Max 1500 characters.
+    max_length: 1500
     required: true
   reference_images:
     type: array

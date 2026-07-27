@@ -34,8 +34,7 @@ async def handler(context: ToolContext):
         payload["video_urls"] = videos
     if audio:
         payload["audio_urls"] = audio
-    if args.get("seed") is not None:
-        payload["seed"] = args["seed"]
+    # NOTE: seedance-2.0 has NO `seed` input (output schema only) — see seedance2.
 
     result = await call_fal_with_retry(ENDPOINT, payload)
     video = (result or {}).get("video") or {}

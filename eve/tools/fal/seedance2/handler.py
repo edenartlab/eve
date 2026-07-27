@@ -20,8 +20,9 @@ async def handler(context: ToolContext):
         "generate_audio": bool(args.get("generate_audio", True)),
         "bitrate_mode": args.get("bitrate_mode") or "standard",
     }
-    if args.get("seed") is not None:
-        payload["seed"] = args["seed"]
+    # NOTE: seedance-2.0 has NO `seed` input (it appears only in the OUTPUT
+    # schema). fal ignores unknown keys, so sending one silently did nothing —
+    # worse, it advertised reproducibility the model can't deliver.
 
     if start_image:
         payload["image_url"] = start_image

@@ -72,8 +72,16 @@ async def veo_handler(args: dict, model: str):
     if args.get("resolution"):
         config_dict["resolution"] = args.get("resolution")
 
-    if args.get("generate_audio"):
-        config_dict["generate_audio"] = True if args.get("generate_audio") else False
+    # Must test for None, not truthiness: `if args.get("generate_audio")` skipped
+    # the assignment when the user explicitly passed False, so audio could never
+    # actually be turned off (Vertex just applied its default).
+    if args.get("generate_audio") is not None:
+        config_dict["generate_audio"] = bool(args.get("generate_audio"))
+
+    # GenerateVideosConfig supports a seed for reproducible results; it was
+    # declared on the tools but never forwarded, so seeds silently did nothing.
+    if args.get("seed") is not None:
+        config_dict["seed"] = args.get("seed")
 
     args_dict = {
         "model": model,

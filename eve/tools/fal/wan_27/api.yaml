@@ -62,8 +62,12 @@ parameters:
     type: string
     label: Aspect ratio
     default: '16:9'
-    # fal wan v2.7 accepts ONLY auto/16:9/9:16/1:1 — 4:3 and 3:4 are rejected.
-    choices: ['auto', '16:9', '9:16', '1:1']
+    # Verified against fal's OpenAPI schema (WanV27TextToVideoInput): there is NO
+    # "auto" value, and 4:3/3:4 ARE supported. Text-to-video only — the
+    # image-to-video schema has no aspect_ratio field at all (it follows the
+    # input image), so the handler sends this only on the t2v branch.
+    choices: ['16:9', '9:16', '1:1', '4:3', '3:4']
+    description: Frame aspect ratio (text-to-video only; image-to-video follows the start image).
   seed:
     type: integer
     label: Seed

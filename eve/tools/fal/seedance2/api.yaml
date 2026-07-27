@@ -93,10 +93,7 @@ parameters:
     default: standard
     choices: ['standard', 'high']
     hide_from_user: true
-  seed:
-    type: integer
-    label: Seed
-    description: Random seed for reproducibility.
-    minimum: 0
-    maximum: 2147483647
+  # NOTE: no `seed` parameter — Seedance 2.0 does not accept one (it appears only
+  # in fal's output schema). Exposing it would advertise reproducibility that the
+  # model cannot deliver.
     default: random

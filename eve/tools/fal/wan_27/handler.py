@@ -12,8 +12,8 @@ async def handler(context: ToolContext):
     payload = {
         "prompt": args["prompt"],
         "resolution": args.get("resolution") or "1080p",
+        # duration is an INTEGER enum (2-15) on wan v2.7, unlike seedance's string enum
         "duration": int(args.get("duration") or 5),
-        "aspect_ratio": args.get("aspect_ratio") or "16:9",
     }
     if args.get("audio_reference"):
         payload["audio_url"] = args["audio_reference"]
@@ -32,6 +32,9 @@ async def handler(context: ToolContext):
     else:
         if args.get("end_image"):
             raise ValueError("end_image requires start_image")
+        # aspect_ratio exists ONLY on the text-to-video schema; image-to-video
+        # derives the frame from the input image and would silently ignore it.
+        payload["aspect_ratio"] = args.get("aspect_ratio") or "16:9"
         endpoint = T2V_ENDPOINT
 
     result = await call_fal_with_retry(endpoint, payload)
