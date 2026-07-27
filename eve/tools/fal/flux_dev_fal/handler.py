@@ -43,8 +43,10 @@ async def handler(context: ToolContext):
         "num_inference_steps": int(args.get("steps") or 28),
         # Permissive default, matching Eden's self-hosted Modal FLUX (which has no
         # safety filter): a lot of LoRAs are of real people. Overridable per call.
+        # NOTE: fal-ai/flux-lora exposes ONLY enable_safety_checker — it has no
+        # safety_tolerance param (verified against the live schema); sending one
+        # would risk rejection.
         "enable_safety_checker": bool(args.get("enable_safety_checker", False)),
-        "safety_tolerance": str(args.get("safety_tolerance") or "5"),
     }
     if loras:
         payload["loras"] = loras

@@ -72,6 +72,9 @@ ALL_TOOLS = [
     "kling_o3",
     "hedra",
     "seedance1",
+    # reference-to-video that accepts REAL people (seedance2_reference rejects
+    # real-person likenesses, and is premium-gated) — keep it broadly available
+    "vidu_reference",
     "vid2vid_sdxl",
     "video_FX",
     "texture_flow",

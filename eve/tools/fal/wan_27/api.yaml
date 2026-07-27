@@ -62,7 +62,8 @@ parameters:
     type: string
     label: Aspect ratio
     default: '16:9'
-    choices: ['16:9', '9:16', '1:1', '4:3', '3:4']
+    # fal wan v2.7 accepts ONLY auto/16:9/9:16/1:1 — 4:3 and 3:4 are rejected.
+    choices: ['auto', '16:9', '9:16', '1:1']
   seed:
     type: integer
     label: Seed

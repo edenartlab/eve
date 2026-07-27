@@ -1028,7 +1028,10 @@ async def handle_video_creation(
             raise Exception(
                 "Video-to-video with a reference video requires premium models. "
                 "Enable premium models in this agent's settings (requires an "
-                "active subscription), or generate without reference_video."
+                "active subscription), or generate without reference_video. "
+                "For reference-IMAGE-driven video (character/subject consistency "
+                "from stills, including photos of real people), use the "
+                "vidu_reference tool instead — it needs no premium access."
             )
     elif talking_head and audio:
         video_tool = "hedra"
@@ -1282,7 +1285,8 @@ async def handle_video_creation(
             "duration": max(2, min(int(duration), 15)),
             "resolution": "1080p" if quality == "pro" else "720p",
         }
-        if aspect_ratio != "auto" and aspect_ratio in ("16:9", "9:16", "1:1", "4:3", "3:4"):
+        # fal wan v2.7 accepts ONLY auto/16:9/9:16/1:1 — sending 4:3 or 3:4 is rejected
+        if aspect_ratio != "auto" and aspect_ratio in ("16:9", "9:16", "1:1"):
             args["aspect_ratio"] = aspect_ratio
         if start_image:
             args["start_image"] = start_image

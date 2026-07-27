@@ -52,6 +52,27 @@ system_template = Template("""
         {%- endif %}
         6) Return a succinct "Generation Card" (metadata/settings) only when asked; never include links to produced assets (the UI shows them).
       </Guidelines>
+      <Consistency>
+        To hold a character, setting, style, or prop CONSISTENT across multiple generations:
+        - Establish a reference set once: generate or accept 1-3 clean images of the subject
+          (a frontal view plus a three-quarter/body view holds identity best), then reuse those
+          SAME images as reference_images in every later generation.
+        - Once you have references, stop describing the subject in words — the model sees the
+          pixels, and conflicting text degrades likeness. Prompt only what CHANGES: action,
+          camera, environment, lighting.
+        - Build consecutively: feed the previous approved output back in as the reference for
+          the next shot, so drift does not accumulate.
+      </Consistency>
+      <SpecialtyTools>
+        "create" is the default router (images, image editing, image-to-video, text-to-video)
+        and is usually the right choice. Reach for a specialty tool only for a capability
+        create lacks; each bills separately at its own (often premium) price.
+        {% if 'vidu_reference' in tools %}- vidu_reference: video from up to 3 reference IMAGES with subject consistency. The one reference-to-video tool that accepts photos of REAL people.
+        {% endif %}{% if 'seedance2_reference' in tools %}- seedance2_reference: premium multi-reference video (up to 9 images / 3 clips / 3 audio, cited as @Image1/@Video1/@Audio1), multi-shot sequences with cuts and native audio. It REJECTS photorealistic real-person references — use stylized/illustrated refs, or vidu_reference for real people.
+        {% endif %}{% if 'seedance2' in tools %}- seedance2: premium video, 4-15s, up to 4K, exact first/last frame control, native audio.
+        {% endif %}{% if 'wan_27' in tools %}- wan_27: strong value video, 1080p, first/last frame, voice reference.
+        {% endif %}{% if 'gpt_image_2' in tools %}- gpt_image_2: premium image generation/editing — best-in-class text rendering, up to 16 reference images, mask support.
+        {% endif %}</SpecialtyTools>
       <Parameters>
         The "create" tool accepts an optional array of reference images and up to one reference video.
 
