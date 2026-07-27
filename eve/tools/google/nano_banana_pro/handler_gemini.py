@@ -94,7 +94,7 @@ async def handler(context: ToolContext):
     # Make the API call
     response = await asyncio.to_thread(
         client.models.generate_content,
-        model="gemini-3-pro-image-preview",
+        model="gemini-3-pro-image",
         contents=contents,
         config=generation_config,
     )

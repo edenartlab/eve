@@ -1,9 +1,28 @@
 name: Kling O3 Reference to Video
 description: Generate 3-15s videos with reference images and elements using Kling O3 Pro. Supports character/object consistency, native audio, and multi-shot generation.
 tip: |-
-  Generate high-quality videos from a starting image with reference images for style/character consistency. Reference images influence the look and feel of the generated video.
-  For custom elements, reference them in your prompt as @Element1, @Element2, etc.
-  For reference images, reference them in your prompt as @Image1, @Image2, etc.
+  Kling O3 Pro reference-to-video: strong character/object consistency from
+  reference images, with native audio and multi-shot support. Cheaper than
+  seedance2_reference; use it when the user wants reference-guided video
+  without premium cost.
+
+  HOW TO USE REFERENCES WELL (image_urls, up to 4):
+  - Reference them in the prompt as @Image1, @Image2, ... For a consistent
+    CHARACTER: one clean frontal shot as @Image1 (+1-2 angles), then use only
+    "@Image1" in the prompt text — never re-describe their appearance in words
+    (conflicting text degrades likeness; text should carry action,
+    environment, and camera).
+  - For STYLE: a graded still as the last @Image slot and "match the color
+    grade and lighting of @ImageN throughout".
+  - start_image_url is REQUIRED and is the exact first frame; references shape identity
+    and look, not the starting composition.
+  - Multi-shot: master anchor prompt + explicit cuts ("cut to..."), up to ~6
+    shots in 15s; add anti-drift negatives for long sequences ("jittery eyes,
+    frozen lips, character drift, warping hands").
+  - Dialogue: [Character A: voice quality]: "line" — ~8-12 words per 5s;
+    set generate_audio true for lip-synced speech.
+  (Advanced: structured Elements with frontal+angle image sets exist on the
+  underlying API but are not exposed to chat agents.)
 output_type: video
 cost_estimate: 25 * duration
 handler: fal
@@ -81,6 +100,8 @@ parameters:
           required: false
           items:
             type: image
+    hide_from_user: true
+    hide_from_ui: true
   shot_type:
     label: Shot Type
     type: string
@@ -109,3 +130,5 @@ parameters:
           label: Duration
           description: Duration of this shot in seconds.
           required: true
+    hide_from_user: true
+    hide_from_ui: true

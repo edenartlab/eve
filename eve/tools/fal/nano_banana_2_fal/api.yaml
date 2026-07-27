@@ -1,8 +1,22 @@
 name: Nano Banana 2 (FAL)
 description: Google's next-gen image generation and editing model via FAL.ai with resolution control and web search. Supports text-to-image and image editing.
-tip: Provide image_urls to enable editing mode. Supports multiple reference images. Use enable_web_search for current events or real-world references.
+tip: |-
+  Eden's standard-tier default for images and image editing — near-frontier
+  quality at the cheapest price point. Provide image_urls to switch into editing
+  mode (multiple reference images supported, up to 14).
+
+  - num_images caps at 4. For larger consistent sets use seedream.
+  - resolution drives cost: 4K is 2x the 1K price, 0.5K is ~22% cheaper than 1K.
+    The default is 1K — iterate there.
+  - aspect_ratio DEFAULTS TO 1:1. Pass "auto" to follow the input image; when
+    editing a wide reference, leaving the default gives you a square crop.
+  - enable_web_search adds ~2 manna per image; use it only for current events or
+    real-world references.
+  - Real faces: on the editing path this tool runs at the most permissive
+    moderation setting, which makes it Eden's route for editing photos of real
+    people.
 output_type: image
-cost_estimate: '(resolution == "4K" ? 16 : resolution == "2K" ? 12 : resolution == "0.5K" ? 6 : 8) * num_images'
+cost_estimate: '((resolution == "4K" ? 18 : resolution == "2K" ? 14 : resolution == "0.5K" ? 7 : 9) + (enable_web_search ? 2 : 0)) * num_images'
 handler: modal
 thumbnail: app/nano_banana_pro.jpg
 visible: true

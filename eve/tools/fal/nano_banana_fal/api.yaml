@@ -2,7 +2,7 @@ name: Nano Banana (FAL)
 description: Google's image generation and editing model via FAL.ai. Supports text-to-image and image editing.
 tip: Provide image_urls to enable editing mode. Supports up to 14 reference images.
 output_type: image
-cost_estimate: 1 * num_images
+cost_estimate: 4.5 * num_images
 handler: modal
 thumbnail: app/nano_banana.jpg
 visible: false

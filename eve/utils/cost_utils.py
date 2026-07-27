@@ -164,14 +164,30 @@ def _build_expression_parser(variables: Dict[str, Any]) -> ParserElement:
         for i in range(1, len(tokens)):
             accessor_token = tokens[i]
             if accessor_token == "length":
-                try:
-                    val = len(val)
-                except TypeError as e:
-                    raise ValueError(
-                        f"Cannot take .length of value of type {type(val).__name__}"
-                    ) from e
-            elif isinstance(accessor_token, int):
-                # Array index access
+                # None → 0 rather than an error: parse actions evaluate eagerly
+                # (both ternary branches always run), so `arr ? arr.length : 0`
+                # would otherwise blow up whenever the array param is absent.
+                if val is None:
+                    val = 0
+                else:
+                    try:
+                        val = len(val)
+                    except TypeError as e:
+                        raise ValueError(
+                            f"Cannot take .length of value of type {type(val).__name__}"
+                        ) from e
+            elif isinstance(accessor_token, (int, float)) and not isinstance(
+                accessor_token, bool
+            ):
+                # Array index access. The grammar parses bare integers like
+                # [0] as floats (real is tried before integer), so accept
+                # integral floats as indexes too.
+                if isinstance(accessor_token, float):
+                    if not accessor_token.is_integer():
+                        raise ValueError(
+                            f"Array index must be an integer, got {accessor_token}"
+                        )
+                    accessor_token = int(accessor_token)
                 try:
                     val = val[accessor_token]
                 except (IndexError, KeyError, TypeError) as e:
@@ -185,7 +201,10 @@ def _build_expression_parser(variables: Dict[str, Any]) -> ParserElement:
                     val = val.get(prop)
                 else:
                     val = getattr(val, prop, None)
-        return val
+        # Wrap: a bare list return gets spliced into the token stream by
+        # pyparsing (['a','b'] becomes two tokens, [] becomes zero), and a bare
+        # None return means "keep original tokens" instead of "value is None".
+        return [val]
 
     operand = (_base_operand + ZeroOrMore(accessor)).setParseAction(postfix_action)
 
@@ -289,7 +308,8 @@ def _build_expression_parser(variables: Dict[str, Any]) -> ParserElement:
     def ternary_action(tokens):
         # ``tokens`` is a list: [cond_val, true_val, false_val]
         cond_val, true_val, false_val = tokens
-        return true_val if cond_val else false_val
+        # Wrapped for the same list/None splicing reason as postfix_action.
+        return [true_val if cond_val else false_val]
 
     ternary.setParseAction(ternary_action)
 

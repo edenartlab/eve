@@ -608,10 +608,18 @@ async def build_system_message(
     # breakpoint), so even the daily change never invalidates the cached prefix.
     current_datetime_utc = datetime.now(timezone.utc).strftime("%Y %b %-d UTC")
 
+    # Generation posture resolved by get_tools (cached on the actor); falls
+    # back to "standard". Deterministic per agent settings -> cache-safe.
+    _gen_access = getattr(actor, "_generation_access", None)
+    generation_default_quality = (
+        _gen_access.default_quality if _gen_access else "standard"
+    )
+
     # Build system prompt with memory context
     content = system_template.render(
         name=actor.name,
         current_datetime_utc=current_datetime_utc,
+        generation_default_quality=generation_default_quality,
         cache_breakpoint=SYSTEM_CACHE_BREAKPOINT,
         description=actor.description,
         persona=actor.persona,

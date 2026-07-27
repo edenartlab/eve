@@ -57,7 +57,7 @@ BASE_MODELS = Literal[
 ALL_TOOLS = [
     "flux_dev_lora",
     "flux_dev",
-    "flux_kontext",
+    # flux_kontext retired 2026-07 (bottom-tier editor; agents edit via `create` -> NB2)
     "txt2img",
     # more image generation
     "outpaint",
@@ -72,6 +72,9 @@ ALL_TOOLS = [
     "kling_o3",
     "hedra",
     "seedance1",
+    # reference-to-video that accepts REAL people (seedance2_reference rejects
+    # real-person likenesses, and is premium-gated) — keep it broadly available
+    "vidu_reference",
     "vid2vid_sdxl",
     "video_FX",
     "texture_flow",
@@ -211,6 +214,14 @@ TOOL_SETS = {
 }
 
 FEATURE_FLAG_TOOL_SETS = {}
+
+# Premium generation tier: standalone tools removed from agent toolsets unless
+# the agent owner opts in (generation_settings.premium_models_enabled) AND the
+# paying user is entitled — see eve.agent.generation. Deliberately NOT wired
+# through FEATURE_FLAG_TOOL_SETS: flag grants must not bypass the owner opt-in.
+PREMIUM_IMAGE_TOOLS = ["gpt_image_2"]
+PREMIUM_VIDEO_TOOLS = ["seedance2", "seedance2_reference"]
+PREMIUM_STANDALONE_TOOLS = [*PREMIUM_IMAGE_TOOLS, *PREMIUM_VIDEO_TOOLS]
 
 BASE_TOOLS = [
     "create",

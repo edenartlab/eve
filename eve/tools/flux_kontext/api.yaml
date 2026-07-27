@@ -2,8 +2,13 @@ name: Flux Kontext
 description: Generate an image with the initial image as context or edit the image in accordance with the prompt.
 cost_estimate: '(fast ? 4 : 8) * n_samples'
 output_type: image
-visible: true
-active: true
+# RETIRED 2026-07: superseded for image editing (bottom-tier vs Nano Banana 2 /
+# GPT Image 2 / Seedream 5 on the editing arena). `create` no longer routes here;
+# agents edit via `create` (-> nano_banana_2_fal). FLUX.1 LoRA generation is a
+# separate path (flux_dev_lora) and is unaffected. Tool.load still works for any
+# stored direct reference. Push with `eve tool update flux_kontext` PROD+STAGE.
+visible: false
+active: false
 base_model: flux-dev
 replicate_model: black-forest-labs/flux-kontext-max
 replicate_model_substitutions:
