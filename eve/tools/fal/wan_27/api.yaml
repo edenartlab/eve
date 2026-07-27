@@ -19,7 +19,14 @@ tip: |-
     Use text for action, environment, and camera only.
   - Rhythm-referencing prompts ("cuts on the beat", "sways in time with the
     music") get accurate beat-matched motion.
-  - 720p is ~33% cheaper than 1080p — iterate at 720p, final at 1080p.
+  - aspect_ratio applies to TEXT-to-video only. With a start_image the frame
+    follows that image and this field is not sent.
+  - 720p is ~33% cheaper than 1080p, but the DEFAULT here is 1080p — pass
+    resolution="720p" explicitly while iterating.
+  - Wan is Eden's permissive route for animating photos of REAL PEOPLE: set
+    enable_safety_checker=false when an ordinary real-person photo is wrongly
+    rejected as sensitive. `create` does this automatically when another model
+    rejects a real-person input.
 # fal: $0.10/s @720p, $0.15/s @1080p (audio included)
 cost_estimate: '(resolution == "1080p" ? 18 : 12) * duration'
 output_type: video

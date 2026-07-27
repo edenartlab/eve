@@ -15,8 +15,9 @@ tip: |-
     Reference as @Video1, ...
   - reference_audio (up to 3, combined <=15s): music, voice timbre, sound
     design. Reference as @Audio1, ...
-  Hard limit: 12 files total across the three lists. If you supply audio, you
-  must also supply at least one image or video reference.
+  Hard limit: 12 files total across the three lists. AT LEAST ONE reference
+  image or video is ALWAYS required — a prompt-only call fails, and audio alone
+  is never sufficient.
 
   CONTENT POLICY (IMPORTANT): the provider (ByteDance) rejects reference images
   or videos that resemble REAL PEOPLE — and this fires on photorealistic
@@ -49,8 +50,10 @@ tip: |-
   adjectives. Say "no music" if you don't want a score.
 
   COST NOTES: iterate at 5s/720p before committing to 1080p/4K finals.
-  duration "auto" fits length to content. When reference VIDEOS are provided,
-  billed duration includes the input clips' combined length.
+  duration "auto" fits length to content but is BILLED AS 10 SECONDS. Supplying
+  ANY reference video adds a flat ~290 manna surcharge (an allowance for fal
+  separately billing the input clips) — it does not scale with clip length, and
+  at 720p/10s it raises the price by ~80%.
 # same token pricing as seedance2. When reference VIDEOS are supplied, fal
 # additionally bills the input clips' combined duration (capped at 15s) at the
 # output rate; the expression can't see clip lengths, so we charge a flat

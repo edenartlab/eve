@@ -1,11 +1,16 @@
 name: GPT Image 2
 description: OpenAI's gpt-image-2 (PREMIUM) — the strongest image generation AND editing model available; best-in-class instruction following, multilingual text rendering, up to 16 reference images, mask inpainting, and 4K output.
 tip: |-
-  PREMIUM MODEL — at "high" quality this is one of the most expensive image
-  tools on Eden (~20x the standard tier). Only use when the user has affirmed
-  they want top quality, or the agent defaults to pro. For routine images use
-  the standard tools; "medium" quality here is a good middle ground at ~1/4
-  the cost of high.
+  PREMIUM MODEL — at "high" quality this is the most expensive image tool on
+  Eden: about 2.5x the standard tier per image, and ~4x this tool's own
+  "medium". Only use when the user has affirmed they want top quality, or the
+  agent defaults to pro. For routine images use the standard tools; "medium"
+  quality here is a good middle ground at ~1/4 the cost of high.
+
+  CONTENT POLICY: OpenAI's edit endpoint offers no moderation relief, so edits
+  of photos of real people are frequently refused. Via `create` those are
+  automatically re-rendered on nano_banana_pro at the same price; a direct call
+  to this tool just fails.
 
   WHAT IT'S UNIQUELY GOOD AT:
   - Instruction-based EDITING: pass input_images and describe the change in

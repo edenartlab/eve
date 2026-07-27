@@ -109,6 +109,43 @@ def _is_content_policy_error(exc: Exception) -> bool:
     return any(m in str(exc).lower() for m in _CONTENT_POLICY_MARKERS)
 
 
+def _param_spec(tool, name: str) -> dict:
+    """The target tool's declared spec for one parameter (empty if absent)."""
+    spec = (getattr(tool, "parameters", None) or {}).get(name)
+    if isinstance(spec, dict):
+        return spec
+    return getattr(spec, "__dict__", {}) or {}
+
+
+def _tool_accepts(tool, name: str, value):
+    """Value if the target tool declares it among `choices`, else None.
+
+    `create` advertises a superset of aspect ratios (11 of them); the individual
+    models each accept a narrower set, and forwarding an unsupported value is a
+    hard pydantic validation error rather than a graceful degrade. Reading the
+    target's own choices keeps this correct as tools change.
+    """
+    choices = _param_spec(tool, name).get("choices")
+    if not choices:
+        return None
+    return value if value in choices else None
+
+
+def _clamp_to_tool(tool, name: str, value, fallback=1):
+    """Clamp a numeric arg to the target tool's declared minimum/maximum."""
+    spec = _param_spec(tool, name)
+    lo, hi = spec.get("minimum"), spec.get("maximum")
+    try:
+        v = int(value)
+    except (TypeError, ValueError):
+        return fallback
+    if isinstance(lo, (int, float)):
+        v = max(int(lo), v)
+    if isinstance(hi, (int, float)):
+        v = min(int(hi), v)
+    return v
+
+
 def _permissive_video_fallbacks(args: dict) -> list:
     """Permissive model_preference chain for a real-person content-policy
     rejection. Only image-to-video (animate-a-photo) has an in-Eden permissive
@@ -613,12 +650,16 @@ async def handle_image_creation(
 
         args = {
             "prompt": prompt,
-            "num_images": n_samples,
+            # create advertises n_samples up to 15 (only seedream supports that);
+            # nano_banana_2 caps at 4 and rejects anything higher
+            "num_images": _clamp_to_tool(nano_banana_2_fal, "num_images", n_samples),
             "output_format": "png",
         }
 
         if aspect_ratio != "auto":
-            args["aspect_ratio"] = aspect_ratio
+            supported = _tool_accepts(nano_banana_2_fal, "aspect_ratio", aspect_ratio)
+            if supported:
+                args["aspect_ratio"] = supported
 
         if reference_images:
             args["image_urls"] = reference_images
@@ -639,7 +680,8 @@ async def handle_image_creation(
 
         args = {
             "prompt": prompt,
-            "n_samples": n_samples,
+            # gpt_image_2 caps at 4; create advertises up to 15
+            "n_samples": _clamp_to_tool(gpt_image_2, "n_samples", n_samples),
             # pro billing tier maps to OpenAI "high"; keep drafts on medium
             "quality": "high" if quality == "pro" else "medium",
         }
@@ -843,7 +885,10 @@ async def handle_image_creation(
             aspect_ratio = snap_aspect_ratio_to_model(
                 aspect_ratio, "seedream45", start_image_attributes
             )
-            args["aspect_ratio"] = aspect_ratio
+            # the preset table can yield 9:21, which seedream45 does not accept
+            supported = _tool_accepts(seedream45, "aspect_ratio", aspect_ratio)
+            if supported:
+                args["aspect_ratio"] = supported
 
         if seed:
             args["seed"] = seed
@@ -1205,21 +1250,25 @@ async def handle_video_creation(
             )
 
     #########################################################
-    # Kling v2.5 (img2vid via FAL)
+    # Kling 3 (img2vid via FAL) — create's DEFAULT image-to-video route
     elif video_tool == "kling_v3":
         kling_v3 = Tool.load("kling_v3")
 
         args = {
             "prompt": prompt,
             "start_image_url": start_image,
-            "duration": max(3, min(int(duration), 15)),
+            # kling_v3 declares duration as a STRING enum ('3'..'15'); passing an
+            # int fails pydantic Literal validation and kills every call
+            "duration": str(max(3, min(int(duration), 15))),
             # Only generate native audio when the user asked for sound effects;
             # audio adds ~50% to the kling_v3 price.
             "generate_audio": bool(sound_effects),
         }
         if end_image:
             args["end_image_url"] = end_image
-        if aspect_ratio != "auto":
+        # kling_v3 only supports these three; forwarding anything else (create
+        # advertises 11 ratios) is a validation error
+        if aspect_ratio in ("16:9", "9:16", "1:1"):
             args["aspect_ratio"] = aspect_ratio
 
         if check_cancelled():
@@ -1240,7 +1289,10 @@ async def handle_video_creation(
             "generate_audio": True,
         }
         if aspect_ratio != "auto":
-            args["aspect_ratio"] = aspect_ratio
+            # seedance2 accepts a narrower set than create advertises
+            supported = _tool_accepts(seedance2, "aspect_ratio", aspect_ratio)
+            if supported:
+                args["aspect_ratio"] = supported
         if start_image:
             args["start_image"] = start_image
         if end_image:

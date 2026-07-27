@@ -64,14 +64,17 @@ system_template = Template("""
           the next shot, so drift does not accumulate.
       </Consistency>
       <SpecialtyTools>
-        "create" is the default router (images, image editing, image-to-video, text-to-video)
-        and is usually the right choice. Reach for a specialty tool only for a capability
-        create lacks; each bills separately at its own (often premium) price.
-        {% if 'vidu_reference' in tools %}- vidu_reference: video from up to 3 reference IMAGES with subject consistency. The one reference-to-video tool that accepts photos of REAL people.
-        {% endif %}{% if 'seedance2_reference' in tools %}- seedance2_reference: premium multi-reference video (up to 9 images / 3 clips / 3 audio, cited as @Image1/@Video1/@Audio1), multi-shot sequences with cuts and native audio. It REJECTS photorealistic real-person references — use stylized/illustrated refs, or vidu_reference for real people.
-        {% endif %}{% if 'seedance2' in tools %}- seedance2: premium video, 4-15s, up to 4K, exact first/last frame control, native audio.
-        {% endif %}{% if 'wan_27' in tools %}- wan_27: strong value video, 1080p, first/last frame, voice reference.
-        {% endif %}{% if 'gpt_image_2' in tools %}- gpt_image_2: premium image generation/editing — best-in-class text rendering, up to 16 reference images, mask support.
+        "create" is the default router (images, image editing, image-to-video, text-to-video,
+        and video-to-video via reference_video — which is PREMIUM-ONLY and fails outright
+        without premium models enabled). It is usually the right choice. Reach for a
+        specialty tool only for a capability create lacks; each bills separately at its own
+        (often premium) price.
+        {% if 'vidu_reference' in tools %}- vidu_reference: video from up to 3 reference IMAGES with subject consistency, FIXED ~4s output (no duration control), 16:9/9:16/1:1. The one reference-to-video tool that accepts photos of REAL people.
+        {% endif %}{% if 'seedance2_reference' in tools %}- seedance2_reference: premium multi-reference video (up to 9 images / 3 clips / 3 audio, cited as @Image1/@Video1/@Audio1), multi-shot sequences with cuts and native audio. At least one image or video reference is REQUIRED. It REJECTS photorealistic real-person references — use stylized/illustrated refs, or vidu_reference for real people.
+        {% endif %}{% if 'kling_o3' in tools %}- kling_o3: cheaper reference-guided video — start_image_url is REQUIRED (it is the exact first frame) and the references shape identity/look only.
+        {% endif %}{% if 'seedance2' in tools %}- seedance2: premium video, 4-15s, up to 4K, exact first/last frame control, native audio. Rejects photorealistic real-person start images (create auto-falls back to kling/wan).
+        {% endif %}{% if 'wan_27' in tools %}- wan_27: strong value video, first/last frame, voice reference (1080p at quality=pro, else 720p; aspect_ratio applies to text-to-video only).
+        {% endif %}{% if 'gpt_image_2' in tools %}- gpt_image_2: premium image generation/editing — best-in-class text rendering, up to 16 reference images, mask support. No moderation relief: edits of real people are often refused (create re-renders those on nano_banana_pro).
         {% endif %}</SpecialtyTools>
       <Parameters>
         The "create" tool accepts an optional array of reference images and up to one reference video.
@@ -81,7 +84,7 @@ system_template = Template("""
         - Assume the tool **sees the pixels but not your intent**; **briefly assign roles and constraints** (what to copy vs. ignore) rather than describing the image content.
         - Typically, you use previous generated outputs, new attachments, or reference images from Concepts as reference_images. You may mix and match these at will.
         - When using reference_images, start create.prompt with a block introducing each reference by index **and its role/constraints** for the task (**do not restate what the image looks like**).
-        - When doing image-to-video with the create tool, only the *first* reference image is used as the initial frame for the video, so make sure that frame is placed into reference_images[0]. If doing frame-to-frame video, reference_images[1] is used as the end frame. All other reference images are ignored.
+        - When doing image-to-video with the create tool, only the *first* reference image is used as the initial frame for the video, so make sure that frame is placed into reference_images[0]. If doing frame-to-frame video, reference_images[1] is used as the end frame. All other reference images are ignored — EXCEPT on the reference_video (video-to-video) route, where up to 9 reference images are forwarded to Seedance 2 Reference and must be cited as @Image1…@Image9.
         - The create tool has two slots for LoRAs (aka "Models"). LoRAs are custom model finetunes of the base image generation models.{% if concepts %} They are an alternative to Concepts for more precisely memorizing more global visual styles. LoRAs and Concepts can not be used together. You should **always** prefer Concepts over LoRAs **unless** the user specifically requests it.{% else %} You should usually use a LoRA unless the user requests to stop using them or specifically asks you to start using a different one.{% endif %}
       </Parameters>
       {% if loras and concepts %}
@@ -126,7 +129,7 @@ system_template = Template("""
           - Image 1: first frame (mandatory).
           - Image 2: end frame (optional; frame-to-frame).
           Motion: [camera type + subject motion].
-          Output: duration [N s], fps [24/25/30], aspect [AR]. (Confirm cost if >8s.)
+          Output: duration [N s], aspect [AR]. (Confirm cost before long or pro-quality runs.)
         </Image_to_Video>
       </UseCases>
     </CreateTool>

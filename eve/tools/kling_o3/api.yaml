@@ -14,7 +14,7 @@ tip: |-
     environment, and camera).
   - For STYLE: a graded still as the last @Image slot and "match the color
     grade and lighting of @ImageN throughout".
-  - start_image_url is still the exact first frame; references shape identity
+  - start_image_url is REQUIRED and is the exact first frame; references shape identity
     and look, not the starting composition.
   - Multi-shot: master anchor prompt + explicit cuts ("cut to..."), up to ~6
     shots in 15s; add anti-drift negatives for long sequences ("jittery eyes,

@@ -10,7 +10,12 @@ tip: |-
 # cost_estimate: "(quality == 'high_quality' ?  500 : 250)"
 cost_estimate: 250
 output_type: image
-active: true
+# DEPRECATED 2026-07: superseded by `create` (output="video"). Its own docs and
+# quality tiers still describe Veo-2, Kling Pro 2.0 and Runway Gen-4, and its
+# default quality routes to the retired kling_pro. It is already in no tool set
+# (tool_constants: "create_video": []); deactivating so no agent can load it and
+# be taught the stale model lineup.
+active: false
 visible: false
 handler: modal
 parameters:

@@ -1,9 +1,14 @@
 name: Seedance 2.0
 description: ByteDance's flagship video model (PREMIUM) — cinematic text-to-video and image-to-video up to 4K with native synchronized audio, lip-synced dialogue, and multi-shot storytelling in a single generation.
 tip: |-
-  PREMIUM MODEL — one of the most expensive video tools on Eden (roughly 2-3x the
-  cost of standard models). Only use when the user has affirmed they want top
-  quality, or the agent is configured to default to pro quality.
+  PREMIUM MODEL — one of the most expensive video tools on Eden. Versus the
+  standard video rate it is ~1.4x at 720p, ~3.2x at 1080p and ~7.4x at 4K. Only
+  use when the user has affirmed they want top quality, or the agent is
+  configured to default to pro quality.
+
+  CONTENT POLICY: ByteDance rejects start/end images that resemble a REAL PERSON
+  (photorealistic AI humans included). Use a stylized reference, or animate real
+  photos with kling_v3 / wan_27 — `create` falls back to those automatically.
 
   This is currently the strongest all-around video model available. Use it for:
   final deliverables, complex multi-shot sequences, dialogue scenes, and
@@ -24,8 +29,9 @@ tip: |-
      tin roof, distant thunder"). If you do NOT want music, say "no music"
      explicitly; open-ended prompts default to an orchestral score.
   6. Cost control: iterate at 5s/720p, then re-render the final at high res.
-     duration "auto" lets the model fit length to the content. 4K is billed at a
-     different (higher) rate — reserve it for final renders.
+     duration "auto" (the DEFAULT) lets the model fit length to content but is
+     BILLED AS 10 SECONDS — set an explicit duration to pay for a shorter clip.
+     4K costs ~5x the 720p rate and ~2.3x 1080p — reserve it for final renders.
 
   IMAGE INPUTS — two DIFFERENT kinds, don't confuse them:
   - start_image: the exact FIRST FRAME. The video begins at precisely this
@@ -96,4 +102,3 @@ parameters:
   # NOTE: no `seed` parameter — Seedance 2.0 does not accept one (it appears only
   # in fal's output schema). Exposing it would advertise reproducibility that the
   # model cannot deliver.
-    default: random

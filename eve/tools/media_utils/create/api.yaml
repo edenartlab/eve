@@ -2,9 +2,13 @@ name: Create
 description: Generate or edit images and videos from an objective, single-scene prompt plus optional reference media.
 tip: |-
   Images:
-    - For multi-image consistency sets, prefer model_preference=nano_banana with n_samples=1, and generate images consecutively using previous outputs as reference images.
-    - For text-heavy designs (infographics, logos, signage), prefer model_preference=nano_banana.
+    - For multi-image consistency sets there are two approaches: model_preference=seedream with n_samples>1 produces up to 15 images in ONE call with model-side consistency; the default (or model_preference=nano_banana) produces one image per call and you carry consistency yourself by feeding each approved output back in as a reference image. Prefer seedream for N images at once, the consecutive approach when each frame must be approved before the next.
+    - For text-heavy designs (infographics, logos, signage), prefer model_preference=nano_banana at standard quality; when premium models are enabled, quality="pro" (gpt_image_2) renders long or exact text most reliably.
     - ONLY use model_preference=openai when the user explicitly requests OpenAI/DALL-E/GPT image generation. Prefer nano_banana otherwise.
+
+  Real people / content policy:
+    - If a model rejects an input as a real-person likeness, create AUTOMATICALLY re-renders on a more permissive model at the SAME price and notes it in subtool_calls: pro-tier image EDITS fall back to nano_banana_pro; image-to-video falls back to kling, then wan with its safety checker off.
+    - There is NO automatic fallback for text-to-video or for the reference_video route. For reference-driven video of real people use the standalone vidu_reference tool.
 
   Videos:
     - If reference_images or reference_video are provided, describe only motion/camera/dynamics in the prompt and refer to the specific references; do not re-prompt existing content already provided by references.
@@ -56,7 +60,7 @@ parameters:
       Video-specific:
         • If init/end images or a reference video are provided, describe only motion/camera/dynamics, timing, and transitions.
         • Include camera moves (“slow dolly-in”, “handheld sway”), pacing (“2‑second hold”, “quick cut”), and action beats.
-        • Put dialogue/foley/music in the sound_effects parameter, not in the prompt.
+        • Dialogue/foley/music belong in the PROMPT for the default video models (they have native audio); sound_effects only switches that audio on — see its tip.
 
       Phrasing:
         • Prefer positive constraints (“empty street”) over negatives (“no cars”).
@@ -70,7 +74,9 @@ parameters:
     type: string
     label: Aspect ratio
     description: Output aspect ratio (width:height).
-    tip: If not "auto", this overrides any ratio inferred from references.
+    tip: |-
+      16:9, 9:16, 1:1 and "auto" are safe on every route. Other ratios are model-specific: create will drop one the chosen model doesn't accept and fall back to that model's own default, so framing may not match what you asked for. Prefer one of the four unless the user insists.
+      With "auto" the ratio is inferred from the FIRST reference image where the model supports it, otherwise the model's default applies (16:9 for video).
     default: "auto"
     choices: ["auto", "21:9", "16:9", "3:2", "4:3", "5:4", "1:1", "4:5", "3:4", "2:3", "9:16", "9:21"]
   reference_images:
@@ -90,7 +96,9 @@ parameters:
     type: integer
     label: Number of samples
     description: Images only. How many variations, individual images, or samples to generate
-    tip: Generates multiple images. With model_preference=seedream, n_samples can be used for consistent sets (same identity/style across images). **NOTE** -- This parameter is not supported for nano_banana! Keep it at 1 unless using Seedream. **IMPORTANT** -- If you get a 403 Forbidden on a reference image, almost definitely you made a transcription error or made up a URL that doesn't exist. Use previous outputs or concept image references instead.
+    tip: |-
+      Images only. Values above 4 are ONLY meaningful with model_preference=seedream (up to 15, generated as a consistent set — same identity/style across images). Every other model caps at 4 and the value is clamped; model_preference=nano_banana (Nano Banana Pro) always returns exactly 1 regardless.
+      **IMPORTANT** -- If you get a 403 Forbidden on a reference image, almost definitely you made a transcription error or made up a URL that doesn't exist. Use previous outputs or concept image references instead.
     default: 1
     minimum: 1
     maximum: 15
@@ -100,29 +108,34 @@ parameters:
     label: Reference video
     description: Reference video for style transfer (video output only).
     tip: |-
-      For videos only. When provided, will use Runway Aleph for video-to-video style transfer, regardless of model_preference. The input video will be stylized according to your prompt while preserving the motion and structure of the reference video.
+      Videos only. PREMIUM ONLY: a reference_video routes to Seedance 2 Reference regardless of model_preference. Without premium models enabled (owner opt-in + entitled payer) the call FAILS — do not offer this to non-premium users.
+      Any reference_images are forwarded too (first 9). Cite assets in the prompt as @Video1 and @Image1, @Image2, … (NOT "Image 1").
+      CONTENT POLICY: ByteDance rejects references resembling REAL PEOPLE (photorealistic AI humans included), and there is NO automatic fallback on this route. For real people use the standalone vidu_reference tool (reference images only, fixed ~4s clip).
   seed:
     type: integer
     label: Seed
     description: Random seed for reproducible generation
-    tip: Optional seed value for consistent results. If not provided, a random seed will be used.
+    tip: Honored only on some routes (nano_banana_2, seedream, flux/sdxl, wan, seedance1, runway). IGNORED by the default video models (kling_v3, veo_31_lite), by Seedance 2 (no seed input at all), and by the pro image tier (gpt_image_2, nano_banana_pro). Do not promise the user a reproducible re-render on those routes.
     required: false
   extras:
     type: array
     label: Extra features
     description: Optional extra features to enable
+    # NOTE: "double_character" is currently a no-op (nothing reads it) but is kept
+    # in the enum so previously-stored args don't fail validation. The handler
+    # also reads a "controlnet" extra that is deliberately NOT exposed here yet —
+    # that path is untested; enable it separately, not as a docs change.
     items:
       type: string
       enum: ["talking_head", "double_character"]
     tip: |-
-      - talking_head (videos only): For lip-sync or talking avatars (Hedra). Requires a face in references or prompt and a speech-only audio file in the audio parameter.
-      - double_character (images only): Use only when generating two distinct character LoRAs/faces in one image.
+      - talking_head (videos only): For lip-sync or talking avatars (Hedra). Requires a face in references or prompt AND a speech-only audio file in the audio parameter — without audio the flag is silently ignored and an ordinary video is produced.
     default: []
   duration:
     type: integer
     label: Duration
     description: Approximate duration of the video in seconds
-    tip: For videos only.
+    tip: Videos only, and APPROXIMATE — the chosen model snaps it. Veo 3.1 Lite (the text-to-video default) supports only 4/6/8s, so 5 becomes 4s; Runway and Seedance 1 snap to 5 or 10. For 11-15s clips call seedance2 or wan_27 directly.
     default: 10
     minimum: 5
     maximum: 10
@@ -160,9 +173,13 @@ parameters:
     tip: |-
       "standard": cost-effective models — nano_banana_2 for images; kling_v3
       (img2vid) / veo_31_lite (txt2vid) for video.
-      "pro": premium models, SIGNIFICANTLY more expensive — gpt_image_2 for
-      images and seedance2 for video when the agent has premium models enabled
-      (and the payer is subscribed); otherwise nano_banana_pro / veo3.
+      "pro": SIGNIFICANTLY more expensive. Images -> gpt_image_2 when premium
+      models are enabled (owner opt-in + entitled payer), else nano_banana_pro
+      for subscribers, else nano_banana_2. Video: image-to-video -> seedance2
+      ONLY when premium is enabled; without premium it stays on kling_v3 and pro
+      buys nothing but a 2x bill. Text-to-video -> veo3 for subscribers, else
+      veo_31_lite; seedance2 is NEVER chosen for text-to-video — pass
+      model_preference="seedance" if you want it.
       Default to standard. Only pass "pro" when the user explicitly asks for
       high/best quality — and mention that it costs more. (If the agent owner
       has set default_quality="pro" in this agent's settings, the default is
@@ -176,19 +193,27 @@ parameters:
     tip: |-
       If omitted, auto-selects: the request arg wins, then the agent's stored
       preference, then the paying user's preference, then the default.
-      Videos: kling (Kling 3 — default for img2vid, best first-pass motion),
-      wan (Wan 2.7 — best value, 1080p included), seedance (Seedance 2 when
-      quality="pro" and premium models are enabled, else Seedance 1),
-      veo (Veo 3.1 for pro subscribers, Veo 3.1 Lite otherwise),
-      runway (legacy). Images: nano_banana (default), seedream, openai
-      (GPT Image 2 when premium enabled), flux, sdxl (legacy, for SDXL loras).
+      Videos: kling (Kling 3 — the image-to-video default; on TEXT-to-video there
+      is no Kling endpoint and this routes to Wan 2.7), wan (Wan 2.7 — best
+      value; 1080p only at quality="pro", otherwise 720p), seedance (Seedance 2
+      when quality="pro" AND premium models are enabled, else Seedance 1),
+      veo (Veo-3 for any subscriber at any quality — it runs in Fast mode at
+      quality="standard"; Veo 3.1 Lite for non-subscribers), runway (legacy).
+      Images: nano_banana (Nano Banana PRO — subscriber-only, returns exactly 1
+      image, downgrades to Nano Banana 2 otherwise; leave model_preference UNSET
+      to get the Nano Banana 2 default), seedream (Seedream 4.5 — the only route
+      supporting n_samples > 4), openai (GPT Image 2 when premium is enabled;
+      without premium it falls back to GPT Image 1.5 Edit, which REQUIRES a
+      reference image), flux (FLUX.1-dev + LoRAs, text-to-image only — IGNORED
+      when reference_images are supplied), sdxl (legacy, for SDXL loras).
     choices: ["kling", "wan", "seedream", "seedance", "sdxl", "runway", "openai", "flux", "veo", "nano_banana"]
   audio:
     type: audio
     label: Audio track
     description: Speech audio file (videos + extras.talking_head only).
     tip: |-
-      Only valid when extras includes "talking_head". Provide a speech-only track to drive lip-sync. 
+      Speech/voice audio. With extras=["talking_head"] it drives Hedra lip-sync (the flag is IGNORED if you set it without audio — an ordinary video is produced with no error).
+      It is ALSO used as a voice reference on the wan route (3-5s of clean speech clones timbre and pacing) and as an audio reference on the reference_video route. Ignored elsewhere.
       For generic background music or SFX mixing, use the media_editor tool instead.
     required: false
   sound_effects:
@@ -196,6 +221,7 @@ parameters:
     label: Sound effects / dialogue
     description: Optional synthesized dialogue, foley, or music to generate over the video.
     tip: |-
-      Videos only. Use when you want the system to synthesize audio (dialogue in quotes, foley, ambience, music).
-      If an audio track is provided for talking_head, sound_effects are ignored. (not possible with Kling)
+      Videos only. On the DEFAULT routes this is essentially an audio ON/OFF switch, not a script: kling_v3 (image-to-video), veo_31_lite (text-to-video), wan_27 and seedance2 all generate their own native audio and DO NOT receive this text — put the dialogue/foley/music description inside `prompt` for those.
+      Only the veo3 route appends this text to the prompt. Legacy models without native audio (runway, seedance1) get a separately synthesized track from this text.
+      Ignored when an audio file is supplied with extras.talking_head.
     required: false

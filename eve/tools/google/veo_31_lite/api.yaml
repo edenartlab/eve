@@ -1,11 +1,11 @@
 name: Veo 3.1 Lite
 description: Google's budget video tier — Veo 3.1 Lite generates 4/6/8s clips at 720p or 1080p with native synchronized audio, at a fraction of full Veo's cost. Eden's cheap/fast video workhorse.
 tip: |-
-  The go-to tool for quick, inexpensive video: quality is close to full Veo 3.1
-  at roughly 1/8 the price. Use it for drafts, social clips, iterations, and
-  whenever the user hasn't asked for premium quality. Escalate to veo3 (higher
-  fidelity, 4K) or seedance2 (premium flagship) only when the user wants top
-  quality.
+  The go-to tool for quick, inexpensive video: quality is close to full Veo at
+  about 1/10 the price at 720p (1/6 at 1080p). Use it for drafts, social clips,
+  iterations, and whenever the user hasn't asked for premium quality. Escalate
+  to veo3 (higher fidelity, native audio) or seedance2 (premium flagship, up to
+  4K) only when the user wants top quality.
 
   Notes:
   - Supports text-to-video and image-to-video (provide image as first frame).
