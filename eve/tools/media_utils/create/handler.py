@@ -15,13 +15,11 @@ import os
 from bson import ObjectId
 from loguru import logger
 
-from eve.agent import Agent
 from eve.models import Model
 from eve.s3 import get_full_url
 from eve.tool import Tool, ToolContext
 
 # from eve.api.api import create
-from eve.user import User
 from eve.utils import get_media_attributes
 
 
@@ -88,6 +86,194 @@ def validate_media_types(reference_images, reference_video):
             # Don't error on URLs without extensions, they might be valid
 
 
+# --- Real-person content-policy handling ---------------------------------------
+# Some providers reject inputs that resemble real people: ByteDance/Seedance
+# (reference-to-video AND image-to-video), Google/Veo (minors, public figures,
+# some regions). A lot of Eden usage is animating real people, so on such a
+# rejection we auto-switch to a more permissive model. This is BILLING-NEUTRAL:
+# `create` is billed once by tool.py on output/quality/duration — not on which
+# underlying model runs — and create's internal sub-tool calls do not re-bill.
+_CONTENT_POLICY_MARKERS = (
+    "content policy",
+    "content_policy",
+    "resembles a real person",
+    "real person",
+    "real people",
+    "likeness",
+    "sensitive content",
+    "privacyinformation",
+)
+
+
+def _is_content_policy_error(exc: Exception) -> bool:
+    return any(m in str(exc).lower() for m in _CONTENT_POLICY_MARKERS)
+
+
+def _param_spec(tool, name: str) -> dict:
+    """The target tool's declared spec for one parameter (empty if absent)."""
+    spec = (getattr(tool, "parameters", None) or {}).get(name)
+    if isinstance(spec, dict):
+        return spec
+    return getattr(spec, "__dict__", {}) or {}
+
+
+def _tool_accepts(tool, name: str, value):
+    """Value if the target tool declares it among `choices`, else None.
+
+    `create` advertises a superset of aspect ratios (11 of them); the individual
+    models each accept a narrower set, and forwarding an unsupported value is a
+    hard pydantic validation error rather than a graceful degrade. Reading the
+    target's own choices keeps this correct as tools change.
+    """
+    choices = _param_spec(tool, name).get("choices")
+    if not choices:
+        return None
+    return value if value in choices else None
+
+
+def _clamp_to_tool(tool, name: str, value, fallback=1):
+    """Clamp a numeric arg to the target tool's declared minimum/maximum."""
+    spec = _param_spec(tool, name)
+    lo, hi = spec.get("minimum"), spec.get("maximum")
+    try:
+        v = int(value)
+    except (TypeError, ValueError):
+        return fallback
+    if isinstance(lo, (int, float)):
+        v = max(int(lo), v)
+    if isinstance(hi, (int, float)):
+        v = min(int(hi), v)
+    return v
+
+
+def _permissive_video_fallbacks(args: dict) -> list:
+    """Permissive model_preference chain for a real-person content-policy
+    rejection. Only image-to-video (animate-a-photo) has an in-Eden permissive
+    route today; reference-to-video has no permissive Eden tool yet, and a
+    txt2vid rejection is a prompt problem a model swap won't fix.
+
+    Kling is permissive for ordinary faces (no safety knob). Wan 2.7 is the
+    guaranteed-accept backstop — its input+output safety checker is disabled on
+    the fallback call (see handle_video_creation `permissive_fallback`).
+    """
+    reference_images = args.get("reference_images") or []
+    start_image = reference_images[0] if reference_images else None
+    if args.get("reference_video") or not start_image:
+        return []
+    original = (args.get("model_preference") or "").lower()
+    chain = []
+    # Default i2v and an explicit "kling" both resolve to kling_v3 — no point
+    # retrying it identically (it has no permissiveness parameter).
+    if original not in ("", "kling"):
+        chain.append("kling")
+    chain.append("wan")  # always — the permissive (checker-off) retry differs
+    return chain
+
+
+async def _create_video_with_policy_fallback(context, cancellation_event):
+    args = context.args
+    try:
+        return await handle_video_creation(
+            args, context.user, context.agent, cancellation_event
+        )
+    except Exception as e:
+        if not _is_content_policy_error(e):
+            raise
+        fallbacks = _permissive_video_fallbacks(args)
+        if not fallbacks:
+            raise
+        last_exc = e
+        for pref in fallbacks:
+            fb_args = {**args, "model_preference": pref, "_permissive_fallback": True}
+            try:
+                result = await handle_video_creation(
+                    fb_args, context.user, context.agent, cancellation_event
+                )
+            except Exception as e2:
+                if _is_content_policy_error(e2):
+                    last_exc = e2
+                    continue
+                raise
+            note = (
+                "The requested model rejected the input under its real-person "
+                f"content policy; automatically re-rendered with a more permissive "
+                f"model (preference='{pref}') at the same price."
+            )
+            if isinstance(result, dict) and isinstance(result.get("subtool_calls"), list):
+                result["subtool_calls"].append(
+                    {
+                        "tool": "content_policy_fallback",
+                        "args": {"model_preference": pref},
+                        "output": note,
+                    }
+                )
+            return result
+        raise last_exc
+
+
+def _permissive_image_fallbacks(args: dict) -> list:
+    """Permissive model_preference chain for a real-face EDIT rejection.
+
+    Only applies to pro-tier edits: gpt_image_2 has NO moderation relief (fal
+    exposes nothing; OpenAI's edit endpoint refuses moderation:low), so on a
+    real-person rejection we switch to nano_banana_pro — a DIFFERENT provider
+    (Google) that is permissive for ordinary faces. gpt_image_2 and
+    nano_banana_pro are both pro-tier, so this is billing-neutral (no
+    downgrade/overcharge). Standard-tier edits already use the permissive
+    nano_banana_2_fal (safety_tolerance=6), so no fallback there — and we must
+    not upgrade a standard edit to a pro model at Eden's expense.
+    """
+    reference_images = args.get("reference_images") or []
+    if not reference_images:
+        return []
+    if str(args.get("quality", "standard")).lower() != "pro":
+        return []
+    if (args.get("model_preference") or "").lower() == "nano_banana":
+        return []
+    return ["nano_banana"]
+
+
+async def _create_image_with_policy_fallback(context, cancellation_event):
+    args = context.args
+    try:
+        return await handle_image_creation(
+            args, context.user, context.agent, cancellation_event
+        )
+    except Exception as e:
+        if not _is_content_policy_error(e):
+            raise
+        fallbacks = _permissive_image_fallbacks(args)
+        if not fallbacks:
+            raise
+        last_exc = e
+        for pref in fallbacks:
+            fb_args = {**args, "model_preference": pref}
+            try:
+                result = await handle_image_creation(
+                    fb_args, context.user, context.agent, cancellation_event
+                )
+            except Exception as e2:
+                if _is_content_policy_error(e2):
+                    last_exc = e2
+                    continue
+                raise
+            note = (
+                "The requested model rejected the input under its real-person "
+                f"content policy; automatically re-rendered with a more permissive "
+                f"model (preference='{pref}') at the same price."
+            )
+            if isinstance(result, dict) and isinstance(result.get("subtool_calls"), list):
+                result["subtool_calls"].append(
+                    {
+                        "tool": "content_policy_fallback",
+                        "args": {"model_preference": pref},
+                        "output": note,
+                    }
+                )
+            return result
+        raise last_exc
+
+
 async def handler(context: ToolContext):
     if os.getenv("MOCK") == "1":
         return await handle_mock_creation(context)
@@ -103,13 +289,9 @@ async def handler(context: ToolContext):
     cancellation_event = context.cancellation_event
 
     if output_type == "image":
-        return await handle_image_creation(
-            context.args, context.user, context.agent, cancellation_event
-        )
+        return await _create_image_with_policy_fallback(context, cancellation_event)
     elif output_type == "video":
-        return await handle_video_creation(
-            context.args, context.user, context.agent, cancellation_event
-        )
+        return await _create_video_with_policy_fallback(context, cancellation_event)
     else:
         raise Exception(f"Invalid output type: {output_type}")
 
@@ -149,29 +331,13 @@ async def handle_image_creation(
             return True
         return False
 
-    # nano_banana_pro is enabled by default
-    # if a specific user is provided (e.g. from the website or api), check if paying user has access to veo3 and disable it if not
-    nano_banana_enabled = True
-    if user:
-        user = User.from_mongo(user)
+    # Consolidated entitlement + preference resolution (eve/agent/generation.py).
+    # subscriber == the old nano_banana_enabled gate; premium_enabled additionally
+    # requires the agent owner's premium opt-in.
+    from eve.agent.generation import resolve_generation_access
 
-        # if agent's owner pays, check their feature flags, otherwise user's
-        if agent:
-            agent = Agent.from_mongo(agent)
-            if agent.owner_pays in ["full", "deployments"]:
-                paying_user = User.from_mongo(agent.owner)
-            else:
-                paying_user = user
-        else:
-            paying_user = user
-
-        nano_banana_enabled = any(
-            [
-                t
-                for t in paying_user.featureFlags
-                if t in ["eden_admin", "free_tools", "preview"]
-            ]
-        ) or (paying_user.subscriptionTier and paying_user.subscriptionTier > 0)
+    access = resolve_generation_access(user=user, agent=agent)
+    nano_banana_enabled = access.subscriber or user is None
 
     # load tools
     # flux_dev_lora = Tool.load("flux_dev_lora")
@@ -194,6 +360,9 @@ async def handle_image_creation(
     aspect_ratio = args.get("aspect_ratio", "auto")
     model_preference = args.get("model_preference")
     model_preference = model_preference.lower() if model_preference else ""
+    # Merge precedence: request arg > agent setting > paying-user preference
+    if not model_preference and access.image_model_preference:
+        model_preference = access.image_model_preference.lower()
     quality = args.get("quality", "standard")
 
     # get loras
@@ -204,29 +373,32 @@ async def handle_image_creation(
     intermediate_outputs = {}
 
     # default image tools
-    # txt2img default: nano_banana_pro for subscribed, nano_banana_2_fal for non-subscribed
-    # quality="pro" forces nano_banana_pro (requires subscription), quality="standard" forces nano_banana_2_fal
-    if quality == "pro" and nano_banana_enabled:
+    # standard -> nano_banana_2_fal; pro -> gpt_image_2 (premium flagship, needs
+    # owner opt-in + entitlement), else nano_banana_pro for plain subscribers.
+    # Routing may only ever DOWNGRADE from the billed quality, never upgrade —
+    # billing computed cost from args before this handler ran.
+    if quality == "pro" and access.premium_enabled:
+        default_image_tool = "gpt_image_2"
+    elif quality == "pro" and nano_banana_enabled:
         default_image_tool = "nano_banana"
-    elif quality == "pro" and not nano_banana_enabled:
-        default_image_tool = "nano_banana_2_fal"  # fallback if not subscribed
     else:
         default_image_tool = "nano_banana_2_fal"
-
-    # image editing default: same logic
-    if quality == "pro" and nano_banana_enabled:
-        default_image_edit_tool = "nano_banana"
-    else:
-        default_image_edit_tool = "nano_banana_2_fal"
+    default_image_edit_tool = default_image_tool
 
     # Determine tool
     if init_image:
         # just use one of the image editing tools for now, even when there's a lora
         # init image takes precedence over lora
+        # NOTE: no "flux" entry — flux_kontext is retired (superseded per the
+        # editing-arena data; bottom-tier vs Nano Banana 2). A "flux" edit
+        # preference now falls through to default_image_edit_tool (NB2 standard,
+        # gpt_image_2 / nano_banana_pro premium). LoRA *generation* is a
+        # different path (flux_dev_lora, below) and stays on FLUX.1-dev.
         image_tool = {
-            "flux": "flux_kontext",
             "seedream": "seedream45",
-            "openai": "gpt_image_15_edit",
+            "openai": "gpt_image_2"
+            if access.premium_enabled
+            else "gpt_image_15_edit",
             "nano_banana": "nano_banana",
             "sdxl": "txt2img",
         }.get(model_preference, default_image_edit_tool)
@@ -241,7 +413,9 @@ async def handle_image_creation(
             image_tool = {
                 "flux": "flux_dev_lora",
                 "seedream": "seedream45",
-                "openai": "openai_image_generate",
+                "openai": "gpt_image_2"
+                if access.premium_enabled
+                else "gpt_image_15_edit",
                 "nano_banana": "nano_banana",
                 "sdxl": "txt2img",
             }.get(model_preference, default_image_tool)
@@ -250,6 +424,11 @@ async def handle_image_creation(
     if image_tool == "flux_dev_lora":
         if len(loras) > 1 or controlnet:
             image_tool = "flux_dev"
+
+    # Premium backstop: gpt_image_2 unreachable without both keys (defense in
+    # depth with the toolset filter)
+    if image_tool == "gpt_image_2" and not access.premium_enabled:
+        image_tool = "nano_banana" if nano_banana_enabled else "nano_banana_2_fal"
 
     # Downgrade from Nano Banana Pro if not enabled
     if image_tool == "nano_banana" and not nano_banana_enabled:
@@ -411,29 +590,10 @@ async def handle_image_creation(
         # Todo: incorporate style_image / style_strength ?
 
     #########################################################
-    # Flux Kontext
-    elif image_tool == "flux_kontext":
-        flux_kontext = Tool.load("flux_kontext")
-
-        if aspect_ratio == "auto":
-            aspect_ratio = "match_input_image"
-
-        args = {
-            "prompt": prompt,
-            "init_image": init_image,
-            "n_samples": n_samples,
-            "aspect_ratio": aspect_ratio,
-            "fast": False,
-        }
-
-        if seed:
-            args["seed"] = seed
-
-        if check_cancelled():
-            return {"status": "cancelled", "output": []}
-        result = await flux_kontext.async_run(
-            args, save_thumbnails=True, cancellation_event=cancellation_event
-        )
+    # Flux Kontext — RETIRED 2026-07 (superseded per editing-arena data; bottom
+    # tier vs Nano Banana 2). Nothing routes here anymore; the "flux" edit
+    # preference falls through to the tier default. LoRA generation is a separate
+    # path (flux_dev_lora) and is unaffected.
 
     # Nano Banana (original)
     # elif image_tool == "nano_banana":
@@ -490,12 +650,16 @@ async def handle_image_creation(
 
         args = {
             "prompt": prompt,
-            "num_images": n_samples,
+            # create advertises n_samples up to 15 (only seedream supports that);
+            # nano_banana_2 caps at 4 and rejects anything higher
+            "num_images": _clamp_to_tool(nano_banana_2_fal, "num_images", n_samples),
             "output_format": "png",
         }
 
         if aspect_ratio != "auto":
-            args["aspect_ratio"] = aspect_ratio
+            supported = _tool_accepts(nano_banana_2_fal, "aspect_ratio", aspect_ratio)
+            if supported:
+                args["aspect_ratio"] = supported
 
         if reference_images:
             args["image_urls"] = reference_images
@@ -506,6 +670,31 @@ async def handle_image_creation(
         if check_cancelled():
             return {"status": "cancelled", "output": []}
         result = await nano_banana_2_fal.async_run(
+            args, save_thumbnails=True, cancellation_event=cancellation_event
+        )
+
+    #########################################################
+    # GPT Image 2 (premium flagship — generation and editing)
+    elif image_tool == "gpt_image_2":
+        gpt_image_2 = Tool.load("gpt_image_2")
+
+        args = {
+            "prompt": prompt,
+            # gpt_image_2 caps at 4; create advertises up to 15
+            "n_samples": _clamp_to_tool(gpt_image_2, "n_samples", n_samples),
+            # pro billing tier maps to OpenAI "high"; keep drafts on medium
+            "quality": "high" if quality == "pro" else "medium",
+        }
+        if reference_images:
+            args["input_images"] = reference_images[:16]
+        if aspect_ratio in ("9:16", "3:4", "2:3"):
+            args["image_size"] = "portrait"
+        elif aspect_ratio in ("16:9", "4:3", "3:2", "21:9"):
+            args["image_size"] = "landscape"
+
+        if check_cancelled():
+            return {"status": "cancelled", "output": []}
+        result = await gpt_image_2.async_run(
             args, save_thumbnails=True, cancellation_event=cancellation_event
         )
 
@@ -696,7 +885,10 @@ async def handle_image_creation(
             aspect_ratio = snap_aspect_ratio_to_model(
                 aspect_ratio, "seedream45", start_image_attributes
             )
-            args["aspect_ratio"] = aspect_ratio
+            # the preset table can yield 9:21, which seedream45 does not accept
+            supported = _tool_accepts(seedream45, "aspect_ratio", aspect_ratio)
+            if supported:
+                args["aspect_ratio"] = supported
 
         if seed:
             args["seed"] = seed
@@ -811,33 +1003,16 @@ async def handle_video_creation(
 
     # veo3 is enabled by default
     # if a specific user is provided (e.g. from the website or api), check if paying user has access to veo3 and disable it if not
-    veo3_enabled = True
-    if user:
-        user = User.from_mongo(user)
+    # Consolidated entitlement + preference resolution (eve/agent/generation.py)
+    from eve.agent.generation import resolve_generation_access
 
-        # if agent's owner pays, check their feature flags, otherwise user's
-        if agent:
-            agent = Agent.from_mongo(agent)
-            if agent.owner_pays in ["full", "deployments"]:
-                paying_user = User.from_mongo(agent.owner)
-            else:
-                paying_user = user
-        else:
-            paying_user = user
-
-        veo3_enabled = any(
-            [
-                t
-                for t in paying_user.featureFlags
-                if t in ["tool_access_veo3", "preview", "eden_admin", "free_tools"]
-            ]
-        ) or (paying_user.subscriptionTier and paying_user.subscriptionTier > 0)
+    access = resolve_generation_access(user=user, agent=agent)
+    veo3_enabled = access.subscriber or user is None
 
     """
-    reference_video -> runway3
-    txt2vid -> runway, veo3, seedance, kling
-    img2vid -> kling, runway, veo3 (fast/not), seedance
-    
+    reference_video -> seedance2_reference (premium)
+    txt2vid -> veo3 (pro/subscriber) | veo_31_lite (standard), wan, seedance, kling
+    img2vid -> kling_v3 (default), wan, seedance, veo, runway
     """
 
     # runway = Tool.load("runway")
@@ -868,6 +1043,10 @@ async def handle_video_creation(
     talking_head = "talking_head" in extras
     audio = args.get("audio", None)
     sound_effects = args.get("sound_effects", None)
+    # Set only when this run is an auto-fallback for a real-person content-policy
+    # rejection (see _create_video_with_policy_fallback). Used to disable Wan's
+    # safety checker so the previously-rejected input is accepted.
+    permissive_fallback = bool(args.get("_permissive_fallback", False))
 
     intermediate_outputs = {}
 
@@ -877,33 +1056,69 @@ async def handle_video_creation(
     # get loras
     loras = get_loras(args.get("lora"), args.get("lora2"))
 
+    # Merge precedence: request arg > agent setting > paying-user preference
+    if not model_preference and access.video_model_preference:
+        model_preference = access.video_model_preference.lower()
+
+    premium = access.premium_enabled
+    pro = quality == "pro"
+
     # Rules
     if reference_video:
-        # Always use Runway Aleph for video-to-video style transfer
-        video_tool = "runway3"
+        # Reference-guided video is a premium capability (Seedance 2).
+        # (runway3/Aleph route retired: deprecated upstream + broken.)
+        if premium:
+            video_tool = "seedance2_reference"
+        else:
+            raise Exception(
+                "Video-to-video with a reference video requires premium models. "
+                "Enable premium models in this agent's settings (requires an "
+                "active subscription), or generate without reference_video. "
+                "For reference-IMAGE-driven video (character/subject consistency "
+                "from stills, including photos of real people), use the "
+                "vidu_reference tool instead — it needs no premium access."
+            )
     elif talking_head and audio:
         video_tool = "hedra"
     # Go by model preference
     else:
-        # img2vid (with start_image): default to kling_v25
-        # txt2vid (no start_image): default to veo3
+        # img2vid default: kling_v3; txt2vid default: veo3 for pro subscribers,
+        # veo_31_lite otherwise (the cheap tier).
+        seedance_tool = "seedance2" if (pro and premium) else "seedance1"
+        veo_tool = "veo3" if veo3_enabled else "veo_31_lite"
         if start_image:
             video_tool = {
-                "kling": "kling_v25",
-                "seedance": "seedance1",
-                "veo": "veo3",
+                "kling": "kling_v3",
+                "wan": "wan_27",
+                "seedance": seedance_tool,
+                "veo": veo_tool,
                 "runway": "runway",
-            }.get(model_preference, "kling_v25")
+            }.get(
+                model_preference,
+                "seedance2" if (pro and premium) else "kling_v3",
+            )
         else:
+            # kling_v3 is img2vid-only; kling txt2vid preference maps to wan_27
+            # until a Kling 3 t2v endpoint is added
             video_tool = {
-                "kling": "kling",
-                "seedance": "seedance1",
-                "veo": "veo3",
+                "kling": "wan_27",
+                "wan": "wan_27",
+                "seedance": seedance_tool,
+                "veo": veo_tool,
                 "runway": "runway",
-            }.get(model_preference, "veo3")
+            }.get(
+                model_preference,
+                ("veo3" if veo3_enabled else "veo_31_lite")
+                if pro
+                else "veo_31_lite",
+            )
 
-        if not veo3_enabled and video_tool == "veo3":
-            video_tool = "seedance1"
+    # Premium backstop: premium tools unreachable without both keys (routing
+    # may only downgrade from the billed quality, never upgrade)
+    if video_tool in ("seedance2", "seedance2_reference") and not premium:
+        video_tool = "seedance1"
+    if video_tool == "veo3" and not veo3_enabled:
+        video_tool = "veo_31_lite"
 
     tool_calls = []
 
@@ -1035,30 +1250,139 @@ async def handle_video_creation(
             )
 
     #########################################################
-    # Kling v2.5 (img2vid via FAL)
-    elif video_tool == "kling_v25":
-        kling_v25 = Tool.load("kling_v25")
-
-        # Kling v2.5 can only produce 5 or 10s videos (as strings)
-        duration_str = "10" if duration > 7.5 else "5"
+    # Kling 3 (img2vid via FAL) — create's DEFAULT image-to-video route
+    elif video_tool == "kling_v3":
+        kling_v3 = Tool.load("kling_v3")
 
         args = {
             "prompt": prompt,
-            "image_url": start_image,
-            "duration": duration_str,
+            "start_image_url": start_image,
+            # kling_v3 declares duration as a STRING enum ('3'..'15'); passing an
+            # int fails pydantic Literal validation and kills every call
+            "duration": str(max(3, min(int(duration), 15))),
+            # Only generate native audio when the user asked for sound effects;
+            # audio adds ~50% to the kling_v3 price.
+            "generate_audio": bool(sound_effects),
         }
-
         if end_image:
-            args["tail_image_url"] = end_image
+            args["end_image_url"] = end_image
+        # kling_v3 only supports these three; forwarding anything else (create
+        # advertises 11 ratios) is a validation error
+        if aspect_ratio in ("16:9", "9:16", "1:1"):
+            args["aspect_ratio"] = aspect_ratio
 
         if check_cancelled():
             return {"status": "cancelled", "output": None}
-        result = await kling_v25.async_run(
+        result = await kling_v3.async_run(
             args, save_thumbnails=True, cancellation_event=cancellation_event
         )
 
     #########################################################
     # Seedance
+    elif video_tool == "seedance2":
+        seedance2 = Tool.load("seedance2")
+
+        args = {
+            "prompt": prompt,
+            "duration": str(max(4, min(int(duration), 15))),
+            "resolution": "1080p" if quality == "pro" else "720p",
+            "generate_audio": True,
+        }
+        if aspect_ratio != "auto":
+            # seedance2 accepts a narrower set than create advertises
+            supported = _tool_accepts(seedance2, "aspect_ratio", aspect_ratio)
+            if supported:
+                args["aspect_ratio"] = supported
+        if start_image:
+            args["start_image"] = start_image
+        if end_image:
+            args["end_image"] = end_image
+        # no seed: Seedance 2.0 does not accept one
+
+        if check_cancelled():
+            return {"status": "cancelled", "output": None}
+        result = await seedance2.async_run(
+            args, save_thumbnails=True, cancellation_event=cancellation_event
+        )
+
+    elif video_tool == "seedance2_reference":
+        seedance2_reference = Tool.load("seedance2_reference")
+
+        args = {
+            "prompt": prompt,
+            "duration": str(max(4, min(int(duration), 15))),
+            "resolution": "1080p" if quality == "pro" else "720p",
+            "generate_audio": True,
+            "reference_videos": [reference_video],
+        }
+        if reference_images:
+            args["reference_images"] = reference_images[:9]
+        if aspect_ratio != "auto":
+            args["aspect_ratio"] = aspect_ratio
+        if audio:
+            args["reference_audio"] = [audio]
+
+        if check_cancelled():
+            return {"status": "cancelled", "output": None}
+        result = await seedance2_reference.async_run(
+            args, save_thumbnails=True, cancellation_event=cancellation_event
+        )
+
+    elif video_tool == "wan_27":
+        wan_27 = Tool.load("wan_27")
+
+        args = {
+            "prompt": prompt,
+            "duration": max(2, min(int(duration), 15)),
+            "resolution": "1080p" if quality == "pro" else "720p",
+        }
+        # wan v2.7 t2v supports 16:9/9:16/1:1/4:3/3:4 (no "auto"); the wan_27
+        # handler drops this on the i2v branch, where the schema has no such field
+        if aspect_ratio != "auto" and aspect_ratio in ("16:9", "9:16", "1:1", "4:3", "3:4"):
+            args["aspect_ratio"] = aspect_ratio
+        if start_image:
+            args["start_image"] = start_image
+        if end_image:
+            args["end_image"] = end_image
+        if audio:
+            args["audio_reference"] = audio
+        if seed:
+            args["seed"] = seed
+        if permissive_fallback:
+            # This Wan run is a permissive fallback for a real-person rejection:
+            # disable the provider content moderation so the input is accepted.
+            args["enable_safety_checker"] = False
+
+        if check_cancelled():
+            return {"status": "cancelled", "output": None}
+        result = await wan_27.async_run(
+            args, save_thumbnails=True, cancellation_event=cancellation_event
+        )
+
+    elif video_tool == "veo_31_lite":
+        veo_31_lite = Tool.load("veo_31_lite")
+
+        # Veo Lite supports exactly 4, 6, or 8 seconds
+        lite_duration = min((4, 6, 8), key=lambda d: abs(d - duration))
+
+        args = {
+            "prompt": prompt,
+            "duration": lite_duration,
+            "resolution": "1080p" if quality == "pro" else "720p",
+            "generate_audio": True,
+            "n_samples": 1,
+        }
+        if aspect_ratio in ("16:9", "9:16"):
+            args["aspect_ratio"] = aspect_ratio
+        if start_image:
+            args["image"] = start_image
+
+        if check_cancelled():
+            return {"status": "cancelled", "output": None}
+        result = await veo_31_lite.async_run(
+            args, save_thumbnails=True, cancellation_event=cancellation_event
+        )
+
     elif video_tool == "seedance1":
         seedance1 = Tool.load("seedance1")
 
@@ -1213,8 +1537,11 @@ async def handle_video_creation(
 
     tool_calls.append({"tool": video_tool, "args": args, "output": final_video})
 
-    # If sound effects are requested, try to add them
-    if sound_effects and video_tool != "veo3":
+    # If sound effects are requested, try to add them — but not for models
+    # that already generated native audio for this run
+    NATIVE_AUDIO_TOOLS = ("veo3", "kling_v3", "wan_27", "seedance2",
+                          "seedance2_reference", "veo_31_lite")
+    if sound_effects and video_tool not in NATIVE_AUDIO_TOOLS:
         try:
             args = {
                 "video": final_video,

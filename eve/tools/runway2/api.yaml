@@ -7,8 +7,8 @@ cost_estimate: 30
 output_type: video
 base_model: runway
 handler: modal
-active: true
-visible: true
+active: false
+visible: false
 parameters:
   character_image:
     type: image

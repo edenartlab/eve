@@ -844,6 +844,16 @@ class Tool(Document, ABC):
                 else:
                     # Clear results so cancelled tasks never have usable output
                     task.update(status="cancelled", result=[])
+                # Give the manna back (idempotent: unique refund index +
+                # delivered-creations accounting in refund_manna). Historically
+                # this was missing — cancelled and timed-out webhook tasks
+                # (fal/replicate) kept the user's money.
+                try:
+                    task.reload()
+                    task.refund_manna()
+                except Exception as e:
+                    logger.error(f"Refund on cancel failed for {task.id}: {e}")
+                    sentry_sdk.capture_exception(e)
 
         return async_wrapper
 

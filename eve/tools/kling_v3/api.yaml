@@ -1,9 +1,28 @@
 name: Kling v3 Image to Video
 description: Generate 3-15s videos with audio from a starting image using Kling v3.0 Standard via FAL. Supports native audio generation, voice control, and custom character/object elements.
 tip: |-
-  Generate high-quality cinematic videos with native audio from a starting image. Supports optional end image, voice control, and custom elements (characters/objects) for more controlled video generation.
-  For voice control, reference voices in your prompt with <<<voice_1>>> and <<<voice_2>>>.
-  For custom elements, reference them in your prompt as @Element1, @Element2, etc.
+  Eden's default mid-tier image-to-video model: best-in-class first-pass motion
+  quality and built-in lip-sync at a fair price. Animates from a required
+  start image, with an optional end image for controlled transitions.
+
+  HOW TO USE IT WELL:
+  - start_image_url is the exact FIRST FRAME (min 300x300, aspect 0.4-2.5);
+    end_image_url (optional) is the exact LAST FRAME — great for match-cuts
+    and controlled transformations.
+  - DIALOGUE: write it as [Character A: raspy deep voice]: "the line" — unique
+    consistent labels (never pronouns), include vocal quality. Budget ~8-12
+    words per 5s (6-9 per 4s); longer lines break lip-sync. Use "Immediately"
+    between speakers to avoid dead air. Native audio speaks English/Chinese;
+    other languages are auto-translated.
+  - MULTI-SHOT in one prompt: a master style/character anchor, then explicit
+    per-shot beats ("cut to..."), up to ~6 shots in 15s. For long sequences
+    append anti-drift negatives: "jittery eyes, frozen lips, character drift,
+    warping hands".
+  - Audio adds ~50% to the price — set generate_audio false when the video
+    will be scored separately.
+  (Advanced: custom character Elements, cloned voice_ids, and structured
+  multi_prompt shot lists exist on the underlying API but are not exposed to
+  chat agents; direct API callers can use them.)
 output_type: video
 cost_estimate: 'generate_audio ? 25 * duration : 17 * duration'
 handler: fal
@@ -92,16 +111,37 @@ parameters:
     hide_from_agent: true
   voice_ids:
     label: Voice IDs
-    type: list
+    type: array
+    items:
+      type: string
     required: false
     description: Voice IDs for voice control. Reference voices in your prompt with <<<voice_1>>> and <<<voice_2>>> (max 2 voices). Get voice IDs from the kling video create-voice endpoint.
     hide_from_agent: true
+    hide_from_user: true
+    hide_from_ui: true
   elements:
     label: Elements
-    type: list
+    type: array
+    items:
+      type: object
+      properties:
+        frontal_image_url:
+          type: image
+          label: Frontal Image
+          description: Front-facing image of the character/object (primary identity reference).
+          required: true
+        reference_image_urls:
+          type: array
+          label: Reference Images
+          description: Additional angles of the same character/object.
+          required: false
+          items:
+            type: image
     required: false
     description: Characters or objects to include in the video. Each element can be an image set (frontal + reference images) or a video. Reference in prompt as @Element1, @Element2, etc.
     hide_from_agent: true
+    hide_from_user: true
+    hide_from_ui: true
   shot_type:
     label: Shot Type
     type: string
@@ -114,7 +154,22 @@ parameters:
     hide_from_ui: true
   multi_prompt:
     label: Multi-Shot Prompts
-    type: list
+    type: array
+    items:
+      type: object
+      properties:
+        prompt:
+          type: string
+          label: Prompt
+          description: Text prompt for this shot.
+          required: true
+        duration:
+          type: string
+          label: Duration
+          description: Duration of this shot in seconds.
+          required: true
     required: false
     description: List of prompts for multi-shot video generation. Divides the video into multiple shots. Each element has a prompt and duration.
     hide_from_agent: true
+    hide_from_user: true
+    hide_from_ui: true
