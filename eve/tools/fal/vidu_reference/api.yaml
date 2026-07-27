@@ -1,5 +1,5 @@
 name: Vidu Reference-to-Video
-description: Vidu's reference-to-video — compose a video from up to 3 reference images for consistent subject appearance. Permissive with real people, making it the go-to reference-to-video tool for animating real subjects (unlike Seedance, which rejects real-person references).
+description: Vidu's reference-to-video — compose a short (~4s) video from up to 3 reference images for consistent subject appearance. Permissive with real people, making it the go-to reference-to-video tool for animating real subjects (unlike Seedance, which rejects real-person references).
 tip: |-
   Reference-to-video that KEEPS REAL PEOPLE. Provide up to 3 images of your
   subject(s) and describe the shot; Vidu carries their appearance into the
@@ -16,8 +16,10 @@ tip: |-
     conflicting text degrades likeness. Keep prompts under 1500 characters.
   - movement_amplitude controls how much motion: "small" for subtle/portrait
     motion, "large" for dynamic action, "auto" to let the model decide.
-  - Fixed short duration and native resolution — iterate on the prompt/refs, not
-    length settings.
+  - Output is a SHORT ~4 second clip at the model's native resolution — there is
+    no duration control. For longer single shots use seedance2 (4-15s) or
+    wan_27; use this tool when reference-driven subject consistency (especially
+    with real people) matters more than clip length.
 
   When to prefer something else: for a single start frame use image-to-video
   (kling_v3/wan_27); for premium stylized multi-reference composition with audio
