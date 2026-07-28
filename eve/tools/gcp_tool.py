@@ -100,6 +100,16 @@ def submit_job(gcr_image_uri, machine_type, gpu, gpu_count, task_id):
                 "container_spec": {
                     "image_uri": gcr_image_uri,
                     "args": [f"--task_id={task_id}", f"--db={db}"],
+                    # The image bakes in secrets at build time; the OPENAI_API_KEY
+                    # in the current image (built Mar 2025) has been revoked, which
+                    # kills GPT captioning. Job-spec env overrides the image ENV,
+                    # so pass eve's live key through instead of rebuilding.
+                    "env": [
+                        {
+                            "name": "OPENAI_API_KEY",
+                            "value": os.environ["OPENAI_API_KEY"],
+                        }
+                    ],
                 },
             }
         ],
