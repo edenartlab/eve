@@ -302,16 +302,41 @@ async def handle_fal_webhook(body: dict):
 
     Payload: {request_id, gateway_request_id, status: "OK"|"ERROR",
     payload: <result>, error?}. handler_id on the task is the fal request_id.
-    fal_update_task is idempotent (fal retries deliveries; the periodic sweep
-    and blocking waiters can race this).
+    fal_update_task claims the task atomically (fal retries deliveries; the
+    periodic sweep and blocking waiters can race this).
     """
+    from fastapi.responses import JSONResponse
+
     from eve.tools.fal_tool import fal_update_task
 
-    task = Task.from_handler_id(body["request_id"])
-    _ = fal_update_task(
-        task, body.get("status"), body.get("payload"), body.get("error")
+    request_id = body.get("request_id")
+    if not isinstance(request_id, str) or not request_id:
+        # Type check matters: a JSON object here would reach the Mongo query
+        # as operators. The signature gates this, but defense in depth is one line.
+        return JSONResponse(
+            status_code=400,
+            content={"status": "error", "message": "invalid request_id"},
+        )
+
+    try:
+        task = Task.from_handler_id(request_id)
+    except Exception:
+        # No such task. Either a delivery that beat the handler_id write (the
+        # 404 makes fal retry, which resolves it) or a signed delivery for a
+        # job that isn't ours. Never a 500 — that burns Sentry budget on
+        # attacker-fillable traffic.
+        logger.warning(f"fal webhook for unknown request_id {request_id[:64]}")
+        return JSONResponse(
+            status_code=404,
+            content={"status": "error", "message": "unknown request_id"},
+        )
+
+    # to_thread: finalization downloads media and uploads to S3 — never on the
+    # API's event loop (a slow video would stall every request in the container).
+    result = await asyncio.to_thread(
+        fal_update_task, task, body.get("status"), body.get("payload"), body.get("error")
     )
-    return {"status": "success"}
+    return {"status": "success", "task": result.get("status")}
 
 
 @handle_errors

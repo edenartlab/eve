@@ -1,3 +1,4 @@
+import asyncio
 import json
 import logging
 import os
@@ -67,12 +68,12 @@ from eve.api.handlers import (
     handle_create_notification,
     handle_embedsearch,
     handle_extract_agent_prompts,
+    handle_fal_webhook,
     handle_get_discord_channels,
     handle_prompt_session,
     handle_reaction,
     handle_realtime_tool,
     handle_refresh_discord_channels,
-    handle_fal_webhook,
     handle_replicate_webhook,
     handle_session_cancel,
     handle_session_fields_update,
@@ -245,20 +246,31 @@ async def fal_webhook(request: Request):
 
     Verified with fal's documented scheme: ED25519 over
     request_id\\nuser_id\\ntimestamp\\nsha256_hex(body) against fal's JWKS keys,
-    +/-5 min timestamp tolerance.
+    +/-5 min timestamp tolerance. Rejections return 401 with a GENERIC message
+    (the detail is logged, not echoed — the skew detail is a clock oracle) and
+    a non-2xx status so fal retries transient failures like a JWKS blip.
     """
     from eve.tools.fal_tool import verify_fal_webhook
 
     body = await request.body()
     try:
-        verify_fal_webhook(body, request.headers)
+        # to_thread: verification may do a blocking JWKS fetch (up to 10s);
+        # never on the event loop of the whole API.
+        await asyncio.to_thread(verify_fal_webhook, body, request.headers)
     except Exception as e:
-        return {"status": "error", "message": f"Invalid fal webhook: {str(e)}"}
+        logger.warning(f"rejected fal webhook: {e}")
+        return JSONResponse(
+            status_code=401,
+            content={"status": "error", "message": "invalid fal webhook signature"},
+        )
 
     try:
         data = json.loads(body)
     except json.JSONDecodeError:
-        return {"status": "error", "message": "Invalid JSON body"}
+        return JSONResponse(
+            status_code=400,
+            content={"status": "error", "message": "invalid JSON body"},
+        )
 
     return await handle_fal_webhook(data)
 
