@@ -265,3 +265,42 @@ async def test_anthropic_tool_calling():
         tool_call = response.tool_calls[0]
         assert tool_call.tool == "get_weather"
         assert "location" in tool_call.args
+
+
+def _anthropic_provider():
+    """Bare provider instance - _supports_web_search/_build_tools_payload need no client."""
+    from eve.agent.llm.providers.anthropic import AnthropicProvider
+
+    return AnthropicProvider.__new__(AnthropicProvider)
+
+
+@pytest.mark.parametrize(
+    "model",
+    [
+        "claude-sonnet-5",
+        "claude-opus-5",
+        "claude-sonnet-4-6",
+        "claude-haiku-4-5",
+        "claude-3-5-sonnet-20241022",
+    ],
+)
+def test_web_search_enabled_for_current_models(model):
+    """Regression: the old allowlist missed claude-sonnet-5, so abraham (the only
+    'high' tier agent) silently lost web search when PR#555 moved that tier to
+    sonnet-5. Every current Claude model must keep the server-side tool."""
+    assert _anthropic_provider()._supports_web_search(model) is True
+
+
+@pytest.mark.parametrize(
+    "model",
+    ["claude-3-opus-20240229", "gpt-5.4-nano", "gemini-3-flash-preview", ""],
+)
+def test_web_search_disabled_for_unsupported_models(model):
+    assert _anthropic_provider()._supports_web_search(model) is False
+
+
+def test_web_search_tool_appended_to_payload():
+    payload = _anthropic_provider()._build_tools_payload(
+        [{"name": "create", "input_schema": {}}], "claude-sonnet-5"
+    )
+    assert any(t.get("type", "").startswith("web_search_") for t in payload)
