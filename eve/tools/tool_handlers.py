@@ -112,9 +112,54 @@ HANDLER_PATHS = {
 }
 
 
+def _make_fal_handler(name):
+    """Generic handler for any tool whose api.yaml declares a `fal_endpoint`.
+
+    Runs fal's blocking subscribe path (FalTool._call_with_retry) inside the
+    Modal run_task container — the same approach the eve/tools/fal/* tools use
+    and the only one proven to complete. Returns raw output URLs so the shared
+    task handler does the uploading and Creation bookkeeping.
+
+    This exists so no handler:fal tool needs a bespoke handler module.
+    """
+
+    async def handler(context):
+        import asyncio
+
+        from eve.tool import Tool
+
+        tool = Tool.load(name)
+        endpoint = getattr(tool, "fal_endpoint", None)
+        if not endpoint:
+            raise ValueError(f"{name}: no fal_endpoint declared")
+
+        args = tool.prepare_args(dict(context.args))
+        args = await asyncio.to_thread(tool._format_args_for_fal, args)
+        result = await tool._call_with_retry(endpoint, args)
+
+        urls = tool._extract_urls_from_fal_result(result)
+        if not urls:
+            raise ValueError(f"{name}: fal returned no output ({result})")
+        return {"output": urls}
+
+    return handler
+
+
 def load_handler(name):
     if name not in handlers:
         if name not in HANDLER_PATHS:
+            # Any tool declaring a fal_endpoint can run through the generic
+            # blocking fal path, so it needs no entry here.
+            try:
+                from eve.tool import Tool
+
+                tool = Tool.load(name)
+            except Exception:
+                tool = None
+            if tool is not None and getattr(tool, "fal_endpoint", None):
+                handlers[name] = _make_fal_handler(name)
+                return handlers[name]
+
             raise ValueError(f"Unknown handler: {name}")
 
         module_path = f".{HANDLER_PATHS[name]}"
