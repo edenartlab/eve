@@ -25,6 +25,7 @@ from eve.api.api_functions import (
     cleanup_stuck_triggers,
     memory2_process_cold_sessions_fn,
     run_task_replicate,
+    sweep_pending_fal_tasks_fn,
 )
 from eve.api.api_functions import (
     run as _run,
@@ -71,6 +72,7 @@ from eve.api.handlers import (
     handle_reaction,
     handle_realtime_tool,
     handle_refresh_discord_channels,
+    handle_fal_webhook,
     handle_replicate_webhook,
     handle_session_cancel,
     handle_session_fields_update,
@@ -235,6 +237,30 @@ async def replicate_webhook(request: Request):
         return {"status": "error", "message": f"Invalid webhook signature: {str(e)}"}
 
     return await handle_replicate_webhook(data)
+
+
+@web_app.post("/update-fal")
+async def fal_webhook(request: Request):
+    """Completion callback for fal queue requests (see FalTool.async_start_task).
+
+    Verified with fal's documented scheme: ED25519 over
+    request_id\\nuser_id\\ntimestamp\\nsha256_hex(body) against fal's JWKS keys,
+    +/-5 min timestamp tolerance.
+    """
+    from eve.tools.fal_tool import verify_fal_webhook
+
+    body = await request.body()
+    try:
+        verify_fal_webhook(body, request.headers)
+    except Exception as e:
+        return {"status": "error", "message": f"Invalid fal webhook: {str(e)}"}
+
+    try:
+        data = json.loads(body)
+    except json.JSONDecodeError:
+        return {"status": "error", "message": "Invalid JSON body"}
+
+    return await handle_fal_webhook(data)
 
 
 @web_app.post("/triggers/run")
@@ -650,6 +676,7 @@ async def periodic_fn():
     """Single consolidated periodic worker (one scheduled fn for all of api)."""
     for fn in (
         run_scheduled_triggers_fn,  # fire due user/agent scheduled sessions
+        sweep_pending_fal_tasks_fn,  # recover fal tasks whose webhook was missed
         cancel_stuck_tasks_fn,
         cleanup_stale_busy_states,
         cleanup_stuck_triggers,
