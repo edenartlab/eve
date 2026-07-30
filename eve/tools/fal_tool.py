@@ -2,10 +2,10 @@ import asyncio
 import logging
 import os
 import re
+from datetime import datetime, timezone
 from typing import Any, List
 
 import fal_client
-import modal
 from pydantic import Field
 
 from .. import utils
@@ -229,52 +229,90 @@ class FalTool(Tool):
 
     @Tool.handle_start_task
     async def async_start_task(self, task: Task):
-        """Run the task to completion in a Modal container (blocking subscribe).
+        """Submit to fal's queue with a completion webhook; return immediately.
 
-        This previously submitted to fal's queue with a webhook and returned
-        immediately, but that path could never complete:
-          1. `webhook_url` was passed INSIDE `arguments`, while it is a
-             keyword-only parameter of fal_client.submit — fal ignores unknown
-             input keys, so it never received a callback URL at all; and
-          2. the only webhook endpoint (/update) validates Replicate signatures
-             and routes to the Replicate handler, so a fal callback would be
-             rejected anyway.
-        Tasks therefore sat pending until the >3h stuck-task watchdog killed
-        them as "Timed out" (every handler:fal tool, on every direct API/studio
-        call). Running through Modal's run_task is the same model the modal and
-        replicate tools use, and matches the eve/tools/fal/* tools that work.
+        The work runs on fal's servers — nothing on our side needs to stay
+        alive (no held Modal container, no polling). Completion arrives at
+        POST /update-fal (eve/api: handle_fal_webhook -> fal_update_task), and
+        a periodic sweep (sweep_pending_fal_tasks_fn) re-polls any fal task
+        still pending after a few minutes in case a webhook delivery is missed.
+
+        NOTE the historical bug this replaces: webhook_url MUST be the keyword
+        argument of fal_client.submit (it becomes the ?fal_webhook= query
+        param). It used to be buried inside `arguments`, where fal silently
+        ignores unknown keys — so no webhook was ever registered, nothing
+        polled, and every direct fal task hung until the 3h watchdog killed it
+        as "Timed out".
         """
         check_fal_api_token()
-        db = os.getenv("DB", "STAGE").upper()
-        func = modal.Function.from_name(
-            f"api-{db.lower()}", "run_task", environment_name="main"
+        args = self.prepare_args(task.args)
+        args = await asyncio.to_thread(self._format_args_for_fal, args)
+
+        handler = await asyncio.to_thread(
+            fal_client.submit,
+            self.fal_endpoint,
+            arguments=args,
+            webhook_url=get_webhook_url(),
         )
-        job = await func.spawn.aio(task)
-        return job.object_id
+        return handler.request_id
 
     @Tool.handle_wait
     async def async_wait(self, task: Task):
-        """Wait on the Modal job spawned by async_start_task.
+        """Poll fal until the request finishes (blocking callers only).
 
-        handler_id is now a Modal FunctionCall id (not a fal request id); the
-        run_task container updates the task itself, so we just await it.
+        The primary completion path is the webhook; this exists for callers
+        that need to block on a task. Finalization goes through
+        fal_update_task, which is idempotent, so racing the webhook is safe.
         """
-        fc = modal.functions.FunctionCall.from_id(task.handler_id)
-        await fc.get.aio()
-        task.reload()
-        return task.model_dump(include={"status", "error", "result"})
+        check_fal_api_token()
+        request_id = task.handler_id
+
+        while True:
+            task.reload()
+            if task.status in ("completed", "failed", "cancelled"):
+                return task.model_dump(include={"status", "error", "result"})
+
+            try:
+                status = await asyncio.to_thread(
+                    fal_client.status,
+                    self.fal_endpoint,
+                    request_id,
+                    with_logs=False,
+                )
+            except ValueError as e:
+                # fal-client raises ValueError for FAILED / CANCELED statuses
+                error_msg = str(e)
+                if "CANCELED" in error_msg:
+                    task.update(status="cancelled")
+                    task.refund_manna()
+                    return {"status": "cancelled"}
+                if "FAILED" in error_msg:
+                    return fal_update_task(task, "ERROR", None, error_msg)
+                raise
+
+            if isinstance(status, fal_client.InProgress):
+                if task.status != "running":
+                    task.update(status="running")
+            elif isinstance(status, fal_client.Completed):
+                result = await asyncio.to_thread(
+                    fal_client.result, self.fal_endpoint, request_id
+                )
+                return fal_update_task(task, "OK", result, None)
+
+            await asyncio.sleep(1)
 
     @Tool.handle_cancel
     async def async_cancel(self, task: Task):
-        """Cancel the Modal job (handler_id is a Modal FunctionCall id)."""
+        """Cancel the fal queue request (handler_id is the fal request id)."""
         if not task.handler_id:
             return
         try:
-            fc = modal.functions.FunctionCall.from_id(task.handler_id)
-            await fc.cancel.aio()
-            logger.info(f"Cancelled Modal job {task.handler_id}")
+            await asyncio.to_thread(
+                fal_client.cancel, self.fal_endpoint, task.handler_id
+            )
+            logger.info(f"FAL cancel sent for {task.handler_id}")
         except Exception as e:
-            logger.warning(f"Failed to cancel Modal job {task.handler_id}: {e}")
+            logger.warning(f"FAL cancel failed for {task.handler_id}: {e}")
 
     def _format_args_for_fal(self, args: dict):
         """Format the arguments for FAL API call"""
@@ -402,10 +440,156 @@ def get_webhook_url():
         else ""
     )
 
-    webhook_url = f"https://edenartlab--{env}-fastapi-app{dev}.modal.run/update"
+    # /update is the Replicate webhook (replicate signature validation);
+    # fal callbacks go to their own endpoint with fal's ED25519 scheme.
+    webhook_url = f"https://edenartlab--{env}-fastapi-app{dev}.modal.run/update-fal"
     return webhook_url
 
 
 def check_fal_api_token():
     if not os.getenv("FAL_KEY"):
         raise Exception("FAL_KEY is not set")
+
+
+# ---------------------------------------------------------------------------
+# Webhook-side finalization
+# ---------------------------------------------------------------------------
+
+def fal_update_task(task: Task, status: str, payload, error):
+    """Finalize a fal task from a webhook payload ({status: OK|ERROR, payload})
+    or from a status poll (async_wait / the periodic sweep).
+
+    IDEMPOTENT via the terminal-status guard: fal retries webhook deliveries,
+    and the sweep or a blocking waiter can race a webhook — only the first
+    finalizer runs; the rest no-op. Mirrors replicate_update_task.
+    """
+    task.reload()
+    if task.status in ("completed", "failed", "cancelled"):
+        return {"status": task.status}
+
+    if status != "OK":
+        error_msg = str(error or "fal returned an error")[:500]
+        task.update(status="failed", error=error_msg)
+        task.refund_manna()
+        return {"status": "failed", "error": error_msg}
+
+    tool = Tool.load(task.tool)
+    urls = tool._extract_urls_from_fal_result(payload or {})
+    if not urls:
+        error_msg = f"fal returned no output: {str(payload)[:300]}"
+        task.update(status="failed", error=error_msg)
+        task.refund_manna()
+        return {"status": "failed", "error": error_msg}
+
+    output = utils.upload_result(urls, save_thumbnails=True, save_blurhash=True)
+    result = [{"output": [out]} for out in output]
+
+    for r, res in enumerate(result):
+        for o, out in enumerate(res["output"]):
+            creation = Creation(
+                user=task.user,
+                agent=task.agent,
+                task=task.id,
+                tool=task.tool,
+                filename=out["filename"],
+                mediaAttributes=out["mediaAttributes"],
+                name=task.args.get("prompt"),
+                public=task.public,
+            )
+            creation.save()
+            result[r]["output"][o]["creation"] = creation.id
+
+    run_time = (
+        datetime.now(timezone.utc) - task.createdAt.replace(tzinfo=timezone.utc)
+    ).total_seconds()
+    task.performance["runTime"] = run_time
+    task.status = "completed"
+    task.result = result
+    task.save()
+    return {"status": "completed", "result": result}
+
+
+# ---------------------------------------------------------------------------
+# Webhook signature verification (fal's documented scheme)
+#
+# Headers: X-Fal-Webhook-Request-Id, X-Fal-Webhook-User-Id,
+#          X-Fal-Webhook-Timestamp, X-Fal-Webhook-Signature (hex)
+# Message: "\n".join(request_id, user_id, timestamp, sha256_hex(raw_body))
+# Verify:  ED25519 against any key from fal's JWKS (keys[].x is a base64url
+#          ED25519 public key); timestamp must be within +/-5 minutes.
+# Verified against fal's docs and two independent SDK implementations.
+# ---------------------------------------------------------------------------
+
+FAL_JWKS_URL = "https://rest.alpha.fal.ai/.well-known/jwks.json"
+_FAL_JWKS_TTL = 24 * 3600  # fal say keys may rotate; don't cache longer than 24h
+_fal_jwks_cache = {"keys": None, "fetched_at": 0.0}
+
+
+def _get_fal_public_keys():
+    import base64
+    import time
+
+    import httpx
+
+    now = time.time()
+    if (
+        _fal_jwks_cache["keys"]
+        and now - _fal_jwks_cache["fetched_at"] < _FAL_JWKS_TTL
+    ):
+        return _fal_jwks_cache["keys"]
+
+    resp = httpx.get(FAL_JWKS_URL, timeout=10)
+    resp.raise_for_status()
+    keys = []
+    for jwk in resp.json().get("keys", []):
+        x = jwk.get("x")
+        if not x:
+            continue
+        pad = "=" * (-len(x) % 4)
+        keys.append(base64.urlsafe_b64decode(x + pad))
+    if keys:
+        _fal_jwks_cache.update(keys=keys, fetched_at=now)
+    return keys
+
+
+def verify_fal_webhook(body: bytes, headers) -> None:
+    """Raise ValueError unless this is an authentic, fresh fal webhook."""
+    import hashlib
+    import time
+
+    from cryptography.exceptions import InvalidSignature
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
+
+    def h(name):
+        value = headers.get(name)
+        if not value:
+            raise ValueError(f"missing header {name}")
+        return value
+
+    request_id = h("X-Fal-Webhook-Request-Id")
+    user_id = h("X-Fal-Webhook-User-Id")
+    timestamp = h("X-Fal-Webhook-Timestamp")
+    signature_hex = h("X-Fal-Webhook-Signature")
+
+    try:
+        skew = abs(time.time() - int(timestamp))
+    except ValueError:
+        raise ValueError("invalid timestamp header")
+    if skew > 300:
+        raise ValueError(f"timestamp outside tolerance ({skew:.0f}s)")
+
+    message = "\n".join(
+        [request_id, user_id, timestamp, hashlib.sha256(body).hexdigest()]
+    ).encode()
+    try:
+        signature = bytes.fromhex(signature_hex)
+    except ValueError:
+        raise ValueError("signature is not valid hex")
+
+    for key_bytes in _get_fal_public_keys():
+        try:
+            Ed25519PublicKey.from_public_bytes(key_bytes).verify(signature, message)
+            return
+        except (InvalidSignature, ValueError):
+            continue
+    raise ValueError("signature did not verify against any fal public key")

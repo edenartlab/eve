@@ -297,6 +297,23 @@ async def handle_replicate_webhook(body: dict):
     return {"status": "success"}
 
 
+async def handle_fal_webhook(body: dict):
+    """Finalize a fal task from its completion webhook.
+
+    Payload: {request_id, gateway_request_id, status: "OK"|"ERROR",
+    payload: <result>, error?}. handler_id on the task is the fal request_id.
+    fal_update_task is idempotent (fal retries deliveries; the periodic sweep
+    and blocking waiters can race this).
+    """
+    from eve.tools.fal_tool import fal_update_task
+
+    task = Task.from_handler_id(body["request_id"])
+    _ = fal_update_task(
+        task, body.get("status"), body.get("payload"), body.get("error")
+    )
+    return {"status": "success"}
+
+
 @handle_errors
 async def handle_agent_tools_update(request: AgentToolsUpdateRequest):
     agent = Agent.from_mongo(ObjectId(request.agent_id))
