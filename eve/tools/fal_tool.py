@@ -5,6 +5,7 @@ import re
 from typing import Any, List
 
 import fal_client
+import modal
 from pydantic import Field
 
 from .. import utils
@@ -227,92 +228,53 @@ class FalTool(Tool):
         return output_urls
 
     @Tool.handle_start_task
-    async def async_start_task(self, task: Task, webhook: bool = True):
+    async def async_start_task(self, task: Task):
+        """Run the task to completion in a Modal container (blocking subscribe).
+
+        This previously submitted to fal's queue with a webhook and returned
+        immediately, but that path could never complete:
+          1. `webhook_url` was passed INSIDE `arguments`, while it is a
+             keyword-only parameter of fal_client.submit — fal ignores unknown
+             input keys, so it never received a callback URL at all; and
+          2. the only webhook endpoint (/update) validates Replicate signatures
+             and routes to the Replicate handler, so a fal callback would be
+             rejected anyway.
+        Tasks therefore sat pending until the >3h stuck-task watchdog killed
+        them as "Timed out" (every handler:fal tool, on every direct API/studio
+        call). Running through Modal's run_task is the same model the modal and
+        replicate tools use, and matches the eve/tools/fal/* tools that work.
+        """
         check_fal_api_token()
-        args = self.prepare_args(task.args)
-        args = await asyncio.to_thread(self._format_args_for_fal, args)
-
-        # Use webhook if provided
-        webhook_url = get_webhook_url() if webhook else None
-        if webhook_url:
-            args["webhook_url"] = webhook_url
-
-        # Submit the request to FAL queue and get the request_id
-        handler = await asyncio.to_thread(
-            fal_client.submit, self.fal_endpoint, arguments=args
+        db = os.getenv("DB", "STAGE").upper()
+        func = modal.Function.from_name(
+            f"api-{db.lower()}", "run_task", environment_name="main"
         )
-
-        return handler.request_id
+        job = await func.spawn.aio(task)
+        return job.object_id
 
     @Tool.handle_wait
     async def async_wait(self, task: Task):
-        check_fal_api_token()
-        request_id = task.handler_id
+        """Wait on the Modal job spawned by async_start_task.
 
-        last_print_time = 0  # Initialize timer
-
-        while True:
-            # Check if task was cancelled before each poll
-            task.reload()
-            if task.status == "cancelled":
-                return {"status": "cancelled"}
-
-            try:
-                status = await asyncio.to_thread(
-                    fal_client.status,
-                    self.fal_endpoint,
-                    request_id,
-                    with_logs=self.with_logs,
-                )
-            except ValueError as e:
-                # fal-client raises ValueError for unknown statuses
-                # (e.g. FAILED, CANCELED)
-                error_msg = str(e)
-                if "FAILED" in error_msg or "CANCELED" in error_msg:
-                    is_cancel = "CANCELED" in error_msg
-                    if is_cancel:
-                        task.update(status="cancelled")
-                        task.refund_manna()
-                        return {"status": "cancelled"}
-                    else:
-                        task.update(status="failed", error=error_msg)
-                        task.refund_manna()
-                        return {"status": "failed", "error": error_msg}
-                raise
-
-            if isinstance(status, fal_client.InProgress):
-                task.status = "running"
-                task.save()
-                # Print running status only every 2 seconds
-                current_time = asyncio.get_event_loop().time()
-                if current_time - last_print_time >= 2.0:
-                    last_print_time = current_time
-
-            elif isinstance(status, fal_client.Completed):
-                result = await asyncio.to_thread(
-                    fal_client.result, self.fal_endpoint, request_id
-                )
-                processed_result = self._process_result(result, task)
-                task.status = "completed"
-                task.result = processed_result
-                task.save()
-                return {"status": "completed", "result": processed_result}
-
-            # Queued status — just keep polling
-
-            await asyncio.sleep(0.5)  # Poll every 0.5 seconds
+        handler_id is now a Modal FunctionCall id (not a fal request id); the
+        run_task container updates the task itself, so we just await it.
+        """
+        fc = modal.functions.FunctionCall.from_id(task.handler_id)
+        await fc.get.aio()
+        task.reload()
+        return task.model_dump(include={"status", "error", "result"})
 
     @Tool.handle_cancel
     async def async_cancel(self, task: Task):
+        """Cancel the Modal job (handler_id is a Modal FunctionCall id)."""
         if not task.handler_id:
             return
         try:
-            await asyncio.to_thread(
-                fal_client.cancel, self.fal_endpoint, task.handler_id
-            )
-            logger.info(f"FAL cancel sent for {task.handler_id}")
+            fc = modal.functions.FunctionCall.from_id(task.handler_id)
+            await fc.cancel.aio()
+            logger.info(f"Cancelled Modal job {task.handler_id}")
         except Exception as e:
-            logger.warning(f"FAL cancel failed for {task.handler_id}: {e}")
+            logger.warning(f"Failed to cancel Modal job {task.handler_id}: {e}")
 
     def _format_args_for_fal(self, args: dict):
         """Format the arguments for FAL API call"""

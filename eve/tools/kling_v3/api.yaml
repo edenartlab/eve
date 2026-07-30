@@ -107,8 +107,13 @@ parameters:
       - "16:9"
       - "9:16"
       - "1:1"
-    description: The aspect ratio of the generated video frame.
+    # NOT a real input on fal-ai/kling-video/v3/standard/image-to-video (verified
+    # against the live schema) — image-to-video takes its frame from the start
+    # image, so any value here is silently dropped. Kept for stored-arg
+    # compatibility but hidden so nobody is offered a control that does nothing.
+    description: Ignored — image-to-video follows the start image's aspect ratio.
     hide_from_agent: true
+    hide_from_ui: true
   voice_ids:
     label: Voice IDs
     type: array

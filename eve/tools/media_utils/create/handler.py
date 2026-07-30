@@ -1266,10 +1266,8 @@ async def handle_video_creation(
         }
         if end_image:
             args["end_image_url"] = end_image
-        # kling_v3 only supports these three; forwarding anything else (create
-        # advertises 11 ratios) is a validation error
-        if aspect_ratio in ("16:9", "9:16", "1:1"):
-            args["aspect_ratio"] = aspect_ratio
+        # no aspect_ratio: fal's kling v3 image-to-video endpoint has no such
+        # input (the frame follows the start image), so sending one is a no-op
 
         if check_cancelled():
             return {"status": "cancelled", "output": None}
