@@ -472,27 +472,23 @@ class AnthropicProvider(LLMProvider):
                 return True
         return False
 
-    def _supports_web_search(self, model_name: str) -> bool:
-        """Check if a model supports web search.
+    # Claude models that predate the web search tool. Everything from 3.5 on
+    # supports it, so this is a denylist rather than an allowlist: the previous
+    # allowlist silently dropped web_search the moment abraham moved to
+    # claude-sonnet-5 (2026-07-20), because no pattern matched the new name. A
+    # denylist fails open on the next model bump instead of failing silent.
+    _NO_WEB_SEARCH_MODELS = (
+        "claude-3-opus",
+        "claude-3-sonnet",
+        "claude-3-haiku",
+    )
 
-        Web search is available on Claude 3.7 Sonnet, 3.5 Sonnet, and 3.5 Haiku.
-        """
+    def _supports_web_search(self, model_name: str) -> bool:
+        """Check if a model supports Anthropic's server-side web search tool."""
         normalized = model_name.lower().strip()
-        # Web search supported models
-        web_search_patterns = [
-            "claude-3-7-sonnet",
-            "claude-3.7-sonnet",
-            "claude-3-5-sonnet",
-            "claude-3.5-sonnet",
-            "claude-3-5-haiku",
-            "claude-3.5-haiku",
-            "claude-sonnet-4",  # Newer naming
-            "claude-haiku-4",  # Newer naming
-        ]
-        for pattern in web_search_patterns:
-            if pattern in normalized:
-                return True
-        return False
+        if not normalized.startswith("claude-"):
+            return False
+        return not normalized.startswith(self._NO_WEB_SEARCH_MODELS)
 
     def _deferred_tools_enabled(self) -> bool:
         return os.getenv("FF_DEFERRED_TOOLS", "").lower() in {
