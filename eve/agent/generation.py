@@ -234,6 +234,16 @@ def pro_tier_is_noop(args: dict, access: GenerationAccess) -> bool:
             return not access.premium_enabled
         return False
 
+    # LoRA generations pick their model by the LoRA's BASE MODEL, not by tier:
+    # create routes them to txt2img (sdxl) or flux_dev_lora (flux), neither of
+    # which takes a quality-dependent argument. So pro changes nothing about
+    # the output while tripling the price — regardless of entitlement, which
+    # is why this check comes before the entitlement one below. (Only applies
+    # to generation: with a reference image the edit map is used instead and
+    # the LoRA is ignored.)
+    if args.get("lora") and not (args.get("reference_images") or []):
+        return True
+
     # Images: pro reaches gpt_image_2 with premium, or nano_banana_pro for
     # subscribers. With neither, it lands back on nano_banana_2_fal — the exact
     # standard-tier model, at 3x the price.

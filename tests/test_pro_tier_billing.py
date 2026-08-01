@@ -85,3 +85,49 @@ def test_downgrade_actually_changes_the_bill():
     assert pro == 850 and std == 250
     # an unentitled img2vid caller is billed 250, not 850, for the kling_v3 they get
     assert pro_tier_is_noop({**I2V, "duration": 10}, acc()) is True
+
+
+# ---------------------------------------------------------------------------
+# LoRA generations: create routes by the LoRA's base model, ignoring quality
+# ---------------------------------------------------------------------------
+
+LORA_IMG = {"output": "image", "quality": "pro", "lora": "65f0…"}
+
+
+@pytest.mark.parametrize(
+    "args,access,expected,why",
+    [
+        (LORA_IMG, acc(), True, "sdxl/flux lora -> txt2img|flux_dev_lora, no quality arg"),
+        (LORA_IMG, acc(subscriber=True), True, "subscribers too — routing ignores tier"),
+        (LORA_IMG, acc(premium=True), True, "premium too — the lora branch precedes it"),
+        (
+            {**LORA_IMG, "reference_images": ["a.png"]},
+            acc(premium=True), False,
+            "with a reference image the edit map runs and the lora is ignored",
+        ),
+        (
+            {**LORA_IMG, "quality": "standard"},
+            acc(), False, "standard is never touched",
+        ),
+    ],
+)
+def test_lora_pro_is_noop(args, access, expected, why):
+    assert pro_tier_is_noop(args, access) is expected, why
+
+
+def test_lora_pro_bills_standard_not_3x():
+    """The overcharge in numbers: a pro LoRA image billed 30/sample for output
+    identical to the 10/sample standard render."""
+    from eve.utils.cost_utils import eval_cost
+
+    expr = (
+        '(output == "video" ? (((quality == "pro" ? 85 : 25) + '
+        '(sound_effects ? 10 : 0)) * duration) : '
+        '((quality == "pro" ? 30 : 10) * n_samples))'
+    )
+    pro = eval_cost(expr, output="image", quality="pro", sound_effects=None,
+                    duration=10, n_samples=1)
+    std = eval_cost(expr, output="image", quality="standard", sound_effects=None,
+                    duration=10, n_samples=1)
+    assert (pro, std) == (30, 10)
+    assert pro_tier_is_noop(LORA_IMG, acc(subscriber=True)) is True
