@@ -197,3 +197,54 @@ def resolve_model_preference(
     if request_val:
         return str(request_val).lower()
     return getattr(access, f"{kind}_model_preference", None)
+
+
+def pro_tier_is_noop(args: dict, access: GenerationAccess) -> bool:
+    """True when quality="pro" would buy the caller nothing on `create`.
+
+    Billing is pre-pay: `create`'s cost is computed from args BEFORE routing
+    runs, so a caller who is not entitled to any pro model would be charged the
+    pro rate and then silently routed to the very same model standard would have
+    used. This identifies exactly those cases so billing can downgrade first.
+
+    Only returns True when the routed tool AND its parameters are identical
+    between the two tiers. It deliberately does NOT fire when the tier still
+    changes something real — e.g. seedance2/wan_27/veo_31_lite render 1080p
+    instead of 720p at pro, and veo3 drops "fast" mode — because there the
+    caller does get more for the money.
+    """
+    args = args or {}
+    if str(args.get("quality", "standard")).lower() != "pro":
+        return False
+
+    if str(args.get("output", "image")).lower() == "video":
+        # Video-to-video is premium-gated and errors without premium; leave it alone.
+        if args.get("reference_video"):
+            return False
+        # Text-to-video always honours the tier: veo3 (subscriber) drops fast
+        # mode, and veo_31_lite renders 1080p instead of 720p.
+        if not (args.get("reference_images") or []):
+            return False
+        # Image-to-video: without premium the default route is kling_v3, which
+        # takes no quality-dependent parameter — identical output, double price.
+        # An explicit non-kling preference still resolves to a model whose
+        # resolution tracks the tier, so pro remains meaningful there.
+        preference = resolve_model_preference(args, access, "video")
+        if preference in (None, "", "kling"):
+            return not access.premium_enabled
+        return False
+
+    # LoRA generations pick their model by the LoRA's BASE MODEL, not by tier:
+    # create routes them to txt2img (sdxl) or flux_dev_lora (flux), neither of
+    # which takes a quality-dependent argument. So pro changes nothing about
+    # the output while tripling the price — regardless of entitlement, which
+    # is why this check comes before the entitlement one below. (Only applies
+    # to generation: with a reference image the edit map is used instead and
+    # the LoRA is ignored.)
+    if args.get("lora") and not (args.get("reference_images") or []):
+        return True
+
+    # Images: pro reaches gpt_image_2 with premium, or nano_banana_pro for
+    # subscribers. With neither, it lands back on nano_banana_2_fal — the exact
+    # standard-tier model, at 3x the price.
+    return not (access.premium_enabled or access.subscriber)

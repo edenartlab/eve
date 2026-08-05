@@ -17,8 +17,13 @@ tip: |-
   Aspect ratio:
     - Use 16:9 (landscape), 1:1 (square), 9:16 (portrait) unless the user specifies otherwise.
     - If aspect_ratio != "auto", it overrides any aspect ratio inferred from references.
-# pro image tier covers gpt_image_2 high ($0.211/img) at ~+42%; standard covers nb2
-cost_estimate: '(output == "video" ? (((quality == "pro" ? 50 : 25) + (sound_effects ? 10 : 0)) * duration) : ((quality == "pro" ? 30 : 10) * n_samples))'
+# Image: pro tier covers gpt_image_2 high ($0.211/img) at ~+42%; standard covers nb2.
+# Video: the pro rate must cover the most expensive model pro can route to —
+# seedance2 at 1080p is 80 manna/s, so 50/s was losing ~60% on every pro video
+# (a 10s pro render billed 500 and cost 800). 85/s covers seedance2 1080p with a
+# small margin and comfortably covers veo3. Standard (25/s) is healthy: it routes
+# to kling_v3 (17/s), veo_31_lite (6/s) or wan_27 720p (12/s).
+cost_estimate: '(output == "video" ? (((quality == "pro" ? 85 : 25) + (sound_effects ? 10 : 0)) * duration) : ((quality == "pro" ? 30 : 10) * n_samples))'
 output_type: image
 active: true
 visible: true

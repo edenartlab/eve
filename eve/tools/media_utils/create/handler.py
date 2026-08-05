@@ -1266,10 +1266,8 @@ async def handle_video_creation(
         }
         if end_image:
             args["end_image_url"] = end_image
-        # kling_v3 only supports these three; forwarding anything else (create
-        # advertises 11 ratios) is a validation error
-        if aspect_ratio in ("16:9", "9:16", "1:1"):
-            args["aspect_ratio"] = aspect_ratio
+        # no aspect_ratio: fal's kling v3 image-to-video endpoint has no such
+        # input (the frame follows the start image), so sending one is a no-op
 
         if check_cancelled():
             return {"status": "cancelled", "output": None}
@@ -1429,8 +1427,10 @@ async def handle_video_creation(
             aspect_ratio, "veo3", start_image_attributes
         )
 
-        # Veo can only produce 5-8s videos
-        duration = 4 if duration < 5 else 6 if duration < 7 else 8
+        # Veo only produces 4/6/8s. Round DOWN to the nearest supported length:
+        # create bills the user's requested duration, so rounding UP made veo3
+        # cost more than we charged (a 5s request ran 6s = 360 against a 250 bill).
+        duration = 8 if duration >= 8 else 6 if duration >= 6 else 4
 
         args = {
             "prompt": f"{prompt}. AUDIO: {sound_effects}" if sound_effects else prompt,

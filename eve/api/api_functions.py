@@ -44,6 +44,93 @@ async def cancel_stuck_tasks_fn():
         sentry_sdk.capture_exception(e)
 
 
+async def sweep_pending_fal_tasks_fn():
+    """Backstop for missed fal completion webhooks.
+
+    The primary path is fal POSTing /update-fal; if a delivery is dropped, this
+    finds fal tasks still pending/running after a few minutes and finalizes
+    them from a direct status poll. fal_update_task claims atomically, so
+    racing a late webhook is safe. The 3h cancel_stuck_tasks watchdog remains
+    the final guard for anything even this misses.
+
+    fal reports FAILED jobs as status COMPLETED — the failure only surfaces
+    when the result fetch raises with a 4xx (there is no FAILED/CANCELED
+    status in fal's queue enum), so error recovery hangs off the result call.
+    """
+    import asyncio
+
+    import fal_client
+
+    from eve.tools.fal_tool import _falclient_status_code, fal_update_task
+
+    try:
+        tasks3 = get_collection("tasks3")
+        cutoff = datetime.now(timezone.utc) - timedelta(minutes=5)
+
+        # Restrict the query to fal tools, and sweep oldest-first — without
+        # both, 50 pending long-running modal/replicate tasks would pin the
+        # window and starve the backstop exactly when the platform is busy.
+        fal_tool_keys = [
+            d["key"]
+            for d in get_collection("tools3").find({"handler": "fal"}, {"key": 1})
+        ]
+        if not fal_tool_keys:
+            return
+
+        candidates = list(
+            tasks3.find(
+                {
+                    "tool": {"$in": fal_tool_keys},
+                    "status": {"$in": ["pending", "running"]},
+                    "handler_id": {"$exists": True, "$nin": [None, ""]},
+                    "createdAt": {"$lt": cutoff},
+                }
+            )
+            .sort("createdAt", 1)
+            .limit(50)
+        )
+        for doc in candidates:
+            try:
+                task = Task.from_schema(doc)
+                tool = Tool.load(task.tool)
+                try:
+                    status = await asyncio.to_thread(
+                        fal_client.status,
+                        tool.fal_endpoint,
+                        task.handler_id,
+                        with_logs=False,
+                    )
+                except Exception as e:
+                    logger.warning(f"fal sweep: status poll {task.id} failed: {e}")
+                    continue
+                if not isinstance(status, fal_client.Completed):
+                    continue  # still queued/running at fal; next sweep re-checks
+                try:
+                    result = await asyncio.to_thread(
+                        fal_client.result, tool.fal_endpoint, task.handler_id
+                    )
+                except Exception as e:
+                    code = _falclient_status_code(e)
+                    if code is not None and 400 <= code < 500:
+                        # The JOB failed — finalize + refund.
+                        await asyncio.to_thread(
+                            fal_update_task, task, "ERROR", None, str(e)
+                        )
+                        logger.info(f"fal sweep: finalized failed {task.id}")
+                    else:
+                        logger.warning(
+                            f"fal sweep: result fetch {task.id} failed: {e}"
+                        )
+                    continue
+                await asyncio.to_thread(fal_update_task, task, "OK", result, None)
+                logger.info(f"fal sweep: recovered completed {task.id}")
+            except Exception as e:
+                logger.warning(f"fal sweep: task {doc.get('_id')} failed: {e}")
+    except Exception as e:
+        logger.error(f"Error sweeping pending fal tasks: {e}")
+        sentry_sdk.capture_exception(e)
+
+
 async def generate_lora_thumbnails_fn():
     try:
         await generate_lora_thumbnails()

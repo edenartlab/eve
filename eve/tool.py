@@ -733,6 +733,37 @@ class Tool(Document, ABC):
                     if not agent.public:
                         public = False
 
+                # Pre-pay billing charges from args before routing runs, so a
+                # caller who cannot reach any pro model would pay the pro rate
+                # and then be routed to the identical standard model. Normalize
+                # the tier now that the payer is known: they are billed for —
+                # and receive — the tier they actually get.
+                if self.key == "create" and args.get("quality") == "pro":
+                    try:
+                        from .agent.generation import (
+                            pro_tier_is_noop,
+                            resolve_generation_access,
+                        )
+
+                        access = resolve_generation_access(
+                            user=user,
+                            agent=agent_id,
+                            session=session_id,
+                            is_client_platform=is_client_platform,
+                            paying_user=paying_user,
+                        )
+                        if pro_tier_is_noop(args, access):
+                            args["quality"] = "standard"
+                            cost = self.calculate_cost(args)
+                            logger.info(
+                                "create: billed quality downgraded pro->standard "
+                                f"(no pro model reachable for payer {paying_user.id}); "
+                                f"cost={cost}"
+                            )
+                    except Exception as e:
+                        # Never block a generation on the billing-tier check
+                        logger.warning(f"create: pro-tier billing check failed: {e}")
+
                 paying_user.check_manna(cost)
 
             except Exception as e:
