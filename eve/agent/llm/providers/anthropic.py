@@ -721,6 +721,14 @@ class AnthropicProvider(LLMProvider):
                 # Update LLMCall with response data
                 end_time = datetime.now(timezone.utc)
                 llm_call_id = None
+                # Cost must be computed regardless of instrumentation: the
+                # final-chunk usage below feeds billing.
+                _final_usage = final_message.usage if final_message else None
+                cost_usd = (
+                    self._compute_cost(model_name, _final_usage)
+                    if _final_usage
+                    else None
+                )
                 if llm_call:
                     try:
                         duration_ms = int(
@@ -728,7 +736,7 @@ class AnthropicProvider(LLMProvider):
                         )
 
                         # Extract usage from final message
-                        usage = final_message.usage if final_message else None
+                        usage = _final_usage
                         prompt_tokens = usage.input_tokens if usage else None
                         completion_tokens = usage.output_tokens if usage else None
                         total_tokens = (
@@ -736,9 +744,6 @@ class AnthropicProvider(LLMProvider):
                             if usage
                             else None
                         )
-
-                        # Accurate cost including prompt-cache read/write.
-                        cost_usd = self._compute_cost(model_name, usage)
 
                         # Build response payload
                         response_payload = {
@@ -792,7 +797,20 @@ class AnthropicProvider(LLMProvider):
                             + (final_message.usage.output_tokens or 0)
                         )
                         if final_message and final_message.usage
-                        else 0
+                        else 0,
+                        prompt_tokens=(
+                            final_message.usage.input_tokens
+                            if final_message and final_message.usage
+                            else None
+                        ),
+                        completion_tokens=(
+                            final_message.usage.output_tokens
+                            if final_message and final_message.usage
+                            else None
+                        ),
+                        # Billing reads this downstream; without it every
+                        # streamed call falls back to the flat floor charge.
+                        cost_usd=cost_usd,
                     ),
                     llm_call_id=llm_call_id,
                 )
