@@ -731,17 +731,19 @@ class GoogleProvider(LLMProvider):
         end_time: Optional[datetime] = None,
         prompt: Optional[Dict[str, Any]] = None,
     ) -> None:
-        if not self.instrumentation:
-            return
-
         usage = response.usage_metadata
         prompt_tokens = usage.prompt_token_count if usage else 0
         completion_tokens = usage.candidates_token_count if usage else 0
         prompt_cost, completion_cost, total_cost = calculate_cost_usd(
             model, prompt_tokens=prompt_tokens, completion_tokens=completion_tokens
         )
+        # Billing depends on cost_usd — set it whether or not instrumentation
+        # (Langfuse) is enabled; the guard below only gates observability.
         if llm_response.usage:
             llm_response.usage.cost_usd = total_cost
+
+        if not self.instrumentation:
+            return
 
         self.instrumentation.record_counter("llm.prompt_tokens", prompt_tokens or 0)
         self.instrumentation.record_counter(
