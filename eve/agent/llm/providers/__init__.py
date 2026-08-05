@@ -53,9 +53,24 @@ class LLMProvider(ABC):
             tool_calls=tool_calls,
         )
 
+        # Carry the cost through, not just the token count. Billing reads
+        # `chunk.usage.cost_usd` (runtime._persist_assistant_message) to compute
+        # the cost-plus top-up; this synthesized usage object omitted it, so
+        # every streamed turn on a provider that routes through the default
+        # prompt_stream (OpenAI, Google) reported no cost and the top-up never
+        # fired — the whole run, up to max_turns of tool-loop calls, collected
+        # only the 2-manna floor. `stream` is client-controlled, so it was
+        # selectable. Anthropic's native stream already attaches cost.
+        usage = SimpleNamespace(
+            total_tokens=response.tokens_spent or 0,
+            prompt_tokens=getattr(response, "prompt_tokens", None),
+            completion_tokens=getattr(response, "completion_tokens", None),
+            cost_usd=getattr(getattr(response, "usage", None), "cost_usd", None),
+        )
+
         chunk = SimpleNamespace(
             choices=[SimpleNamespace(delta=delta, finish_reason=response.stop)],
-            usage=SimpleNamespace(total_tokens=response.tokens_spent or 0),
+            usage=usage,
             llm_call_id=getattr(response, "llm_call_id", None),
         )
         return chunk
