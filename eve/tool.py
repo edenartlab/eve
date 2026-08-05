@@ -552,7 +552,10 @@ class Tool(Document, ABC):
         cost_estimate = utils.eval_cost(
             self.cost_estimate, **self.prepare_args(args.copy())
         )
-        return cost_estimate
+        # Never negative: a bad expression or unbounded numeric arg could
+        # otherwise drive cost below zero, which downstream would credit
+        # rather than charge.
+        return max(cost_estimate or 0, 0)
 
     def prepare_args(self, args: dict):
         # Resolve parameter aliases (e.g., session_id -> session)
@@ -771,6 +774,18 @@ class Tool(Document, ABC):
                 category="handle_start_task", data=task.model_dump()
             )
 
+            # Charge BEFORE submitting to Modal: the old order (submit, then
+            # spend) let a job run for free when the spend failed — e.g. two
+            # near-simultaneous tasks against a balance that only covers one
+            # both passed the read-only check_manna and both got submitted.
+            # if "free_tools" not in (paying_user.featureFlags or []):
+            if True:
+                try:
+                    task.spend_manna()
+                except Exception as e:
+                    task.update(status="failed", error=str(e))
+                    raise Exception(f"Task failed: {e}. No manna deducted.")
+
             # start task
             try:
                 if mock:
@@ -796,15 +811,20 @@ class Tool(Document, ABC):
                     if not pre_handler_id:
                         task.update(handler_id=handler_id)
 
-                # if "free_tools" not in (paying_user.featureFlags or []):
-                if True:
-                    task.spend_manna()
-
             except Exception as e:
                 logger.error(traceback.format_exc())
                 task.update(status="failed", error=str(e))
+                # Submission failed after payment — give the manna back.
+                try:
+                    task.refund_manna()
+                except Exception as refund_err:
+                    logger.error(
+                        f"Refund after failed submission also failed for task "
+                        f"{task.id}: {refund_err}"
+                    )
+                    sentry_sdk.capture_exception(refund_err)
                 sentry_sdk.capture_exception(e)
-                raise Exception(f"Task failed: {e}. No manna deducted.")
+                raise Exception(f"Task failed: {e}. Manna refunded.")
 
             return task
 
@@ -841,6 +861,21 @@ class Tool(Document, ABC):
                 if force:
                     # Forced cancellation from the server due to stuck task
                     task.update(status="failed", error="Timed out")
+                    # The user was charged for work that timed out. The normal
+                    # cancel path refunds via the worker's finally block, but a
+                    # force-fail sets "failed" instead of "cancelled" so that
+                    # branch never runs — 50 tasks (~4,288 manna) in the last 60
+                    # days were charged and never refunded. refund_manna is
+                    # idempotent (unique {task,type} index) and prorates by
+                    # delivered creations, so a partially-delivered task refunds
+                    # only the undelivered share.
+                    try:
+                        task.refund_manna()
+                    except Exception as refund_err:
+                        logger.error(
+                            f"Failed to refund force-cancelled task {task.id}: {refund_err}"
+                        )
+                        sentry_sdk.capture_exception(refund_err)
                 else:
                     # Clear results so cancelled tasks never have usable output
                     task.update(status="cancelled", result=[])
