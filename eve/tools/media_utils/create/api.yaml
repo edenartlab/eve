@@ -23,7 +23,7 @@ tip: |-
 # (a 10s pro render billed 500 and cost 800). 85/s covers seedance2 1080p with a
 # small margin and comfortably covers veo3. Standard (25/s) is healthy: it routes
 # to kling_v3 (17/s), veo_31_lite (6/s) or wan_27 720p (12/s).
-cost_estimate: '(output == "video" ? (((quality == "pro" ? 85 : 25) + (sound_effects ? 10 : 0)) * duration) : ((quality == "pro" ? 30 : 10) * n_samples))'
+cost_estimate: '(output == "video" ? (((quality == "pro" ? 85 : 25) + (sound_effects ? 10 : 0)) * duration) : ((quality == "pro" ? 30 : 13) * n_samples))'
 output_type: image
 active: true
 visible: true

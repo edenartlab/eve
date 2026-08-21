@@ -5,6 +5,7 @@ parent_tool: legacy_sdxl_pipelines
 active: true
 visible: true
 handler: modal
+cost_estimate: 'n_samples * 10'
 parameters:
   mode:
     default: create

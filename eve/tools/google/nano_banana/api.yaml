@@ -2,7 +2,7 @@ name: Nano Banana
 description: Fast image generation and editing using Google's Gemini 2.5 Flash Image model
 tip: Use this for quick image generation tasks. Supports optional input images for editing.
 # $0.039/output image + $0.000387 per input image, priced at ~15% markup on both terms
-cost_estimate: 4.5 + image_input.length * 0.045
+cost_estimate: '5.5 + 0.05 * image_input.length'
 output_type: image
 visible: true
 active: true

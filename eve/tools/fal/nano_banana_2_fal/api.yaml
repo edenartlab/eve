@@ -16,7 +16,7 @@ tip: |-
     moderation setting, which makes it Eden's route for editing photos of real
     people.
 output_type: image
-cost_estimate: '((resolution == "4K" ? 18 : resolution == "2K" ? 14 : resolution == "0.5K" ? 7 : 9) + (enable_web_search ? 2 : 0)) * num_images'
+cost_estimate: '((resolution == "4K" ? 21 : resolution == "2K" ? 17 : resolution == "0.5K" ? 9 : 11) + (enable_web_search ? 2.5 : 0)) * num_images'
 handler: modal
 thumbnail: app/nano_banana_pro.jpg
 visible: true

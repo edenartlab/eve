@@ -2,7 +2,7 @@ name: SeeDance-1-Pro
 description: A pro version of Seedance that offers text-to-video and image-to-video support for 5s or 10s videos, at 480p and 1080p resolution.
 tip: |-
   High-quality text-to-video and image-to-video generation with flexible duration, resolution, and aspect ratio options.
-cost_estimate: 50
+cost_estimate: 'resolution == "1080p" ? 21 * duration : (resolution == "720p" ? 8 * duration : 5.5 * duration)'
 output_type: video
 active: true
 visible: true

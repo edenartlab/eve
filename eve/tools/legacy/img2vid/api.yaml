@@ -6,6 +6,7 @@ visible: true
 output_type: video
 parent_tool: eden-comfyui
 
+cost_estimate: 'n_samples * 5'
 parameters:
   mode:
     default: img2vid
