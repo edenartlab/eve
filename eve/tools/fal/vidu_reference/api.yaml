@@ -26,7 +26,7 @@ tip: |-
   use seedance2_reference (but NOT with real-person references).
 # fal: ~$0.40/video flat (no duration/resolution knobs). 40 manna cost + ~25% margin.
 # VERIFY price at deploy — single pricing source.
-cost_estimate: '50'
+cost_estimate: '65'
 output_type: video
 handler: modal
 visible: true
