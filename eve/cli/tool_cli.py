@@ -8,11 +8,12 @@ import traceback
 
 import click
 
-from .. import load_env
+from .. import load_env, pricing
 from ..agent import Agent
 from ..auth import get_my_eden_user
 from ..tool import Tool, get_api_files, get_tools_from_api_files, get_tools_from_mongo
 from ..utils import CLICK_COLORS, dumps_json, prepare_result, save_test_results
+from ..utils.cost_utils import eval_cost
 
 api_tools_order = [
     "txt2img",
@@ -150,8 +151,20 @@ def tool():
     default="STAGE",
     help="DB to save against",
 )
+@click.option(
+    "--yes",
+    is_flag=True,
+    default=False,
+    help="Skip the confirmation prompt (for CI). The price guard still applies.",
+)
+@click.option(
+    "--allow-price-removal",
+    is_flag=True,
+    default=False,
+    help="Permit writing an absent/zero cost_estimate over a real one. Dangerous.",
+)
 @click.argument("names", nargs=-1, required=False)
-def update(db: str, names: tuple):
+def update(db: str, names: tuple, yes: bool, allow_price_removal: bool):
     """Upload tools to mongo"""
 
     load_env(db)
@@ -160,19 +173,88 @@ def update(db: str, names: tuple):
     tools_order = {t: index for index, t in enumerate(api_tools_order)}
 
     if names:
+        missing = [n for n in names if n not in api_files]
+        if missing:
+            raise click.ClickException(
+                f"No api.yaml found for: {', '.join(sorted(missing))}"
+            )
         api_files = {k: v for k, v in api_files.items() if k in names}
-    else:
-        confirm = click.confirm(
-            f"Update all {len(api_files)} tools on {db}?", default=False
+
+    # Load every tool up front so the price diff can be shown *before* anything
+    # is written. This is the whole point of the confirmation: a bulk update
+    # used to be a blind "update all N tools?" with no idea what would change.
+    db_prices = pricing.collect_db_prices()
+    loaded, failed = [], []
+    for key, api_file in api_files.items():
+        try:
+            loaded.append((key, Tool.from_yaml(api_file)))
+        except Exception as e:
+            traceback.print_exc()
+            click.echo(click.style(f"Failed to load tool {db}:{key}: {e}", fg="red"))
+            failed.append(key)
+
+    # Guard: never let an absent or zeroed price overwrite a real one. This is
+    # the single check that turns "oops, five tools are now free" into an error.
+    blocked, changes = [], []
+    for key, tool_ in loaded:
+        # Tool.convert_from_yaml derives the stored key itself, and for tools
+        # with a parent_tool it can differ from the CLI's name for the file.
+        stored_key = getattr(tool_, "key", key)
+        if stored_key != key:
+            click.echo(
+                click.style(
+                    f"note: {key} is stored under key '{stored_key}'", fg="yellow"
+                )
+            )
+        old, new = db_prices.get(stored_key), getattr(tool_, "cost_estimate", None)
+        if pricing.would_erase_price(old, new) and not allow_price_removal:
+            blocked.append((key, stored_key, old, new))
+        elif pricing.normalize(old) != pricing.normalize(new):
+            changes.append((key, stored_key, old, new))
+
+    if blocked:
+        click.echo(
+            click.style(
+                f"\nRefusing to update {len(blocked)} tool(s): this would erase a "
+                f"live price on {db}.",
+                fg="red",
+                bold=True,
+            )
         )
-        if not confirm:
+        for key, stored_key, old, new in blocked:
+            click.echo(click.style(f"  {key} (key={stored_key})", fg="red"))
+            click.echo(f"      db  : {old!r}")
+            click.echo(f"      repo: {new!r}")
+        click.echo(
+            "\nFix the cost_estimate in api.yaml, or pass --allow-price-removal "
+            "if the tool really should be free."
+        )
+        raise click.ClickException(f"Blocked {len(blocked)} price-erasing update(s)")
+
+    if changes:
+        click.echo(click.style(f"\nPrice changes to apply on {db}:", bold=True))
+        for key, stored_key, old, new in changes:
+            click.echo(f"  {key}: {old!r} -> {new!r}")
+    else:
+        click.echo(click.style(f"\nNo price changes on {db}.", fg="green"))
+
+    # A bulk update -- no names given -- is the dangerous one: it rewrites every
+    # tool document on the database. That always confirms, and the diff above
+    # is what you are confirming. Named updates stay non-interactive so the
+    # existing deploy workflow keeps working.
+    if not names and not yes:
+        if not click.confirm(
+            f"\nUpdate ALL {len(loaded)} tool(s) on {db} "
+            f"({len(changes)} price change(s))?",
+            default=False,
+        ):
+            click.echo("Aborted.")
             return
 
     updated = 0
-    for key, api_file in api_files.items():
+    for key, tool_ in loaded:
         try:
             order = tools_order.get(key, len(api_tools_order))
-            tool_ = Tool.from_yaml(api_file)
             tool_.save(order=order)
             click.echo(
                 click.style(f"Updated tool {db}:{key} (order={order})", fg="green")
@@ -181,6 +263,7 @@ def update(db: str, names: tuple):
         except Exception as e:
             traceback.print_exc()
             click.echo(click.style(f"Failed to update tool {db}:{key}: {e}", fg="red"))
+            failed.append(key)
 
     click.echo(
         click.style(
@@ -189,10 +272,8 @@ def update(db: str, names: tuple):
     )
 
     # Exit with error code if any updates failed
-    if updated < len(api_files):
-        raise click.ClickException(
-            f"Failed to update {len(api_files) - updated} tool(s)"
-        )
+    if failed:
+        raise click.ClickException(f"Failed to update {len(failed)} tool(s)")
 
 
 @tool.command()
@@ -227,6 +308,161 @@ def remove(db: str, names: tuple):
     click.echo(
         click.style(f"Deleted {deleted} of {len(names)} tools", fg="red", bold=True)
     )
+
+
+_DB_OPTION = click.option(
+    "--db",
+    type=click.Choice(["STAGE", "PROD"], case_sensitive=False),
+    default="STAGE",
+    help="DB to compare against",
+)
+
+
+@tool.command()
+@_DB_OPTION
+@click.argument("name", required=False)
+def price(db: str, name: str):
+    """What does a tool cost right now, and does the repo agree?
+
+    With NAME, shows that one tool. Without, audits every tool.
+    """
+    load_env(db)
+
+    repos, missing = pricing.discover_repos()
+    yaml_prices, collisions, unresolved = pricing.collect_yaml_prices(repos)
+
+    if not name:
+        report = pricing.compute_drift(
+            yaml_prices=yaml_prices,
+            db_prices=pricing.collect_db_prices(),
+            db_only=pricing.load_db_only_registry(),
+            checked_repos=list(repos),
+            unchecked_repos=missing,
+            collisions=collisions,
+            unresolved_parent=unresolved,
+            flag_db_only=db.upper() == "PROD",
+        )
+        click.echo(pricing.format_report(report, db))
+        return
+
+    from ..mongo import get_collection
+
+    doc = get_collection("tools3").find_one(
+        {"key": name}, {"key": 1, "cost_estimate": 1}
+    )
+    db_cost = doc.get("cost_estimate") if doc else None
+    yaml_price = yaml_prices.get(name)
+
+    click.echo(click.style(f"\n{name}", bold=True))
+    click.echo(f"  live on {db}: {db_cost!r}" if doc else f"  live on {db}: NOT IN DB")
+
+    if yaml_price:
+        click.echo(f"  in repo    : {yaml_price.cost_estimate!r}")
+        click.echo(f"  defined in : {yaml_price.source}")
+    else:
+        click.echo("  in repo    : no api.yaml found")
+        if missing:
+            click.echo(
+                click.style(
+                    f"  (repos not checked out: {', '.join(missing)} -- the "
+                    f"definition may live there)",
+                    fg="yellow",
+                )
+            )
+        elif name in pricing.load_db_only_registry():
+            click.echo("  (registered as a database-only tool)")
+
+    if yaml_price and doc:
+        agree = pricing.normalize(yaml_price.cost_estimate) == pricing.normalize(db_cost)
+        click.echo(
+            click.style("  AGREES", fg="green")
+            if agree
+            else click.style("  DRIFTED - repo and database disagree", fg="red")
+        )
+
+    expression = yaml_price.cost_estimate if yaml_price else db_cost
+    error = pricing.validate_expression(expression)
+    if error:
+        click.echo(click.style(f"  INVALID EXPRESSION: {error}", fg="red"))
+
+    # Evaluate against the tool's own test args, when it has some.
+    if yaml_price and expression:
+        test_file = yaml_price.path.replace("api.yaml", "test.json")
+        if os.path.exists(test_file):
+            try:
+                with open(test_file, "r") as f:
+                    args = json.load(f)
+                cost = eval_cost(expression, **args)
+                click.echo(f"  test args  : {json.dumps(args)}")
+                click.echo(
+                    click.style(
+                        f"  -> {cost} manna (${float(cost) / 100:.2f})", fg="cyan"
+                    )
+                )
+                # An identifier the test args don't supply evaluates to 0, so
+                # say so rather than quietly reporting a cost that is too low.
+                absent = [
+                    n for n in pricing.free_identifiers(expression) if n not in args
+                ]
+                if absent:
+                    click.echo(
+                        click.style(
+                            f"     (test args do not set {', '.join(absent)}; "
+                            f"treated as 0 -- this is not the real cost)",
+                            fg="yellow",
+                        )
+                    )
+            except Exception as e:
+                click.echo(click.style(f"  test-arg evaluation failed: {e}", fg="yellow"))
+    click.echo("")
+
+
+@tool.command("price-check")
+@_DB_OPTION
+def price_check(db: str):
+    """Fail if any tool's price in the repo disagrees with the database."""
+    load_env(db)
+    report = pricing.check(flag_db_only=db.upper() == "PROD")
+    click.echo(pricing.format_report(report, db))
+    if not report.ok:
+        raise click.ClickException(
+            "Tool prices in the repo do not match the database. "
+            "Run `eve tool price-sync --db " + db + "` to push the repo's prices."
+        )
+
+
+@tool.command("price-sync")
+@_DB_OPTION
+@click.option("--yes", is_flag=True, default=False, help="Skip confirmation (for CI).")
+@click.pass_context
+def price_sync(ctx, db: str, yes: bool):
+    """Push the repo's prices to the database for every tool that has drifted."""
+    load_env(db)
+    report = pricing.check(flag_db_only=False)
+
+    if report.invalid or report.unresolved_parent or report.collisions:
+        click.echo(pricing.format_report(report, db))
+        raise click.ClickException("Refusing to sync while the repo is inconsistent.")
+
+    # Only realign tools that already exist. Creating a tool is a deliberate
+    # act (`eve tool update <name>`), not something a price sync should do --
+    # otherwise every local dev/test tool would be published on first run.
+    keys = [key for key, _repo_cost, _db_cost in report.drifted]
+    if report.not_yet_in_db:
+        click.echo(
+            click.style(
+                f"Not creating {len(report.not_yet_in_db)} tool(s) absent from {db}: "
+                f"{', '.join(report.not_yet_in_db)}\n"
+                f"  (run `eve tool update --db {db} <name>` to publish one)",
+                fg="yellow",
+            )
+        )
+    if not keys:
+        click.echo(click.style(f"Nothing to sync: {db} already matches the repo.", fg="green"))
+        return
+
+    click.echo(f"Syncing {len(keys)} tool(s) to {db}: {', '.join(sorted(keys))}")
+    ctx.invoke(update, db=db, names=tuple(keys), yes=yes, allow_price_removal=False)
 
 
 @tool.command(context_settings=dict(ignore_unknown_options=True, allow_extra_args=True))

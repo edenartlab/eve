@@ -1,0 +1,86 @@
+name: Tool Pricing Drift Check
+
+# Proves that the price in the repo is the price the database charges.
+#
+# PROD is a required check: it is where money moves, and any disagreement
+# between api.yaml and tools3 means someone is being charged something nobody
+# wrote down. STAGE is advisory -- it legitimately carries in-development tools
+# and experimental prices that were never meant to reach a repo.
+
+on:
+  pull_request:
+    branches:
+      - main
+      - staging
+  push:
+    branches:
+      - main
+      - staging
+  workflow_dispatch:
+
+jobs:
+  pricing-check:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - db: PROD
+            blocking: true
+          - db: STAGE
+            blocking: false
+
+    steps:
+      # Lay the repos out the way eve.tool.get_api_files() expects them:
+      # <root>/eve/eve/tools, <root>/workflows, <root>/private_workflows
+      - name: Checkout main repo
+        uses: actions/checkout@v4
+        with:
+          path: eve
+
+      - name: Checkout workflows repo
+        uses: actions/checkout@v4
+        with:
+          repository: edenartlab/workflows
+          path: workflows
+
+      # Optional: only possible if a token for the private repo is configured.
+      # Without it the check reports private_workflows as UNCHECKED and never
+      # treats its tools as missing or unpriced.
+      - name: Checkout private_workflows repo
+        id: private
+        continue-on-error: true
+        uses: actions/checkout@v4
+        with:
+          repository: edenartlab/private_workflows
+          token: ${{ secrets.PRIVATE_WORKFLOWS_PAT }}
+          path: private_workflows
+
+      - name: Note private_workflows availability
+        run: |
+          if [ "${{ steps.private.outcome }}" = "success" ]; then
+            echo "private_workflows checked out; its tools are included."
+          else
+            echo "::notice::private_workflows not available; its tools are reported as UNCHECKED, not as drift."
+          fi
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install the latest version of rye
+        uses: eifinger/setup-rye@v4
+
+      - name: Install dependencies
+        working-directory: eve
+        run: rye sync
+
+      - name: Check tool prices against ${{ matrix.db }}
+        working-directory: eve
+        continue-on-error: ${{ !matrix.blocking }}
+        env:
+          MONGO_URI: ${{ matrix.db == 'PROD' && secrets.MONGO_URI_PROD || secrets.MONGO_URI_STG }}
+          MONGO_DB_NAME: ${{ matrix.db == 'PROD' && 'eden-prod' || 'eden-stg' }}
+          DB: ${{ matrix.db }}
+        run: rye run eve tool price-check --db ${{ matrix.db }}
