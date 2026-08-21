@@ -35,7 +35,8 @@ async def handler(context: ToolContext):
 
         return await asyncio.to_thread(_generate)
 
-    audio_generator = await utils.async_exponential_backoff(
+    # Paid generation: retry only failures that never reached ElevenLabs.
+    audio_generator = await utils.async_retry_if_unbilled(
         generate_with_params, max_attempts=3, initial_delay=1
     )
 

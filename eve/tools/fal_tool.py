@@ -30,62 +30,124 @@ def is_valid_url(value: Any) -> bool:
     return bool(url_pattern.match(value))
 
 
-# Retry configuration
-MAX_RETRIES = 3
-INITIAL_DELAY = 1.0
+def _falclient_status_code(error: Exception):
+    """HTTP status from a FalClientError (raised `from httpx.HTTPStatusError`).
+
+    fal_client raises ``FalClientError(detail) from httpx.HTTPStatusError`` (see
+    fal_client.client._raise_for_status), so the real status code lives on the
+    chained cause's response — NOT in the stringified message. Digit-substring
+    matching of the message misreads e.g. a 422 whose detail carries a pixel
+    size ("240x240"), a byte count, or a docs URL as a "5xx server error".
+    """
+    for candidate in (getattr(error, "__cause__", None), error):
+        resp = getattr(candidate, "response", None)
+        code = getattr(resp, "status_code", None)
+        if isinstance(code, int):
+            return code
+    return None
 
 
-def _is_retryable_error(error: Exception) -> bool:
-    """Determine if an error is retryable."""
-    error_str = str(error).lower()
-
-    # Rate limit errors (429)
-    if (
-        "429" in error_str
-        or "rate limit" in error_str
-        or "too many requests" in error_str
-    ):
-        return True
-
-    # Server errors (5xx)
-    if any(f"{code}" in error_str for code in range(500, 600)):
-        return True
-
-    # Network/timeout errors
-    if any(
-        term in error_str
-        for term in ["timeout", "connection", "network", "unavailable"]
-    ):
-        return True
-
-    return False
+def _fal_detail(error: Exception) -> str:
+    """The real fal error detail (FalClientError carries response.json()['detail'])."""
+    detail = str(error).strip()
+    if len(detail) > 500:
+        detail = detail[:500] + "\u2026"
+    return detail
 
 
 def _format_error_for_user(error: Exception) -> str:
-    """Format error message for user-friendly display."""
-    error_str = str(error).lower()
+    """User-facing message that ALWAYS preserves fal's real status + detail.
 
-    if "429" in error_str or "rate limit" in error_str:
-        return "Rate limit reached for this model. Please try again later or use a different model."
+    Keeping the detail is the whole point: a 5xx with detail "Internal Server
+    Error" is a provider outage, but a 4xx whose detail is "failed to fetch
+    image_urls[1]" is our own bad input — both used to be flattened into an
+    identical opaque "FAL API server error", making outages indistinguishable
+    from request bugs.
+    """
+    code = _falclient_status_code(error)
+    detail = _fal_detail(error)
 
-    if (
-        "401" in error_str
-        or "unauthorized" in error_str
-        or "authentication" in error_str
-    ):
-        return "Authentication error with FAL API. Please check API credentials."
+    # Provider content-policy rejections (e.g. reference media resembling a
+    # real person). Surface actionable guidance instead of a bare 422 so an
+    # agent can adapt rather than assume an outage.
+    detail_l = detail.lower()
+    if "content_policy_violation" in detail_l or "likeness" in detail_l:
+        return (
+            "Rejected by the provider's content policy: input/reference media that "
+            "resembles a real person (or contains private information) can't be "
+            "processed. Use stylized, illustrated, or non-photorealistic references "
+            "\u2014 or a non-human subject \u2014 and retry. "
+            f"(provider detail: {detail})"
+        )
 
-    if "403" in error_str or "forbidden" in error_str:
-        return "Access denied to FAL API. Please check API permissions."
+    if code == 429:
+        return f"Rate limit reached (FAL 429). {detail} Try again shortly or use a different model."
+    if code in (401, 403):
+        return f"FAL access/authentication error ({code}): {detail}"
+    if code == 404:
+        return f"FAL endpoint not found (404): {detail}"
+    if code is not None and code >= 500:
+        return f"FAL server error ({code}): {detail}. Please try again later."
+    if code is not None:
+        # Other 4xx — surface the real validation detail so it's actionable.
+        return f"FAL rejected the request ({code}): {detail}"
 
-    if any(f"{code}" in error_str for code in range(500, 600)):
-        return "FAL API server error. Please try again later."
+    # No HTTP status: transport-level failure.
+    if "timeout" in detail_l:
+        return f"FAL request timed out: {detail}"
+    return detail or "FAL request failed."
 
-    if "timeout" in error_str:
-        return "Request timed out. Please try again."
 
-    # Return original error for unknown cases
-    return str(error)
+def _drain(handle) -> dict:
+    """Stream logs for an already-accepted request, then fetch its result."""
+    for event in handle.iter_events(with_logs=True):
+        if isinstance(event, fal_client.InProgress):
+            for log in event.logs:
+                logger.info(log["message"])
+    return handle.get()
+
+
+async def call_fal(endpoint: str, args: dict, with_logs: bool = True) -> dict:
+    """Run exactly ONE fal generation, blocking until it finishes.
+
+    There is deliberately no generation-level retry. fal_client already retries
+    408/409/429/5xx internally on every HTTP request it makes, including the
+    submit POST (see fal_client.client._should_retry / MAX_RETRIES), so a
+    transient fal blip is absorbed *before* a job exists, for free.
+
+    The loop this replaces sat on top of that and re-entered
+    ``fal_client.subscribe`` — and subscribe SUBMITS. Every outer attempt minted
+    a fresh request_id, i.e. another billable generation charged against a
+    single manna spend (up to 4 fal jobs per task). It decided when to do that
+    by substring-matching str(e) for any number in 500..599, so a 422 whose
+    detail mentioned "240x240" or a docs URL was read as a server error and
+    re-billed three more times.
+
+    So: submit once, then poll. A submission that never landed raises and the
+    caller — the task handler, and above it the agent, which has context this
+    module does not — decides whether to spend again. A job fal has ACCEPTED is
+    never resubmitted; only its polls continue, and those are free, idempotent,
+    and already retried inside fal_client.
+    """
+    try:
+        handle = await asyncio.to_thread(fal_client.submit, endpoint, arguments=args)
+    except Exception as e:
+        # fal never accepted the request, so nothing was billed.
+        logger.warning(f"fal submit to {endpoint} failed: {e}")
+        raise ValueError(_format_error_for_user(e)) from e
+
+    # Past this line fal owns a billable job. Never resubmit it.
+    try:
+        return await asyncio.to_thread(_drain if with_logs else _get_quiet, handle)
+    except Exception as e:
+        logger.warning(
+            f"fal request {handle.request_id} ({endpoint}) failed after submission: {e}"
+        )
+        raise ValueError(_format_error_for_user(e)) from e
+
+
+def _get_quiet(handle) -> dict:
+    return handle.get()
 
 
 @tool_context("fal")
@@ -95,65 +157,16 @@ class FalTool(Tool):
         default=True, description="Whether to include logs in the response"
     )
 
-    async def _call_with_retry(self, endpoint: str, args: dict) -> dict:
-        """
-        Call FAL API with exponential backoff retry logic.
-
-        Args:
-            endpoint: The FAL API endpoint
-            args: Arguments for the API call
-
-        Returns:
-            The API response dict
-
-        Raises:
-            Exception: With user-friendly error message
-        """
-        delay = INITIAL_DELAY
-        last_error = None
-
-        for attempt in range(MAX_RETRIES + 1):
-            try:
-
-                def on_queue_update(update):
-                    if isinstance(update, fal_client.InProgress):
-                        for log in update.logs:
-                            logger.info(log["message"])
-
-                result = await asyncio.to_thread(
-                    fal_client.subscribe,
-                    endpoint,
-                    arguments=args,
-                    with_logs=self.with_logs,
-                    on_queue_update=on_queue_update if self.with_logs else None,
-                )
-                return result
-
-            except Exception as e:
-                last_error = e
-                logger.warning(
-                    f"FAL API call failed (attempt {attempt + 1}/{MAX_RETRIES + 1}): {e}"
-                )
-
-                # Check if error is retryable and we have retries left
-                if _is_retryable_error(e) and attempt < MAX_RETRIES:
-                    logger.info(f"Retrying in {delay}s...")
-                    await asyncio.sleep(delay)
-                    delay *= 2  # Exponential backoff
-                    continue
-
-                # Non-retryable or max retries reached
-                raise Exception(_format_error_for_user(e))
-
-        # Should not reach here, but just in case
-        raise Exception(_format_error_for_user(last_error))
+    async def _call_fal(self, endpoint: str, args: dict) -> dict:
+        """One fal generation, no generation-level retry. See call_fal."""
+        return await call_fal(endpoint, args, with_logs=self.with_logs)
 
     @Tool.handle_run
     async def async_run(self, context: ToolContext):
         check_fal_api_token()
         args = await asyncio.to_thread(self._format_args_for_fal, context.args)
 
-        result = await self._call_with_retry(self.fal_endpoint, args)
+        result = await self._call_fal(self.fal_endpoint, args)
 
         # Extract URLs from common FAL response structures (e.g., {"images": [{"url": "..."}]})
         output_urls = self._extract_urls_from_fal_result(result)
@@ -343,6 +356,7 @@ class FalTool(Tool):
 
         return new_args
 
+
 def get_webhook_url():
     env = {
         "PROD": "api-prod",
@@ -377,14 +391,6 @@ TERMINAL_STATES = ("completed", "failed", "cancelled")
 # How long one finalizer may hold the claim before another may take over
 # (crash recovery: the sweep can re-finalize after the lease expires).
 _FINALIZE_LEASE = timedelta(minutes=10)
-
-
-def _falclient_status_code(error: Exception):
-    """HTTP status from a FalClientError (raised `from httpx.HTTPStatusError`)."""
-    cause = getattr(error, "__cause__", None)
-    resp = getattr(cause, "response", None)
-    code = getattr(resp, "status_code", None)
-    return code if isinstance(code, int) else None
 
 
 def fal_update_task(task: Task, status: str, payload, error):

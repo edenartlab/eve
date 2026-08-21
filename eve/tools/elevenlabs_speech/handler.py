@@ -258,6 +258,22 @@ async def handler(context: ToolContext):
     if not segments_input:
         raise ValueError("Must provide 'segments' array")
 
+    # Validate up front. `voice` and `text` are declared required on the
+    # segment item schema, but nested object properties inside an array aren't
+    # enforced by parameter validation, so a segment missing `voice` used to
+    # reach the generator and die on a bare KeyError: 'voice' — an opaque
+    # message an agent can't act on, raised three times over by the retry
+    # wrapper. Fail here instead, before anything is submitted.
+    for i, segment in enumerate(segments_input):
+        missing = [k for k in ("text", "voice") if not (segment or {}).get(k)]
+        if missing:
+            raise ValueError(
+                f"segments[{i}] is missing required field(s): {', '.join(missing)}. "
+                "Every segment needs both 'text' and 'voice' (a voice name, "
+                "description, or @agent_username — use elevenlabs_search_voices "
+                "to find valid voice names)."
+            )
+
     is_dialogue = len(segments_input) > 1
 
     async def generate_speech():
@@ -343,7 +359,8 @@ async def handler(context: ToolContext):
 
         return await asyncio.to_thread(_generate)
 
-    response = await utils.async_exponential_backoff(
+    # Paid generation: retry only failures that never reached ElevenLabs.
+    response = await utils.async_retry_if_unbilled(
         generate_speech,
         max_attempts=3,
         initial_delay=1,

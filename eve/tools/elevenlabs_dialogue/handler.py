@@ -126,7 +126,8 @@ async def handler(context: ToolContext):
 
         return await asyncio.to_thread(_generate)
 
-    response = await utils.async_exponential_backoff(
+    # Paid generation: retry only failures that never reached ElevenLabs.
+    response = await utils.async_retry_if_unbilled(
         generate_dialogue,
         max_attempts=3,
         initial_delay=1,
