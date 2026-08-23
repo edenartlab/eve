@@ -46,9 +46,30 @@ jobs:
             for file in $CHANGED_FILES; do
               # Extract tool name: get the directory containing api.yaml
               TOOL_NAME=$(dirname "$file" | xargs basename)
+              # get_api_files() prefixes anything under a legacy/ path. Without
+              # this the name matches no tool and the update silently does
+              # nothing -- which is how legacy tools drifted in the first place.
+              case "$file" in
+                *"/legacy/"*) TOOL_NAME="legacy_$TOOL_NAME" ;;
+              esac
               echo "Updating tool: $TOOL_NAME in $DB"
-              rye run eve tool update --db $DB "$TOOL_NAME"
+              # --yes: non-interactive. The price-erasure guard still applies
+              # and will fail the job rather than zero out a live price.
+              rye run eve tool update --db $DB --yes "$TOOL_NAME"
             done
           else
             echo "No api.yaml files changed"
           fi
+
+      # Confirm the database now says what the repo says. Without this the
+      # sync is fire-and-forget: a tool that failed to update looks identical
+      # to one that succeeded.
+      - name: Verify no price drift remains
+        # Blocking on main/PROD. Advisory on staging, which carries
+        # experimental prices that deliberately differ from the repo.
+        continue-on-error: ${{ github.ref != 'refs/heads/main' }}
+        env:
+          MONGO_URI: ${{ github.ref == 'refs/heads/main' && secrets.MONGO_URI_PROD || secrets.MONGO_URI_STG }}
+          MONGO_DB_NAME: ${{ github.ref == 'refs/heads/main' && 'eden-prod' || 'eden-stg' }}
+          DB: ${{ github.ref == 'refs/heads/main' && 'PROD' || 'STAGE' }}
+        run: rye run eve tool price-check --db $DB

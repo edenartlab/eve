@@ -37,3 +37,35 @@ We invite you to contribute workflows that will become accessible to all creativ
 - Run `docker compose up falkordb` to start a local FalkorDB instance (default port `6380` mapped to the container’s `6379` and web UI on `http://localhost:8380`).
 - Authentication is disabled by default. Set `FALKORDB_USERNAME` and `FALKORDB_PASSWORD` in your shell only if you enable credentials on a remote instance.
 - Use `redis-cli -h localhost -p 6380` (or another Redis client) to verify the database is reachable before running integrations. Override the host/UI ports with `FALKORDB_PORT` and `FALKORDB_WEB_PORT` if needed.
+
+## Tool pricing
+
+**A tool's price lives in exactly one place: the `cost_estimate` field of its
+`api.yaml`.** To change a price, edit that line and merge the PR. CI writes the
+new value to the `tools3` collection, which is what production charges against.
+Nobody should ever need to edit Mongo by hand.
+
+```bash
+make price TOOL=flux_dev   # what does it cost now, and does the repo agree?
+make price                 # the same question for every tool
+make price-check           # fail if the repo and PROD disagree (this runs in CI)
+```
+
+`eve tool price-check` runs on every PR against PROD as a required check, so a
+price can never quietly diverge from what the repo says. If it ever does,
+`eve tool price-sync --db PROD` pushes the repo's prices to the database.
+
+Three things are worth knowing:
+
+- **Prices are inherited.** A tool with `parent_tool` and no `cost_estimate`
+  uses its parent's. `eve tool price <name>` tells you which file the number
+  actually came from.
+- **Some tools exist only in the database** (retired workflows). Syncing never
+  deletes; those keys are listed in `eve/db_only_tools.yaml`, and a database
+  tool that is *not* listed and *not* in a repo fails the check.
+- **Tools live in three repos** — `eve`, `workflows`, `private_workflows`. A
+  repo that is not checked out is reported as UNCHECKED and its tools are
+  skipped, never treated as deleted or unpriced.
+
+STAGE is deliberately not a required check: it carries in-development tools and
+experimental prices that are not expected to match any repo.
