@@ -125,6 +125,29 @@ class Transaction(Document):
     # to restore the same bucket). Absent on legacy docs -> assume balance.
     subscription_amount: Optional[float] = None
 
+    @classmethod
+    def ensure_unique_refund_index(cls):
+        """At most one refund row per task, enforced by the database.
+
+        This index ALREADY EXISTS in eden-prod as `uniq_refund_per_task`, but
+        nothing in this repository created it — it was applied out of band. A
+        rebuilt or restored cluster would therefore come up without it, and the
+        refund dedup that referenced it by name would silently stop being
+        race-proof. Declaring it here makes it reproducible.
+
+        Spec matches the deployed index exactly so this is a no-op against
+        prod. It MUST stay partial: session LLM charges write many type="spend"
+        rows sharing task=<session id> (runtime._charge_manna_for_message), so
+        a non-partial unique index on {task, type} would fail to build.
+        """
+        return cls.get_collection().create_index(
+            [("task", 1), ("type", 1)],
+            name="uniq_refund_per_task",
+            unique=True,
+            partialFilterExpression={"type": "refund"},
+            background=True,
+        )
+
 
 # todo: add more stats
 class UserStats(BaseModel):
