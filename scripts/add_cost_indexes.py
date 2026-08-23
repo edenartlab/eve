@@ -96,6 +96,19 @@ INDEXES = [
     # ---- eden-prod.transactions ----
     # Slow query #5: {task, type} — 41K-doc scan, 0 returned, 5 occurrences.
     ("eden-prod", "transactions", [("task", 1), ("type", 1)], "task_1_type_1", {}),
+    # At most one refund row per task. This already exists in eden-prod but was
+    # applied out of band and existed nowhere in the repo, so a rebuilt cluster
+    # would silently come up without it. Spec matches the deployed index, so
+    # this is a no-op in prod. MUST stay partial: session LLM charges write many
+    # type="spend" rows sharing task=<session id>, so a non-partial unique index
+    # would fail to build.
+    (
+        "eden-prod",
+        "transactions",
+        [("task", 1), ("type", 1)],
+        "uniq_refund_per_task",
+        {"unique": True, "partialFilterExpression": {"type": "refund"}},
+    ),
     # ---- eden-prod.memory2_facts ----
     # Slow queries #10, #11: scope+formed_at filters not covered by existing
     # (agent_id, scope) — adding formed_at sort key avoids the in-memory sort.
