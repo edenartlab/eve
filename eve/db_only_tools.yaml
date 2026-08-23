@@ -1,0 +1,42 @@
+# Tools that exist in the `tools3` collection but have no api.yaml in any repo.
+#
+# The repo is the source of truth for prices, but it is NOT authoritative about
+# deletion: syncing never removes a tool from the database. These keys are the
+# ones we have deliberately accepted as database-only, as of 2026-08-21.
+#
+# `eve tool price check` fails on any database tool that is not in a repo and
+# not listed here. That is the guard against someone hand-editing Mongo: a new
+# unexplained tool shows up as a CI failure rather than silently becoming
+# untracked. To retire a tool properly, delete it with `eve tool remove`; to
+# price a tool properly, give it an api.yaml.
+#
+# Note on the `legacy_*` pairs below: `eve/tools/legacy/*/api.yaml` files set
+# `parent_tool`, and Tool.convert_from_yaml() derives the stored key from the
+# *folder name* in that case (`controlnet`), while get_api_files() and the CLI
+# address the same file as `legacy_controlnet`. That mismatch is how both
+# spellings came to exist in the database. Prices are currently identical for
+# each pair; see the PR that introduced this file.
+
+db_only_tools:
+  - HelloMeme_image
+  - HelloMeme_video
+  - background_removal_video
+  - controlnet
+  - create_session
+  - eden-comfyui
+  - get_tweets
+  - img2vid
+  - interpolate
+  - layer_diffusion
+  - mars-id
+  - memegen
+  - memory
+  - mochi_preview
+  - ominicontrol
+  - post_to_chatroom
+  - remix
+  - remix_flux_schnell
+  - sd3_txt2img
+  - storydiffusion
+  - time_remapping
+  - video_upscaler

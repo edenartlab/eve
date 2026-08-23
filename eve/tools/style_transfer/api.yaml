@@ -7,6 +7,7 @@ resolutions: []  # get rid of width/height selector
 visible: true
 parent_tool: txt2img
 
+cost_estimate: 'n_samples * 5'
 parameters:
   prompt:
     label: Prompt
