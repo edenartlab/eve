@@ -1314,7 +1314,10 @@ intents.messages = True
 intents.guilds = True
 intents.reactions = True
 intents.dm_messages = True
-intents.members = True
+# NOTE: members (GUILD_MEMBERS) is deliberately NOT requested. It is a privileged
+# intent we never consume -- no on_member_* handlers, no guild.members/get_member/
+# fetch_members/chunk. guild.fetch_member() is a REST call and works without it.
+# Requesting an intent the app is not approved for closes the gateway with 4014.
 
 bot = discord.Bot(intents=intents)
 _commands_synced = False
