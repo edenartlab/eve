@@ -3,12 +3,6 @@ import asyncio
 import runwayml
 from jinja2 import Template
 from runwayml import AsyncRunwayML
-from tenacity import (
-    retry,
-    retry_if_exception_type,
-    stop_after_attempt,
-    wait_exponential,
-)
 
 from eve.tool import ToolContext
 
@@ -100,14 +94,14 @@ async def handler(context: ToolContext):
     #         print(f"Error enhancing prompt: {e}")
     #         print("falling back to original prompt")
 
-    @retry(
-        stop=stop_after_attempt(3),
-        wait=wait_exponential(multiplier=1, min=0, max=15),
-        retry=retry_if_exception_type(
-            (runwayml.APIConnectionError, runwayml.APIStatusError)
-        ),
-        retry_error_callback=lambda retry_state: retry_state.outcome.result(),
-    )
+    # Submitted exactly once — deliberately no retry wrapper. The runwayml SDK
+    # already retries connection errors and 408/409/429/5xx internally on the
+    # create POST (BaseClient._should_retry, DEFAULT_MAX_RETRIES=2), i.e. before
+    # a Runway task exists, for free. A retry layered on top of that re-issues
+    # the create call, which mints a NEW task id — a second paid generation
+    # against a single manna charge. The predicate it used made that worse:
+    # APIStatusError is the base class of every 4xx and 5xx, so a deterministic
+    # 400 counted as retryable.
     async def create_image_to_video():
         nonlocal unsafe_content_error
         try:
