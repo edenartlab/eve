@@ -115,7 +115,7 @@ HANDLER_PATHS = {
 def _make_fal_handler(name):
     """Generic handler for any tool whose api.yaml declares a `fal_endpoint`.
 
-    Runs fal's blocking subscribe path (FalTool._call_with_retry) inside the
+    Runs fal's blocking submit-and-poll path (FalTool._call_fal) inside the
     Modal run_task container — the same approach the eve/tools/fal/* tools use
     and the only one proven to complete. Returns raw output URLs so the shared
     task handler does the uploading and Creation bookkeeping.
@@ -135,7 +135,7 @@ def _make_fal_handler(name):
 
         args = tool.prepare_args(dict(context.args))
         args = await asyncio.to_thread(tool._format_args_for_fal, args)
-        result = await tool._call_with_retry(endpoint, args)
+        result = await tool._call_fal(endpoint, args)
 
         urls = tool._extract_urls_from_fal_result(result)
         if not urls:

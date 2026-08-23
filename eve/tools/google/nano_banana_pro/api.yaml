@@ -2,7 +2,7 @@ name: Nano Banana Pro
 description: Generate and edit images using Google's Gemini 3 Pro Image model (Nano Banana Pro) with advanced reasoning capabilities
 tip: Use this for complex image generation and editing tasks. Supports multiple reference images.
 # $0.134/output image ($0.24 at 4K) + $0.00112 per input image, ~20% markup on both terms
-cost_estimate: '(image_size == "4K" ? 29 : 16) + image_input.length * 0.13'
+cost_estimate: '(image_size == "4K" ? 36 : 20) + image_input.length * 0.16'
 output_type: image
 visible: true
 active: true

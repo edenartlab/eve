@@ -8,7 +8,7 @@ tip: |-
   - If you want to put specific lines of dialogue into the video, you must use Veo-3 (quality == "high_quality", sound_effects == true, and no start_image). Veo-3 is the most powerful and most expensive model, so only use it when the user demands the highest quality.
   - Audio files are *only* supported for the "talking_head" mode, so don't use one otherwise. If you want to mix an audio file over video, use the media_editor tool instead.
 # cost_estimate: "(quality == 'high_quality' ?  500 : 250)"
-cost_estimate: 250
+cost_estimate: '250'
 output_type: image
 # DEPRECATED 2026-07: superseded by `create` (output="video"). Its own docs and
 # quality tiers still describe Veo-2, Kling Pro 2.0 and Runway Gen-4, and its

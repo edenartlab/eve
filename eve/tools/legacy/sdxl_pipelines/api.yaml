@@ -1,7 +1,7 @@
 key: legacy_sdxl_pipelines
 name: Eden SDXL Pipelines (Legacy)
 description: Base generation pipelines for Eden 1.0 SDXL (2022-2024)
-cost_estimate: n_samples * 5
+cost_estimate: 'n_samples * 10'
 active: true
 visible: false
 thumbnail: app/eden_logo_trans.png

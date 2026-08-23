@@ -31,7 +31,7 @@ tip: |-
   - Slower than other image tools (tens of seconds at high quality) — tell the
     user it's worth the wait.
 # fal per-image: 1024x1024 low .006 / med .053 / high .211; ~2x at 4K sizes
-cost_estimate: '(quality == "high" ? 25 : quality == "medium" ? 6.5 : 1) * n_samples * (image_size == "4k" ? 1.9 : 1)'
+cost_estimate: '((quality == "high" ? 30 : quality == "medium" ? 9 : 2) * n_samples + 2 * input_images.length) * (image_size == "4k" ? 2.2 : 1)'
 output_type: image
 handler: modal
 visible: true

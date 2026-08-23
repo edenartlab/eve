@@ -6,6 +6,7 @@ active: true
 visible: true
 thumbnail: app/eden_logo_trans.png
 parent_tool: legacy_sdxl_pipelines
+cost_estimate: 'n_samples * 10'
 parameters:
   mode:
     default: remix

@@ -112,6 +112,80 @@ async def async_exponential_backoff(
             delay = delay * 2
 
 
+def _http_status_code(error: Exception):
+    """HTTP status carried by an httpx error or a vendor SDK's ApiError."""
+    code = getattr(error, "status_code", None)
+    if isinstance(code, int):
+        return code
+    resp = getattr(error, "response", None)
+    code = getattr(resp, "status_code", None)
+    return code if isinstance(code, int) else None
+
+
+def _is_provably_unbilled(error: Exception) -> bool:
+    """True only when the provider CANNOT have started (and billed) the work.
+
+    Deliberately conservative. The two cases that qualify:
+
+    * the request never left us — no connection was ever established, so the
+      provider never saw it;
+    * the provider answered 429 — it rejected the request outright instead of
+      generating anything.
+
+    Everything else is excluded on purpose, including 5xx and read timeouts:
+    those can fire *after* the provider has already generated (and charged
+    for) the audio, and only the delivery of the response failed. A 4xx other
+    than 429 is a deterministic request bug that would fail identically on
+    every attempt.
+    """
+    import httpx
+
+    if isinstance(error, (httpx.ConnectError, httpx.ConnectTimeout, httpx.PoolTimeout)):
+        return True
+    return _http_status_code(error) == 429
+
+
+async def async_retry_if_unbilled(
+    func,
+    max_attempts=3,
+    initial_delay=1,
+    max_jitter=1,
+):
+    """Backoff wrapper for calls that COST MONEY each time they reach the provider.
+
+    Same shape as async_exponential_backoff, but it retries only failures that
+    are provably unbilled (see _is_provably_unbilled) instead of catching bare
+    Exception. Retrying a paid generation on anything else buys the same output
+    two or three times against a single manna charge — the caller is charged
+    once, up front (Tool.handle_start_task), so extra provider attempts are
+    pure loss — and a deterministic 4xx (bad voice id, malformed input) is
+    re-billed on every attempt while never succeeding.
+
+    There is also no per-attempt asyncio timeout here, unlike
+    async_exponential_backoff. Its `asyncio.wait_for` cannot cancel the thread
+    running the HTTP request, so a slow generation (music allows 600s, but the
+    wrapper gave up at 300s) was abandoned mid-flight and re-issued while the
+    provider was still generating and billing the first one. The per-request
+    httpx timeouts already bound each attempt.
+
+    Use async_exponential_backoff for work that is free or idempotent to repeat.
+    """
+    delay = initial_delay
+    for attempt in range(1, max_attempts + 1):
+        try:
+            return await func()
+        except Exception as e:
+            if attempt == max_attempts or not _is_provably_unbilled(e):
+                raise
+            jitter = random.uniform(-max_jitter, max_jitter)
+            logger.warning(
+                f"Attempt {attempt} failed before the provider billed it ({e}). "
+                f"Retrying in {delay} seconds..."
+            )
+            await asyncio.sleep(delay + jitter)
+            delay = delay * 2
+
+
 def process_in_parallel(array, func, max_workers=3):
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         futures = {
