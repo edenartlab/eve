@@ -1062,6 +1062,11 @@ async def handle_session_status_update(request):
 
 @handle_errors
 async def handle_v2_deployment_create(request: CreateDeploymentRequestV2):
+    if request.platform == ClientType.GOOGLE_CALENDAR:
+        raise APIError(
+            "Google Calendar is retired in old Eden. Use new Eden at https://dev.eden.art.",
+            status_code=410,
+        )
     agent = Agent.from_mongo(ObjectId(request.agent))
     if not agent:
         raise APIError(f"Agent not found: {agent.id}", status_code=404)
@@ -1108,6 +1113,12 @@ async def handle_v2_deployment_update(request: UpdateDeploymentRequestV2):
     if not deployment:
         raise APIError(
             f"Deployment not found: {request.deployment_id}", status_code=404
+        )
+
+    if deployment.platform == ClientType.GOOGLE_CALENDAR:
+        raise APIError(
+            "Google Calendar is retired in old Eden. Use new Eden at https://dev.eden.art.",
+            status_code=410,
         )
 
     # Store old config and secrets for platform update hook
@@ -1203,6 +1214,12 @@ async def handle_v2_deployment_delete(request: DeleteDeploymentRequestV2):
         raise APIError(
             f"Deployment not found: {request.deployment_id}",
             status_code=404,
+        )
+
+    if deployment.platform == ClientType.GOOGLE_CALENDAR:
+        raise APIError(
+            "Google Calendar is retired in old Eden. Use new Eden at https://dev.eden.art.",
+            status_code=410,
         )
 
     try:
