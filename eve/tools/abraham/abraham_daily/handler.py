@@ -97,6 +97,8 @@ EXCLUDED_SESSION_IDS = [
     ObjectId("6a5b16120e21987b7911c455"),
     ObjectId("6a58eb1f1ca01915041447be"),
     ObjectId("6a8c5c00c499c59ba69ab220"),
+    ObjectId("6aa990e77f47551b12e280d2"),
+    ObjectId("6aa98f0dcc774aacd0a47713"),    
 ]
 
 
