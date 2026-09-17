@@ -1,0 +1,56 @@
+name: Lockfile Drift Check
+
+# The deploy workflows install with `rye sync --no-lock`: they never resolve
+# against PyPI, they install exactly what requirements.lock pins. That makes
+# deploys deterministic and immune to PyPI timeouts, but it also means a
+# pyproject.toml edit that is not accompanied by a re-lock would be installed
+# as the OLD dependency set, silently.
+#
+# This job is the guard for that: it re-resolves and fails if the committed
+# lockfiles are not what pyproject.toml produces. It is advisory on purpose --
+# it is the one job here that still talks to PyPI, so it must never be the
+# reason a deploy is blocked.
+
+on:
+  pull_request:
+    branches: [main, staging]
+  push:
+    branches: [main, staging]
+  workflow_dispatch:
+
+jobs:
+  lock-check:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    env:
+      # uv's default HTTP timeout is 30s. Cold-cache resolution of this project
+      # is ~250 packages; the default has timed out on hosted runners.
+      UV_HTTP_TIMEOUT: 180
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install the latest version of rye
+        uses: eifinger/setup-rye@v4
+        with:
+          # Pinned: the committed lockfiles are byte-compared by Lockfile
+          # Drift Check, and different rye/uv versions normalize environment
+          # markers differently (platform_system=='Linux' vs sys_platform=='linux').
+          # Regenerate the locks with this same version: rye lock --universal
+          version: '0.44.0'
+
+      - name: Re-resolve dependencies
+        run: rye lock --universal
+
+      - name: Fail if the committed lockfiles are stale
+        run: |
+          if ! git diff --exit-code -- requirements.lock requirements-dev.lock; then
+            echo "::error::requirements.lock / requirements-dev.lock do not match pyproject.toml. Run 'rye lock --universal' with rye 0.44.0 and commit the result."
+            exit 1
+          fi
+          echo "Lockfiles match pyproject.toml."
