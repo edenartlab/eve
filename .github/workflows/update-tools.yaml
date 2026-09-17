@@ -27,7 +27,7 @@ jobs:
         uses: eifinger/setup-rye@v4
 
       - name: Install dependencies
-        run: rye sync
+        run: rye sync --no-lock
 
       - name: Update changed tools
         env:

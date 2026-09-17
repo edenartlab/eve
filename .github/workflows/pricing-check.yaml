@@ -74,7 +74,7 @@ jobs:
 
       - name: Install dependencies
         working-directory: eve
-        run: rye sync
+        run: rye sync --no-lock
 
       - name: Check tool prices against ${{ matrix.db }}
         working-directory: eve

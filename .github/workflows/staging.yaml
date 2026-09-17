@@ -33,7 +33,7 @@ jobs:
 
       - name: Install dependencies
         working-directory: eve
-        run: rye sync
+        run: rye sync --no-lock
 
       - name: Configure Modal token
         working-directory: eve
