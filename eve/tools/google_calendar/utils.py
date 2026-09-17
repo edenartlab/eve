@@ -7,33 +7,17 @@ Provides formatting helpers to keep LLM context efficient and consistent.
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
-from eve.agent.agent import Agent
-from eve.agent.deployments.google_calendar import get_calendar_service
-from eve.agent.session.models import Deployment
+from eve.agent.deployments.google_calendar import calendar_retired
 
 
-async def get_calendar_deployment(agent_id: str) -> Deployment:
-    """Get Google Calendar deployment for an agent."""
-    agent = Agent.from_mongo(agent_id)
-    deployment = Deployment.load(agent=agent.id, platform="google_calendar")
-    if not deployment:
-        raise Exception("No valid Google Calendar deployment found for this agent")
-    return deployment
+async def get_calendar_deployment(agent_id: str):
+    """Retired before reading any saved deployment or credentials."""
+    calendar_retired()
 
 
 async def get_service_and_config(agent_id: str):
-    """Get calendar service and config from deployment."""
-    deployment = await get_calendar_deployment(agent_id)
-    secrets = deployment.secrets.google_calendar
-    config = deployment.config.google_calendar
-
-    if not secrets:
-        raise Exception("Google Calendar credentials not configured")
-    if not config:
-        raise Exception("Google Calendar settings not configured")
-
-    service = await get_calendar_service(secrets)
-    return service, config, deployment
+    """Refuse all registered Calendar tools without Google or Mongo access."""
+    calendar_retired()
 
 
 def parse_datetime(

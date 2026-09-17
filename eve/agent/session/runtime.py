@@ -247,6 +247,9 @@ class PromptSessionRuntime:
             self._run_floor_charged = 0.0
             self._run_cost_usd = 0.0
             self._run_topups_charged = 0.0
+            # Set when a cost-plus top-up fails (almost always insufficient
+            # manna). Enforced at the next turn boundary; see below.
+            self._billing_failed_error = None
             while not prompt_session_finished:
                 turn_count += 1
                 if turn_count > max_turns:
@@ -277,6 +280,37 @@ class PromptSessionRuntime:
                             session_run_id=self.session_run_id,
                         )
                         return
+
+                # Stop the run if a previous turn's top-up could not be
+                # collected.
+                #
+                # The 2-manna floor is charged once per RUN, so it stops
+                # asserting the balance after the first turn. Cost-plus top-ups
+                # are deliberately best-effort — a post-hoc charge failure must
+                # not kill a response the user already received — but until
+                # this check existed, that failure was only logged, and the
+                # tool loop kept issuing paid LLM calls up to
+                # MAX_PROMPT_SESSION_TURNS. An account funded with 2 manna
+                # could therefore buy a 25-turn loop: the floor drains the
+                # balance on turn 1 and every later top-up raises and is
+                # swallowed. Enforcing at the turn boundary keeps the
+                # already-delivered response intact and bills the next one.
+                if os.environ.get("FF_MANNA_BILLING") and getattr(
+                    self, "_billing_failed_error", None
+                ):
+                    billing_error_message = self._persist_billing_error_message(
+                        self._billing_failed_error
+                    )
+                    yield SessionUpdate(
+                        type=UpdateType.ASSISTANT_MESSAGE,
+                        message=billing_error_message,
+                        session_run_id=self.session_run_id,
+                    )
+                    yield SessionUpdate(
+                        type=UpdateType.END_PROMPT,
+                        session_run_id=self.session_run_id,
+                    )
+                    return
 
                 # Always attempt billing once rate limits are cleared (or disabled).
                 # The flat floor is a per-turn reservation: charge it on the
@@ -896,7 +930,14 @@ class PromptSessionRuntime:
                         )
             except Exception as e:
                 # Post-hoc charge failure must not kill a response the user
-                # already received; the balance floor is enforced pre-turn.
+                # already received — but it must stop the NEXT turn, or the
+                # tool loop keeps making paid LLM calls that can no longer be
+                # billed. Recorded here, enforced at the turn boundary.
+                self._billing_failed_error = (
+                    e
+                    if isinstance(e, APIError)
+                    else APIError(f"Insufficient manna: {e}", status_code=402)
+                )
                 logger.warning(f"Cost-plus manna charge failed: {e}")
 
         # Increment message count for the agent (sender)

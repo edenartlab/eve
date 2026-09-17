@@ -7,7 +7,7 @@
 #   all-features: false
 #   with-sources: false
 #   generate-hashes: false
-#   universal: false
+#   universal: true
 
 -e file:.
 ably==2.0.12
@@ -43,13 +43,8 @@ apscheduler==3.11.0
     # via eve
 attrs==25.3.0
     # via aiohttp
-    # via igittigitt
     # via jsonschema
     # via referencing
-awacs==2.5.0
-    # via runway
-aws-sam-translator==1.100.0
-    # via cfn-lint
 babel==2.17.0
     # via mkdocs-material
 backoff==2.2.1
@@ -64,16 +59,12 @@ bitarray==3.5.2
 blurhash==1.1.4
     # via eve
 boto3==1.40.66
-    # via aws-sam-translator
     # via eve
     # via graphiti-core
     # via langchain-aws
-    # via runway
 botocore==1.40.66
     # via boto3
     # via s3transfer
-bracex==2.6
-    # via wcmatch
 canonicaljson==2.0.0
     # via farcaster
 cbor2==6.1.3
@@ -85,15 +76,10 @@ certifi==2025.7.14
     # via opensearch-py
     # via requests
     # via sentry-sdk
-cffi==1.17.1
+cffi==1.17.1 ; platform_python_implementation != 'PyPy'
     # via cryptography
 cfgv==3.4.0
     # via pre-commit
-cfn-flip==1.3.0
-    # via runway
-    # via troposphere
-cfn-lint==1.39.1
-    # via runway
 charset-normalizer==3.4.2
     # via pdfminer-six
     # via requests
@@ -101,31 +87,27 @@ ckzg==2.1.1
     # via eth-account
 clerk-backend-api==2.2.0
     # via eve
-cli-exit-tools==1.2.7
-    # via igittigitt
 click==8.1.8
     # via beanie
-    # via cfn-flip
-    # via cli-exit-tools
     # via eve
-    # via igittigitt
     # via litellm
     # via mkdocs
     # via mkdocs-material
     # via modal
-    # via runway
     # via typer
     # via uvicorn
 colorama==0.4.6
+    # via click
     # via eve
+    # via loguru
+    # via mkdocs
     # via mkdocs-material
-coloredlogs==15.0
-    # via runway
+    # via pytest
+    # via tqdm
 cryptography==44.0.3
     # via clerk-backend-api
     # via pdfminer-six
-    # via pyopenssl
-cytoolz==1.0.1
+cytoolz==1.0.1 ; implementation_name == 'cpython'
     # via eth-utils
 decorator==5.2.1
     # via moviepy
@@ -141,8 +123,6 @@ distro==1.9.0
     # via runwayml
 dnspython==2.7.0
     # via pymongo
-docker==7.1.0
-    # via runway
 docstring-parser==0.17.0
     # via anthropic
     # via google-cloud-aiplatform
@@ -196,8 +176,6 @@ filelock==3.18.0
     # via torch
     # via transformers
     # via virtualenv
-formic2==1.0.3
-    # via runway
 frozenlist==1.7.0
     # via aiohttp
     # via aiosignal
@@ -210,7 +188,6 @@ gitdb==4.0.12
     # via gitpython
 gitpython==3.1.44
     # via eve
-    # via runway
 google-api-core==2.25.1
     # via google-api-python-client
     # via google-cloud-aiplatform
@@ -271,7 +248,7 @@ grpcio==1.73.1
     # via grpcio-status
 grpcio-status==1.73.1
     # via google-api-core
-grpclib==0.4.8
+grpclib==0.4.9
     # via modal
 h11==0.16.0
     # via httpcore
@@ -283,7 +260,7 @@ hexbytes==1.3.1
     # via eth-account
     # via eth-rlp
     # via web3
-hf-xet==1.1.5
+hf-xet==1.1.5 ; platform_machine == 'aarch64' or platform_machine == 'amd64' or platform_machine == 'arm64' or platform_machine == 'x86_64'
     # via huggingface-hub
 hpack==4.1.0
     # via h2
@@ -314,8 +291,6 @@ httpx-sse==0.4.1
 huggingface-hub==0.35.3
     # via tokenizers
     # via transformers
-humanfriendly==10.0
-    # via coloredlogs
 hyperframe==6.1.0
     # via h2
 identify==2.6.12
@@ -326,8 +301,6 @@ idna==3.10
     # via langfuse
     # via requests
     # via yarl
-igittigitt==2.1.5
-    # via runway
 imageio==2.37.0
     # via moviepy
 imageio-ffmpeg==0.6.0
@@ -345,7 +318,6 @@ jinja2==3.1.6
     # via litellm
     # via mkdocs
     # via mkdocs-material
-    # via runway
     # via torch
 jiter==0.10.0
     # via anthropic
@@ -355,14 +327,12 @@ jmespath==1.0.1
     # via boto3
     # via botocore
 jsonpatch==1.33
-    # via cfn-lint
     # via langchain-core
 jsonpointer==3.0.0
     # via jsonpatch
 jsonref==1.1.0
     # via eve
 jsonschema==4.25.0
-    # via aws-sam-translator
     # via litellm
     # via mcp
 jsonschema-specifications==2025.4.1
@@ -375,13 +345,8 @@ langfuse==2.59.7
     # via eve
 langsmith==0.4.41
     # via langchain-core
-lark==1.2.2
-    # via python-hcl2
 lazy-model==0.2.0
     # via beanie
-lib-detect-testenv==2.0.8
-    # via cli-exit-tools
-    # via igittigitt
 litellm==1.77.7
     # via eve
 loguru==0.7.3
@@ -431,7 +396,6 @@ multidict==6.6.3
 neo4j==6.0.2
     # via graphiti-core
 networkx==3.5
-    # via cfn-lint
     # via torch
 nodeenv==1.9.1
     # via pre-commit
@@ -447,6 +411,40 @@ numpy==2.3.1
     # via shapely
     # via transformers
     # via wzrd
+nvidia-cublas-cu12==12.6.4.1 ; platform_machine == 'x86_64' and sys_platform == 'linux'
+    # via nvidia-cudnn-cu12
+    # via nvidia-cusolver-cu12
+    # via torch
+nvidia-cuda-cupti-cu12==12.6.80 ; platform_machine == 'x86_64' and sys_platform == 'linux'
+    # via torch
+nvidia-cuda-nvrtc-cu12==12.6.77 ; platform_machine == 'x86_64' and sys_platform == 'linux'
+    # via torch
+nvidia-cuda-runtime-cu12==12.6.77 ; platform_machine == 'x86_64' and sys_platform == 'linux'
+    # via torch
+nvidia-cudnn-cu12==9.5.1.17 ; platform_machine == 'x86_64' and sys_platform == 'linux'
+    # via torch
+nvidia-cufft-cu12==11.3.0.4 ; platform_machine == 'x86_64' and sys_platform == 'linux'
+    # via torch
+nvidia-cufile-cu12==1.11.1.6 ; platform_machine == 'x86_64' and sys_platform == 'linux'
+    # via torch
+nvidia-curand-cu12==10.3.7.77 ; platform_machine == 'x86_64' and sys_platform == 'linux'
+    # via torch
+nvidia-cusolver-cu12==11.7.1.2 ; platform_machine == 'x86_64' and sys_platform == 'linux'
+    # via torch
+nvidia-cusparse-cu12==12.5.4.2 ; platform_machine == 'x86_64' and sys_platform == 'linux'
+    # via nvidia-cusolver-cu12
+    # via torch
+nvidia-cusparselt-cu12==0.6.3 ; platform_machine == 'x86_64' and sys_platform == 'linux'
+    # via torch
+nvidia-nccl-cu12==2.26.2 ; platform_machine == 'x86_64' and sys_platform == 'linux'
+    # via torch
+nvidia-nvjitlink-cu12==12.6.85 ; platform_machine == 'x86_64' and sys_platform == 'linux'
+    # via nvidia-cufft-cu12
+    # via nvidia-cusolver-cu12
+    # via nvidia-cusparse-cu12
+    # via torch
+nvidia-nvtx-cu12==12.6.77 ; platform_machine == 'x86_64' and sys_platform == 'linux'
+    # via torch
 oauthlib==3.3.1
     # via requests-oauthlib
     # via tweepy
@@ -459,7 +457,7 @@ opencv-python==4.10.0.84
     # via wzrd
 opensearch-py==3.0.0
     # via graphiti-core
-orjson==3.11.4
+orjson==3.11.4 ; platform_python_implementation != 'PyPy'
     # via langsmith
 packaging==24.2
     # via google-cloud-aiplatform
@@ -471,7 +469,6 @@ packaging==24.2
     # via mkdocs
     # via pytest
     # via replicate
-    # via runway
     # via transformers
 paginate==0.5.7
     # via mkdocs-material
@@ -480,7 +477,6 @@ parsimonious==0.10.0
     # via farcaster
 pathspec==0.12.1
     # via mkdocs
-    # via yamllint
 pdfminer-six==20250506
     # via pdfplumber
 pdfplumber==0.11.7
@@ -531,14 +527,13 @@ pyasn1==0.6.1
     # via rsa
 pyasn1-modules==0.4.2
     # via google-auth
-pycparser==2.22
+pycparser==2.22 ; platform_python_implementation != 'PyPy'
     # via cffi
 pycryptodome==3.23.0
     # via eth-hash
     # via eth-keyfile
 pydantic==2.11.7
     # via anthropic
-    # via aws-sam-translator
     # via beanie
     # via clerk-backend-api
     # via elevenlabs
@@ -561,7 +556,6 @@ pydantic==2.11.7
     # via openai
     # via pydantic-settings
     # via replicate
-    # via runway
     # via runwayml
     # via web3
 pydantic-core==2.33.2
@@ -572,14 +566,12 @@ pydantic-settings==2.10.1
     # via mcp
 pydub==0.25.1
     # via eve
-pyee==12.1.1
+pyee==12.1.1 ; python_full_version < '4.0'
     # via ably
 pygments==2.19.2
     # via mkdocs-material
     # via pytest
     # via rich
-pyhcl==0.4.5
-    # via runway
 pyhumps==3.8.0
     # via farcaster
 pyjwt==2.10.1
@@ -592,8 +584,6 @@ pymdown-extensions==10.16.1
 pymongo==4.15.1
     # via eve
     # via motor
-pyopenssl==25.1.0
-    # via runway
 pyparsing==3.2.3
     # via eve
     # via httplib2
@@ -617,8 +607,6 @@ python-dotenv==1.0.1
     # via litellm
     # via moviepy
     # via pydantic-settings
-python-hcl2==7.3.1
-    # via runway
 python-magic==0.4.27
     # via eve
 python-multipart==0.0.20
@@ -630,9 +618,10 @@ pytz==2025.2
     # via neo4j
 pyunormalize==16.0.0
     # via web3
+pywin32==312 ; sys_platform == 'win32'
+    # via mcp
+    # via web3
 pyyaml==6.0.2
-    # via cfn-flip
-    # via cfn-lint
     # via eve
     # via huggingface-hub
     # via langchain-core
@@ -641,9 +630,7 @@ pyyaml==6.0.2
     # via pre-commit
     # via pymdown-extensions
     # via pyyaml-env-tag
-    # via runway
     # via transformers
-    # via yamllint
 pyyaml-env-tag==1.1
     # via mkdocs
 redis==5.3.1
@@ -652,15 +639,12 @@ referencing==0.36.2
     # via jsonschema
     # via jsonschema-specifications
 regex==2024.11.6
-    # via cfn-lint
     # via parsimonious
-    # via python-hcl2
     # via tiktoken
     # via transformers
 replicate==1.0.7
     # via eve
 requests==2.32.4
-    # via docker
     # via elevenlabs
     # via eve
     # via farcaster
@@ -678,7 +662,6 @@ requests==2.32.4
     # via posthog
     # via requests-oauthlib
     # via requests-toolbelt
-    # via runway
     # via tiktoken
     # via transformers
     # via tweepy
@@ -702,8 +685,6 @@ rpds-py==0.26.0
 rsa==4.9.1
     # via google-auth
 ruff==0.12.4
-runway==2.8.4
-    # via eve
 runwayml==3.11.0
     # via eve
 s3transfer==0.14.0
@@ -715,12 +696,12 @@ sentry-sdk==2.41.0
     # via eve
 setuptools==80.9.0
     # via torch
+    # via triton
 shapely==2.1.1
     # via google-cloud-aiplatform
 shellingham==1.5.4
     # via typer
 six==1.17.0
-    # via cfn-flip
     # via posthog
     # via python-dateutil
 smmap==5.0.2
@@ -738,7 +719,6 @@ starlette==0.47.2
     # via fastapi
     # via mcp
 sympy==1.14.0
-    # via cfn-lint
     # via torch
 synchronicity==0.12.5
     # via modal
@@ -756,10 +736,9 @@ tokenizers==0.22.1
 toml==0.10.2
     # via beanie
     # via modal
-tomli==2.2.1
-    # via runway
-toolz==1.0.0
+toolz==1.0.0 ; implementation_name == 'cpython' or implementation_name == 'pypy'
     # via cytoolz
+    # via eth-utils
 torch==2.7.0
     # via eve
 tqdm==4.67.1
@@ -770,8 +749,8 @@ tqdm==4.67.1
     # via transformers
 transformers==4.56.2
     # via eve
-troposphere==4.9.4
-    # via runway
+triton==3.3.0 ; platform_machine == 'x86_64' and sys_platform == 'linux'
+    # via torch
 tweepy==4.16.0
     # via eve
 typer==0.16.0
@@ -786,8 +765,6 @@ typing-extensions==4.14.1
     # via aiosignal
     # via anthropic
     # via anyio
-    # via aws-sam-translator
-    # via cfn-lint
     # via elevenlabs
     # via eth-typing
     # via fastapi
@@ -801,11 +778,9 @@ typing-extensions==4.14.1
     # via pydantic
     # via pydantic-core
     # via pyee
-    # via pyopenssl
     # via pyright
     # via referencing
     # via replicate
-    # via runway
     # via runwayml
     # via starlette
     # via synchronicity
@@ -816,13 +791,14 @@ typing-extensions==4.14.1
 typing-inspection==0.4.1
     # via pydantic
     # via pydantic-settings
+tzdata==2026.4 ; sys_platform == 'win32'
+    # via tzlocal
 tzlocal==5.3.1
     # via apscheduler
 uritemplate==4.2.0
     # via google-api-python-client
 urllib3==2.5.0
     # via botocore
-    # via docker
     # via opensearch-py
     # via requests
     # via sentry-sdk
@@ -835,8 +811,6 @@ watchdog==6.0.0
     # via mkdocs
 watchfiles==1.1.0
     # via modal
-wcmatch==10.1
-    # via igittigitt
 web3==7.6.0
     # via eve
 websockets==13.1
@@ -844,12 +818,12 @@ websockets==13.1
     # via elevenlabs
     # via google-genai
     # via web3
+win32-setctime==1.2.0 ; sys_platform == 'win32'
+    # via loguru
 wrapt==1.17.2
     # via langfuse
 wzrd @ git+https://github.com/aiXander/WZRD.git@517c554478c84957de068835ea2573d1da49af9b
     # via eve
-yamllint==1.37.1
-    # via runway
 yarl==1.20.1
     # via aiohttp
 zipp==3.23.0
