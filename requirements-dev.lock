@@ -762,7 +762,9 @@ types-requests==2.32.4.20250611
 types-toml==0.10.8.20240310
     # via modal
 typing-extensions==4.14.1
+    # via aiosignal
     # via anthropic
+    # via anyio
     # via elevenlabs
     # via eth-typing
     # via fastapi
@@ -777,8 +779,10 @@ typing-extensions==4.14.1
     # via pydantic-core
     # via pyee
     # via pyright
+    # via referencing
     # via replicate
     # via runwayml
+    # via starlette
     # via synchronicity
     # via torch
     # via typer
