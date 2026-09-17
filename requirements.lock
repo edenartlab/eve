@@ -247,9 +247,7 @@ grpcio==1.73.1
     # via grpcio-status
 grpcio-status==1.73.1
     # via google-api-core
-grpclib==0.4.8 ; python_full_version < '3.14'
-    # via modal
-grpclib==0.4.9 ; python_full_version >= '3.14'
+grpclib==0.4.9
     # via modal
 h11==0.16.0
     # via httpcore
@@ -408,39 +406,39 @@ numpy==2.3.1
     # via shapely
     # via transformers
     # via wzrd
-nvidia-cublas-cu12==12.6.4.1 ; platform_machine == 'x86_64' and platform_system == 'Linux'
+nvidia-cublas-cu12==12.6.4.1 ; platform_machine == 'x86_64' and sys_platform == 'linux'
     # via nvidia-cudnn-cu12
     # via nvidia-cusolver-cu12
     # via torch
-nvidia-cuda-cupti-cu12==12.6.80 ; platform_machine == 'x86_64' and platform_system == 'Linux'
+nvidia-cuda-cupti-cu12==12.6.80 ; platform_machine == 'x86_64' and sys_platform == 'linux'
     # via torch
-nvidia-cuda-nvrtc-cu12==12.6.77 ; platform_machine == 'x86_64' and platform_system == 'Linux'
+nvidia-cuda-nvrtc-cu12==12.6.77 ; platform_machine == 'x86_64' and sys_platform == 'linux'
     # via torch
-nvidia-cuda-runtime-cu12==12.6.77 ; platform_machine == 'x86_64' and platform_system == 'Linux'
+nvidia-cuda-runtime-cu12==12.6.77 ; platform_machine == 'x86_64' and sys_platform == 'linux'
     # via torch
-nvidia-cudnn-cu12==9.5.1.17 ; platform_machine == 'x86_64' and platform_system == 'Linux'
+nvidia-cudnn-cu12==9.5.1.17 ; platform_machine == 'x86_64' and sys_platform == 'linux'
     # via torch
-nvidia-cufft-cu12==11.3.0.4 ; platform_machine == 'x86_64' and platform_system == 'Linux'
+nvidia-cufft-cu12==11.3.0.4 ; platform_machine == 'x86_64' and sys_platform == 'linux'
     # via torch
-nvidia-cufile-cu12==1.11.1.6 ; platform_machine == 'x86_64' and platform_system == 'Linux'
+nvidia-cufile-cu12==1.11.1.6 ; platform_machine == 'x86_64' and sys_platform == 'linux'
     # via torch
-nvidia-curand-cu12==10.3.7.77 ; platform_machine == 'x86_64' and platform_system == 'Linux'
+nvidia-curand-cu12==10.3.7.77 ; platform_machine == 'x86_64' and sys_platform == 'linux'
     # via torch
-nvidia-cusolver-cu12==11.7.1.2 ; platform_machine == 'x86_64' and platform_system == 'Linux'
+nvidia-cusolver-cu12==11.7.1.2 ; platform_machine == 'x86_64' and sys_platform == 'linux'
     # via torch
-nvidia-cusparse-cu12==12.5.4.2 ; platform_machine == 'x86_64' and platform_system == 'Linux'
+nvidia-cusparse-cu12==12.5.4.2 ; platform_machine == 'x86_64' and sys_platform == 'linux'
     # via nvidia-cusolver-cu12
     # via torch
-nvidia-cusparselt-cu12==0.6.3 ; platform_machine == 'x86_64' and platform_system == 'Linux'
+nvidia-cusparselt-cu12==0.6.3 ; platform_machine == 'x86_64' and sys_platform == 'linux'
     # via torch
-nvidia-nccl-cu12==2.26.2 ; platform_machine == 'x86_64' and platform_system == 'Linux'
+nvidia-nccl-cu12==2.26.2 ; platform_machine == 'x86_64' and sys_platform == 'linux'
     # via torch
-nvidia-nvjitlink-cu12==12.6.85 ; platform_machine == 'x86_64' and platform_system == 'Linux'
+nvidia-nvjitlink-cu12==12.6.85 ; platform_machine == 'x86_64' and sys_platform == 'linux'
     # via nvidia-cufft-cu12
     # via nvidia-cusolver-cu12
     # via nvidia-cusparse-cu12
     # via torch
-nvidia-nvtx-cu12==12.6.77 ; platform_machine == 'x86_64' and platform_system == 'Linux'
+nvidia-nvtx-cu12==12.6.77 ; platform_machine == 'x86_64' and sys_platform == 'linux'
     # via torch
 oauthlib==3.3.1
     # via requests-oauthlib
@@ -604,7 +602,7 @@ pytz==2025.2
     # via neo4j
 pyunormalize==16.0.0
     # via web3
-pywin32==312 ; sys_platform == 'win32' or platform_system == 'Windows'
+pywin32==312 ; sys_platform == 'win32'
     # via mcp
     # via web3
 pyyaml==6.0.2
@@ -734,7 +732,7 @@ tqdm==4.67.1
     # via transformers
 transformers==4.56.2
     # via eve
-triton==3.3.0 ; platform_machine == 'x86_64' and platform_system == 'Linux'
+triton==3.3.0 ; platform_machine == 'x86_64' and sys_platform == 'linux'
     # via torch
 tweepy==4.16.0
     # via eve
@@ -747,9 +745,7 @@ types-requests==2.32.4.20250611
 types-toml==0.10.8.20240310
     # via modal
 typing-extensions==4.14.1
-    # via aiosignal
     # via anthropic
-    # via anyio
     # via elevenlabs
     # via eth-typing
     # via fastapi
@@ -763,10 +759,8 @@ typing-extensions==4.14.1
     # via pydantic
     # via pydantic-core
     # via pyee
-    # via referencing
     # via replicate
     # via runwayml
-    # via starlette
     # via synchronicity
     # via torch
     # via typer
@@ -775,7 +769,7 @@ typing-extensions==4.14.1
 typing-inspection==0.4.1
     # via pydantic
     # via pydantic-settings
-tzdata==2026.4 ; platform_system == 'Windows'
+tzdata==2026.4 ; sys_platform == 'win32'
     # via tzlocal
 tzlocal==5.3.1
     # via apscheduler

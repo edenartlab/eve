@@ -71,6 +71,12 @@ jobs:
 
       - name: Install the latest version of rye
         uses: eifinger/setup-rye@v4
+        with:
+          # Pinned: the committed lockfiles are byte-compared by Lockfile
+          # Drift Check, and different rye/uv versions normalize environment
+          # markers differently (platform_system=='Linux' vs sys_platform=='linux').
+          # Regenerate the locks with this same version: rye lock --universal
+          version: '0.44.0'
 
       - name: Install dependencies
         working-directory: eve
