@@ -8,7 +8,6 @@ from datetime import datetime, timezone
 from types import SimpleNamespace
 from typing import Any, Dict, List, Optional
 
-import httpx
 from anthropic import AsyncAnthropic
 from bson import ObjectId
 from loguru import logger
@@ -79,6 +78,16 @@ def _default_thinking_param(model: str) -> Optional[Dict[str, str]]:
     if (model or "").startswith(_THINKING_DEFAULT_ON_MODELS):
         return {"type": "disabled"}
     return None
+
+
+# Plain seconds, never an httpx.Timeout object. anthropic 1.x switched its
+# transport from `httpx` to `httpx2` and now rejects an httpx.Timeout with a
+# TypeError -- which its own retry loop reports as the useless "Connection
+# error.". That broke every Anthropic structured-output call in production on
+# 2026-09-18 (media_editor, reel, session titles, memory extraction), because
+# only these two call sites passed a Timeout object. A float is accepted by
+# both SDK generations, so it cannot break again on the next bump.
+STRUCTURED_OUTPUT_TIMEOUT_S = 600.0
 
 
 class AnthropicProvider(LLMProvider):
@@ -367,7 +376,7 @@ class AnthropicProvider(LLMProvider):
                             **request_kwargs,
                             **beta_kwargs,
                             output_format=response_format_class,
-                            timeout=httpx.Timeout(600.0, connect=10.0),
+                            timeout=STRUCTURED_OUTPUT_TIMEOUT_S,
                         )
                     elif output_format_payload:
                         # Dict schema - can't use streaming, use long timeout instead
@@ -375,7 +384,7 @@ class AnthropicProvider(LLMProvider):
                             **request_kwargs,
                             **beta_kwargs,
                             output_format=output_format_payload,
-                            timeout=httpx.Timeout(600.0, connect=10.0),
+                            timeout=STRUCTURED_OUTPUT_TIMEOUT_S,
                         )
                     else:
                         # No structured output - use streaming
