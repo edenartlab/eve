@@ -406,11 +406,9 @@ numpy==2.3.1
     # via imageio
     # via langchain-aws
     # via moviepy
-    # via opencv-python
     # via pylance
     # via shapely
     # via transformers
-    # via wzrd
 nvidia-cublas-cu12==12.6.4.1 ; platform_machine == 'x86_64' and sys_platform == 'linux'
     # via nvidia-cudnn-cu12
     # via nvidia-cusolver-cu12
@@ -453,8 +451,6 @@ openai==1.99.9
     # via graphiti-core
     # via instructor
     # via litellm
-opencv-python==4.10.0.84
-    # via wzrd
 opensearch-py==3.0.0
     # via graphiti-core
 orjson==3.11.4 ; platform_python_implementation != 'PyPy'
@@ -486,7 +482,6 @@ pillow==11.3.0
     # via imageio
     # via moviepy
     # via pdfplumber
-    # via wzrd
 platformdirs==4.3.8
     # via mkdocs-get-deps
     # via virtualenv
@@ -822,8 +817,6 @@ win32-setctime==1.2.0 ; sys_platform == 'win32'
     # via loguru
 wrapt==1.17.2
     # via langfuse
-wzrd @ git+https://github.com/aiXander/WZRD.git@517c554478c84957de068835ea2573d1da49af9b
-    # via eve
 yarl==1.20.1
     # via aiohttp
 zipp==3.23.0
