@@ -110,7 +110,6 @@ GIGABRAIN_TOOLS = _discover_tools("gigabrain")
 ABRAHAM_TOOLS = _discover_tools("abraham")
 VERDELIS_TOOLS = _discover_tools("verdelis")
 CHIBA_TOOLS = _discover_tools("chiba")
-WZRD_TOOLS = _discover_tools("wzrd")
 HOME_ASSISTANT_TOOLS = _discover_tools("home_assistant")
 RETRIEVAL_TOOLS = _discover_tools("retrieval")
 GODOT_NPC_TOOLS = [

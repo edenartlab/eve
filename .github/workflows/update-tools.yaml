@@ -42,7 +42,7 @@ jobs:
           DB: ${{ github.ref == 'refs/heads/main' && 'PROD' || 'STAGE' }}
         run: |
           # Get changed api.yaml files
-          CHANGED_FILES=$(git diff --name-only HEAD~1 HEAD | grep 'eve/tools/.*/api.yaml' || true)
+          CHANGED_FILES=$(git diff --name-only --diff-filter=d HEAD~1 HEAD | grep 'eve/tools/.*/api.yaml' || true)
 
           if [ -n "$CHANGED_FILES" ]; then
             echo "Changed api.yaml files detected:"

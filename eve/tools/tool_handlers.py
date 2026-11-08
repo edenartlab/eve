@@ -7,7 +7,6 @@ from eve.tool_constants import (
     HOME_ASSISTANT_TOOLS,
     RETRIEVAL_TOOLS,
     VERDELIS_TOOLS,
-    WZRD_TOOLS,
 )
 
 handlers = {}
@@ -106,7 +105,6 @@ HANDLER_PATHS = {
     **{tool: f"verdelis.{tool}.handler" for tool in VERDELIS_TOOLS},
     **{tool: f"gigabrain.{tool}.handler" for tool in GIGABRAIN_TOOLS},
     **{tool: f"chiba.{tool}.handler" for tool in CHIBA_TOOLS},
-    **{tool: f"wzrd.{tool}.handler" for tool in WZRD_TOOLS},
     **{tool: f"home_assistant.{tool}.handler" for tool in HOME_ASSISTANT_TOOLS},
     **{tool: f"retrieval.{tool}.handler" for tool in RETRIEVAL_TOOLS},
 }

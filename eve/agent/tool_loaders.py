@@ -122,10 +122,6 @@ def get_agent_specific_tools(
                 "reel_video",
             ]
         )
-    elif username == "wzrd":
-        from ..tool_constants import WZRD_TOOLS
-
-        result.extend(WZRD_TOOLS)
     elif username == "solar-sambot":
         from ..tool_constants import GODOT_NPC_TOOLS, HOME_ASSISTANT_TOOLS
 
