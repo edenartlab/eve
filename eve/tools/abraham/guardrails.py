@@ -105,6 +105,23 @@ def validate_image_field(data: Dict[str, Any]) -> None:
         raise ValueError(f"Invalid image: {info.get('reason', 'unknown')}")
 
 
+# Sessions are disqualified from the Covenant by a flag on the session document,
+# so disqualifying one is a DB write, not a deploy:
+#   DB=PROD python scripts/abraham_disqualify_session.py <session_id>
+DISQUALIFIED_FIELD = "abraham_disqualified"
+
+
+def validate_session_not_disqualified(session_id: str) -> None:
+    """Refuse a session that has been disqualified from the Covenant."""
+    from bson import ObjectId
+
+    doc = Session.get_collection().find_one(
+        {"_id": ObjectId(session_id)}, {DISQUALIFIED_FIELD: 1}
+    )
+    if doc and doc.get(DISQUALIFIED_FIELD) is True:
+        raise ValueError(f"Session {session_id} is disqualified from the Covenant")
+
+
 def validate_session_id_string(session_id: str) -> None:
     """Validate that session_id is a valid BSON ObjectId.
 

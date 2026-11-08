@@ -12,6 +12,7 @@ from eve.tools.abraham.abraham_covenant.guardrails import (
     validate_ipfs_bundle,
 )
 from eve.tools.abraham.abraham_seed.handler import AbrahamCreation
+from eve.tools.abraham.guardrails import validate_session_not_disqualified
 from eve.utils.chain_utils import (
     BlockchainError,
     Network,
@@ -190,6 +191,7 @@ async def handler(context: ToolContext):
         raise Exception("Video is required")
 
     # Safety checks
+    validate_session_not_disqualified(session_id)
     validate_creation(title, tagline, poster_image, blog_post, video, session_id)
 
     logger.info("Creation validated successfully!")

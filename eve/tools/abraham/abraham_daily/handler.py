@@ -9,97 +9,9 @@ from eve.agent.session.models import Session
 from eve.tool import ToolContext
 from eve.tools.abraham.abraham_rest.handler import rest
 from eve.tools.abraham.abraham_seed.handler import AbrahamCreation
+from eve.tools.abraham.guardrails import DISQUALIFIED_FIELD
 from eve.tools.session_post.handler import handler as session_post_handler
 from eve.user import User
-
-# Sessions manually excluded from creation candidacy
-EXCLUDED_SESSION_IDS = [
-    ObjectId("68f4e550da856906e1501ed4"),
-    ObjectId("68e839b48dc2fa5b40e24448"),
-    ObjectId("69607f6085b97d97d6e87a35"),
-    ObjectId("69607f7b85b97d97d6e87a84"),
-    ObjectId("695c2d4035ecdb2123d96efe"),
-    ObjectId("697c54dec57344f3c9193290"),
-    ObjectId("6978986a055fbf484bac62f8"),
-    ObjectId("6981d728ef3ab8f5f0f57425"),
-    ObjectId("697b68b7bc76d13c3d4d8273"),
-    ObjectId("697c6e2def3ab8f5f08d05d2"),
-    ObjectId("6986eb66aac3b43b2e94296d"),
-    ObjectId("698cfd3e0d9043b959349474"),
-    ObjectId("69955ebb8648f23ec8360729"),
-    ObjectId("699573558648f23ec83871e7"),
-    ObjectId("69949bed8648f23ec81d93fa"),
-    ObjectId("699586828648f23ec839b8c4"),
-    ObjectId("6993aeb86ec56b9504804c4e"),
-    ObjectId("69954c7e8648f23ec832cc58"),
-    ObjectId("69931b426ec56b9504753ebf"),
-    ObjectId("699683dc8648f23ec84d723f"),
-    ObjectId("69966b088648f23ec849661f"),
-    ObjectId("699979948648f23ec87c7173"),
-    ObjectId("699bb3a88648f23ec89686dd"),
-    ObjectId("699c67888648f23ec89cb640"),
-    ObjectId("69881fabeb7e84c5958e7ab4"),
-    ObjectId("699c63288648f23ec89c8eb1"),
-    ObjectId("699468048648f23ec81839fd"),
-    ObjectId("69898b2b0d9043b959efb037"),
-    ObjectId("69a721c8fb934214a5119d44"),
-    ObjectId("69b20f1929667ef37196b77b"),
-    ObjectId("69b2efe3540b89db44bea4b6"),
-    ObjectId("69b60832540b89db44ffa91d"),
-    ObjectId("69b4d576540b89db44dcacd7"),
-    ObjectId("69bf407595dd6625bdb945f0"),
-    ObjectId("69c08bb295dd6625bdc737a3"),
-    ObjectId("69c06e1d95dd6625bdc57508"),
-    ObjectId("69c0d12195dd6625bdcca422"),
-    ObjectId("69c0852795dd6625bdc6d9f4"),
-    ObjectId("69c24f1795dd6625bde3acd3"),
-    ObjectId("69c095d095dd6625bdc862be"),
-    ObjectId("69c0ce8895dd6625bdcc92b3"),
-    ObjectId("69bf5ea095dd6625bdba9369"),
-    ObjectId("69bf5a4f95dd6625bdba5d3a"),
-    ObjectId("69bf5a4f95dd6625bdba5d3a"),
-    ObjectId("69bf55d995dd6625bdba41b9"),
-    ObjectId("69c186f795dd6625bdd62b83"),
-    ObjectId("69cc431395dd6625bd704f20"),
-    ObjectId("69cda88395dd6625bd7d5bce"),
-    ObjectId("69cf0c2795dd6625bd898025"),
-    ObjectId("69d06cf6cb22e23412f9d601"),
-    ObjectId("69cff035cb22e23412f47539"),
-    ObjectId("69bf605195dd6625bdbac585"),
-    ObjectId("69bad5c595dd6625bd145d48"),
-    ObjectId("69becfa395dd6625bda970d0"),
-    ObjectId("69c4745a95dd6625bd080961"),
-    ObjectId("69e19744a3527aca30957086"),
-    ObjectId("69e58bada3527aca30adca70"),
-    ObjectId("69ed1563a3527aca30ec5c57"),
-    ObjectId("69ed178ea3527aca30ec7694"),
-    ObjectId("69ed18aea3527aca30ec8bb7"),
-    ObjectId("69ee5c528399cd999d5b03f8"),
-    ObjectId("69ed8d6e0282fec6af1344dd"),
-    ObjectId("69e41af5a3527aca30a7b099"),
-    ObjectId("69ee9c9f0282fec6af19148f"),
-    ObjectId("69eea99e0282fec6af19542d"),
-    ObjectId("69ea30aea3527aca30cf59d6"),
-    ObjectId("69f086f90282fec6af2426bd"),
-    ObjectId("69f3a0780282fec6af3e7e39"),
-    ObjectId("6a169a7ecd9ceb9227f0ec1b"),
-    ObjectId("6a0bf154097834fa9bde2929"),
-    ObjectId("6a1698f6cd9ceb9227f0d97f"),
-    ObjectId("6a09b76e097834fa9bc7fe1d"),
-    ObjectId("6a3914385d3c5b08d3c749a8"),
-    ObjectId("6a40a8245d3c5b08d3efb1d6"),
-    ObjectId("6a44af895d3c5b08d3fb89e4"),
-    ObjectId("6a2d5c10a4371825cfa38def"),
-    ObjectId("6a458a9fb202bd28df8c4b80"),
-    ObjectId("6a46db2cb202bd28df9062a6"),
-    ObjectId("6a4aa875783c41a9dc34ac5f"),
-    ObjectId("6a5c51b12759b73913ec77bc"),
-    ObjectId("6a5b16120e21987b7911c455"),
-    ObjectId("6a58eb1f1ca01915041447be"),
-    ObjectId("6a8c5c00c499c59ba69ab220"),
-    ObjectId("6aa990e77f47551b12e280d2"),
-    ObjectId("6aa98f0dcc774aacd0a47713"),    
-]
 
 
 def user_score(msg_count: int) -> float:
@@ -243,7 +155,7 @@ def get_scored_candidates(agent: Agent) -> list:
     Returns a sorted (highest score first) list of dicts with keys:
         session, score, unique_users, total_messages, messages_per_user
     """
-    # Gather session IDs to exclude: already-minted creations + manual exclusions
+    # Gather session IDs to exclude: already-minted creations
     creations = AbrahamCreation.find({})
     creation_session_ids = []
     for c in creations:
@@ -252,20 +164,21 @@ def get_scored_candidates(agent: Agent) -> list:
                 creation_session_ids.append(ObjectId(c.session_id))
             except Exception:
                 pass
-    excluded_ids = creation_session_ids + EXCLUDED_SESSION_IDS
+    excluded_ids = creation_session_ids
 
     # Only consider sessions updated within the last 20 days
     cutoff = datetime.now(timezone.utc) - timedelta(days=20)
 
     # Find all eligible sessions:
     # - Not already minted as a creation
-    # - Not manually excluded
+    # - Not disqualified (session flag)
     # - Abraham is the only agent (no multi-agent sessions)
     # - Active within the last 20 days
     # - Not a discord channel session
     sessions = Session.find(
         {
             "_id": {"$nin": excluded_ids},
+            DISQUALIFIED_FIELD: {"$ne": True},
             "agents": [agent.id],
             "updatedAt": {"$gte": cutoff},
             "deleted": {"$ne": True},
