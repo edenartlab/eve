@@ -5,8 +5,9 @@ from bson import ObjectId
 from eve.agent import Agent
 from eve.agent.session.models import Session
 from eve.tool import ToolContext
-from eve.tools.abraham.abraham_daily.handler import EXCLUDED_SESSION_IDS, user_score
+from eve.tools.abraham.abraham_daily.handler import user_score
 from eve.tools.abraham.abraham_seed.handler import AbrahamCreation
+from eve.tools.abraham.guardrails import DISQUALIFIED_FIELD
 from eve.tools.gigabrain.get_messages_digest.handler import (
     handler as get_messages_digest_handler,
 )
@@ -31,7 +32,7 @@ async def handler(context: ToolContext):
     if agent.username != "abraham":
         return {"output": {"error": "This tool is only available for Abraham"}}
 
-    # Build exclusion list: already-minted creation session_ids + manual exclusions
+    # Build exclusion list: already-minted creation session_ids
     creations = AbrahamCreation.find({})
     creation_session_ids = []
     for c in creations:
@@ -40,7 +41,7 @@ async def handler(context: ToolContext):
                 creation_session_ids.append(ObjectId(c.session_id))
             except Exception:
                 pass
-    excluded_ids = creation_session_ids + EXCLUDED_SESSION_IDS
+    excluded_ids = creation_session_ids
 
     # Only consider sessions updated within the time window
     cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
@@ -49,6 +50,7 @@ async def handler(context: ToolContext):
     sessions = Session.find(
         {
             "_id": {"$nin": excluded_ids},
+            DISQUALIFIED_FIELD: {"$ne": True},
             "agents": [agent.id],
             "updatedAt": {"$gte": cutoff},
         }
