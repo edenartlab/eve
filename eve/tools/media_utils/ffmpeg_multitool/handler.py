@@ -1,6 +1,7 @@
 import asyncio
 import json
 import os
+import shlex
 import shutil
 import uuid
 from pathlib import Path
@@ -266,21 +267,43 @@ async def generate_ffmpeg_command(
         raise FFmpegError(f"Failed to generate FFmpeg command: {str(e)}", "")
 
 
-ffmpeg_validator = utils.CommandValidator({"ffmpeg"})
+ALLOWED_BINARIES = {"ffmpeg", "ffprobe"}
+
+
+def parse_ffmpeg_command(command: str) -> List[str]:
+    """Split a generated command into an argument list for direct execution.
+
+    The command is never handed to a shell: it is tokenised, the program must
+    be exactly one of the allow-listed binaries (no path), and the tokens are
+    passed to exec as-is, so shell syntax (pipes, redirects, substitution,
+    chaining) has no effect.
+    """
+    if not command or not isinstance(command, str):
+        raise FFmpegError("FFmpeg command cannot be empty", command or "")
+    try:
+        argv = shlex.split(command)
+    except ValueError as e:
+        raise FFmpegError(f"Invalid command syntax: {e}", command)
+    if not argv or argv[0] not in ALLOWED_BINARIES:
+        raise FFmpegError(
+            "Security validation failed: only ffmpeg/ffprobe may be executed", command
+        )
+    if any("\x00" in arg for arg in argv):
+        raise FFmpegError("Security validation failed: invalid argument", command)
+    return argv
 
 
 async def execute_ffmpeg_command(command: str, timeout: int = 60) -> None:
-    """Execute FFmpeg command with timeout and basic security validation"""
-    if not command:
-        raise ValueError("FFmpeg command cannot be empty")
+    """Execute a generated FFmpeg command without a shell, with a timeout"""
+    argv = parse_ffmpeg_command(command)
 
-    # Basic security validation
-    is_valid, error_message = ffmpeg_validator.validate_command(command)
-    if not is_valid:
-        raise FFmpegError(f"Security validation failed: {error_message}", command)
-
-    process = await asyncio.create_subprocess_shell(
-        command, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+    # Minimal environment: the child process does not inherit service secrets.
+    process = await asyncio.create_subprocess_exec(
+        *argv,
+        stdin=asyncio.subprocess.DEVNULL,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+        env={"PATH": os.environ.get("PATH", "/usr/local/bin:/usr/bin:/bin")},
     )
 
     try:

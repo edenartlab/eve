@@ -7,7 +7,7 @@ tip: |-
   Consider if the task can be easily achieved with a single ffmpeg command or if it requires multiple steps.
 cost_estimate: 1
 output_type: video
-active: true
+active: false
 handler: modal
 visible: false
 parameters:
