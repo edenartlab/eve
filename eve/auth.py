@@ -1,4 +1,5 @@
 import hashlib
+import hmac
 import os
 from typing import Optional
 
@@ -194,7 +195,10 @@ def authenticate_admin(
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED, detail="Unauthorized"
         )
-    if token.credentials != EDEN_ADMIN_KEY:
+    # Constant-time comparison; an unset or empty admin key never matches.
+    if not EDEN_ADMIN_KEY or not hmac.compare_digest(
+        token.credentials.encode("utf-8"), EDEN_ADMIN_KEY.encode("utf-8")
+    ):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED, detail="Unauthorized"
         )
