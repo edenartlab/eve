@@ -633,11 +633,11 @@ token_tracker_vol = modal.Volume.from_name("token-tracker", create_if_missing=Tr
 
 app = modal.App(
     name=app_name,
-    secrets=[
-        modal.Secret.from_name("eve-secrets"),
-        modal.Secret.from_name(f"eve-secrets-{db}"),
-        modal.Secret.from_name("abraham-secrets"),
-    ],
+    # One environment-specific secret. The wallet secret used by the on-chain
+    # (Abraham) tools is deliberately NOT mounted here: this app runs chat
+    # tools for every user, so it must not hold a signing key. Those tools
+    # fail closed ("not configured") until they get an isolated function.
+    secrets=[modal.Secret.from_name(f"eve-secrets-{db}")],
 )
 
 root_dir = Path(__file__).parent.parent.parent
