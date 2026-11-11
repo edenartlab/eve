@@ -1523,9 +1523,22 @@ class Deployment(Document):
         from eve.utils.kms_encryption import (
             encrypt_deployment_secrets,
             get_kms_encryption,
+            plaintext_secrets_allowed,
         )
 
         kms = get_kms_encryption()
+
+        if (
+            schema.get("secrets")
+            and not kms.enabled
+            and not plaintext_secrets_allowed()
+        ):
+            # No silent plaintext fallback: third-party credentials are only
+            # stored when they can be encrypted.
+            raise ValueError(
+                "Refusing to store deployment secrets unencrypted: configure "
+                "AWS_KMS_KEY_ID / AWS_KMS_KEY_ARN"
+            )
 
         if kms.enabled and "secrets" in schema and schema["secrets"]:
             secrets_dict = serialize_json(schema["secrets"])
