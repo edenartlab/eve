@@ -2624,7 +2624,7 @@ class GatewayManager:
                     continue
 
                 logger.info(
-                    f"Checking deployment {deployment.id}: secrets={deployment.secrets is not None}, discord={deployment.secrets.discord if deployment.secrets else None}, token={bool(deployment.secrets.discord.token) if deployment.secrets and deployment.secrets.discord else None}"
+                    f"Checking deployment {deployment.id}: secrets={deployment.secrets is not None}, token={bool(deployment.secrets.discord.token) if deployment.secrets and deployment.secrets.discord else None}"
                 )
                 if deployment.secrets and deployment.secrets.discord.token:
                     await self.start_client(deployment)

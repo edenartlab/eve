@@ -605,17 +605,16 @@ async def embed(request: Request, _: dict = Depends(auth.authenticate_admin)):
 
 @web_app.exception_handler(RequestValidationError)
 async def validation_exception_handler(request: Request, exc: RequestValidationError):
-    logger.error(f"Validation error on {request.url}:")
-    logger.error(f"Request body: {await request.body()}")
-    logger.error(f"Validation errors: {exc.errors()}")
+    # Log and return only where and why validation failed. Request bodies
+    # (and the rejected input values) can contain credentials and user
+    # content, so they are neither logged nor echoed back.
+    errors = [
+        {"loc": e.get("loc"), "msg": e.get("msg"), "type": e.get("type")}
+        for e in exc.errors()
+    ]
+    logger.error(f"Validation error on {request.url.path}: {errors}")
 
-    return JSONResponse(
-        status_code=422,
-        content={
-            "detail": exc.errors(),
-            "body": await request.json() if await request.body() else None,
-        },
-    )
+    return JSONResponse(status_code=422, content={"detail": errors})
 
 
 @web_app.exception_handler(Exception)

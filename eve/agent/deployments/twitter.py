@@ -668,7 +668,7 @@ async def poll_twitter_gateway(local_mode: bool = False):
             logger.error("TWITTER_BEARER_TOKEN environment variable not set")
             return {"status": "error", "error": "TWITTER_BEARER_TOKEN not set"}
 
-        logger.info(f"Using app bearer token: {bearer_token[:10]}...")
+        logger.info("Using app bearer token")
 
         # Build combined query for all tracked accounts
         query = build_combined_query(tracked_usernames)
