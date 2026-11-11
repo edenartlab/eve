@@ -41,19 +41,20 @@ We invite you to contribute workflows that will become accessible to all creativ
 ## Tool pricing
 
 **A tool's price lives in exactly one place: the `cost_estimate` field of its
-`api.yaml`.** To change a price, edit that line and merge the PR. CI writes the
-new value to the `tools3` collection, which is what production charges against.
-Nobody should ever need to edit Mongo by hand.
+`api.yaml`.** To change a price, edit that line, merge the PR, then run
+`make price-sync` by hand with a temporary database user. That writes the new
+value to the `tools3` collection, which is what production charges against.
+CI holds no database credentials and never writes prices.
 
 ```bash
 make price TOOL=flux_dev   # what does it cost now, and does the repo agree?
 make price                 # the same question for every tool
-make price-check           # fail if the repo and PROD disagree (this runs in CI)
+make price-check           # fail if the repo and PROD disagree
 ```
 
-`eve tool price-check` runs on every PR against PROD as a required check, so a
-price can never quietly diverge from what the repo says. If it ever does,
-`eve tool price-sync --db PROD` pushes the repo's prices to the database.
+Run `make price-check` after a price change to confirm the database matches the
+repo. If it does not, `eve tool price-sync --db PROD` pushes the repo's prices
+to the database.
 
 Three things are worth knowing:
 
@@ -67,5 +68,16 @@ Three things are worth knowing:
   repo that is not checked out is reported as UNCHECKED and its tools are
   skipped, never treated as deleted or unpriced.
 
-STAGE is deliberately not a required check: it carries in-development tools and
-experimental prices that are not expected to match any repo.
+## Manual deploy
+
+Deploys are run by hand from a maintainer's machine with their own Modal login.
+CI has no deploy job and holds no secrets.
+
+```bash
+# eve and the workflows repo checked out side by side, both at reviewed commits
+DB=PROD modal deploy eve/api/api.py                      # the API
+WORKSPACE=<name> DB=PROD modal deploy comfyui.py         # one ComfyUI workspace
+```
+
+The API app reads the Modal secret `eve-secrets-PROD`; ComfyUI apps read
+`comfy-secrets-PROD` (database and media-bucket variables only).
