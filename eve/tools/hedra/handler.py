@@ -53,6 +53,8 @@ def get_audio_duration(audio_file_path: str) -> float:
 
 async def handler(context: ToolContext):
     HEDRA_API_KEY = os.getenv("HEDRA_API_KEY")
+    if not HEDRA_API_KEY:
+        raise Exception("HEDRA_API_KEY is not configured")
     session = Session(api_key=HEDRA_API_KEY)
 
     async def _session_request(method: str, url: str, **kwargs):

@@ -8,7 +8,26 @@ from eve.tool import ToolContext
 # from ... import utils
 
 
-# bug: if some videos are silent but others have sound, the concatenated video will have no sound
+SILENT_AUDIO = "anullsrc=channel_layout=stereo:sample_rate=44100"
+
+
+async def _has_audio(video: str) -> bool:
+    probe_command = [
+        "ffprobe",
+        "-v",
+        "error",
+        "-select_streams",
+        "a",
+        "-show_entries",
+        "stream=index",
+        "-of",
+        "csv=p=0",
+        video,
+    ]
+    probe_result = await asyncio.to_thread(
+        subprocess.run, probe_command, capture_output=True, text=True
+    )
+    return probe_result.stdout.strip() != ""
 
 
 async def handler(context: ToolContext):
@@ -17,68 +36,40 @@ async def handler(context: ToolContext):
     video_urls = context.args.get("videos")
     fps = context.args.get("fps", 30)
 
+    # Inputs are URLs, downloaded to temp files (local paths are only accepted
+    # from the temp directory).
     video_files = [
-        utils.download_file(video_url, video_url.split("/")[-1])
+        await asyncio.to_thread(utils.get_file_handler, ".mp4", video_url)
         for video_url in video_urls
     ]
 
     output_file = tempfile.NamedTemporaryFile(suffix=".mp4", delete=False)
 
+    # The concat step needs the same streams in every part. If only some of
+    # the videos have sound, the silent ones get a silent track; if none do,
+    # the result stays silent.
+    audio_flags = [await _has_audio(video) for video in video_files]
+    any_audio = any(audio_flags)
+
     converted_videos = []
-    for video in video_files:
+    for video, has_audio in zip(video_files, audio_flags):
         with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as temp:
             output_video = temp.name
 
-            # Check if the video has audio
-            probe_command = [
-                "ffprobe",
-                "-v",
-                "error",
-                "-select_streams",
-                "a",
-                "-show_entries",
-                "stream=index",
-                "-of",
-                "csv=p=0",
-                video,
-            ]
-            probe_result = await asyncio.to_thread(
-                subprocess.run, probe_command, capture_output=True, text=True
+            convert_command = ["ffmpeg", "-y", "-loglevel", "info", "-i", video]
+            if any_audio and not has_audio:
+                convert_command.extend(["-f", "lavfi", "-i", SILENT_AUDIO, "-shortest"])
+            convert_command.extend(
+                ["-r", str(fps), "-c:v", "libx264", "-crf", "19", "-preset", "fast"]
             )
-            has_audio = probe_result.stdout.strip() != ""
 
-            # Prepare ffmpeg command
-            convert_command = [
-                "ffmpeg",
-                "-y",
-                "-loglevel",
-                "info",
-                "-i",
-                video,
-                "-r",
-                str(fps),
-                "-c:v",
-                "libx264",
-                "-crf",
-                "19",
-                "-preset",
-                "fast",
-            ]
-
-            if has_audio:
-                convert_command.extend(["-c:a", "aac", "-b:a", "128k"])
-            else:
-                # Add a silent audio track if the video has no audio
+            if any_audio:
+                # One layout for every part, so the parts can be joined.
                 convert_command.extend(
-                    [
-                        "-c:a",
-                        "aac",
-                        "-b:a",
-                        "128k",
-                        "-af",
-                        "anullsrc=channel_layout=stereo:sample_rate=44100",
-                    ]
+                    ["-c:a", "aac", "-b:a", "128k", "-ar", "44100", "-ac", "2"]
                 )
+            else:
+                convert_command.append("-an")
 
             convert_command.append(output_video)
 
@@ -126,10 +117,7 @@ async def handler(context: ToolContext):
         "23",
         "-preset",
         "fast",
-        "-c:a",
-        "aac",
-        "-b:a",
-        "128k",
+        *(["-c:a", "aac", "-b:a", "128k"] if any_audio else ["-an"]),
         "-movflags",
         "+faststart",
         output_file.name,

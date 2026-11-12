@@ -7,6 +7,7 @@ import shutil
 import uuid
 from pathlib import Path, PurePosixPath
 from typing import Any, Dict, List, Optional
+from urllib.parse import urlsplit
 
 import anthropic
 from instructor.function_calls import openai_schema
@@ -15,7 +16,13 @@ from pydantic import BaseModel, Field
 from eve.tool import ToolContext
 
 from .... import utils
-from .sandbox import FFmpegSandbox
+from .sandbox import (
+    SANDBOX_FONT_DIR,
+    SANDBOX_FONT_FAMILIES,
+    TIMEOUT_EXIT_CODE,
+    FFmpegSandbox,
+    OutputTooLargeError,
+)
 
 
 class CommandSecurityError(Exception):
@@ -199,6 +206,43 @@ class MediaFiles(BaseModel):
         return "Available media files:\n" + "\n".join(media_items)
 
 
+SYSTEM_CONTEXT = (
+    "You are a professional media editing assistant working in a Linux terminal. "
+    "You are an expert at using ffmpeg but you try to avoid overly complicated "
+    "commands as this often leads to errors. Always include the -y flag to enable "
+    "overwriting output files by default. If a video is to be produced, always add "
+    "-c:v libx264 -pix_fmt yuv420p to ensure widely playable H.264 encoding (and "
+    "-c:a aac when the output has audio). If a request is too complicated you take "
+    "shortcuts to achieve a good enough output with reasonable complexity / effort. "
+    "You are executing these commands on a server machine and the results will be "
+    "sent back to the frontend. Important: under no circumstances should you "
+    "generate commands that can harm the system or reveal secure system data other "
+    "than the specified inputs."
+)
+
+# What the execution environment (see sandbox.py and the argument checks
+# below) accepts, so the first attempt is not spent discovering it.
+EXECUTION_RULES = (
+    "How the command is executed:\n"
+    "- It is one ffmpeg (or ffprobe) invocation, run directly without a shell: "
+    "pipes, redirects, &&, ;, variables, globbing and command substitution do not "
+    "work. Do everything in a single ffmpeg command.\n"
+    "- It runs in an isolated working directory that contains only the media "
+    "files listed above. Refer to them by exactly the relative paths shown, and "
+    "write the result to a new relative filename (for example output.mp4).\n"
+    "- Absolute paths, '..', '~', URLs and protocol prefixes (file:, concat:, "
+    "pipe:) are rejected. There is no network access.\n"
+    "- No other files exist and none can be created before the command runs, so "
+    "do not use the concat demuxer with a list file (use the concat filter in "
+    "-filter_complex) and do not reference subtitle, text or script files.\n"
+    "- Exactly one output file is returned: the one you name in output_path.\n"
+    f"- For text overlays use drawtext with font='{SANDBOX_FONT_FAMILIES[0]}' "
+    f"(also installed: {', '.join(SANDBOX_FONT_FAMILIES[1:])}; bold via "
+    f"fontfile={SANDBOX_FONT_DIR}/DejaVuSans-Bold.ttf). Fonts under "
+    "/usr/share/fonts/ are the only absolute paths allowed."
+)
+
+
 async def generate_ffmpeg_command(
     task_instruction: str,
     media: MediaFiles,
@@ -216,8 +260,9 @@ async def generate_ffmpeg_command(
 
         media_context = await media.to_context_string()
         prompt_parts = [
-            "You are a professional media editing assistant working in a Linux terminal. You are an expert at using ffmpeg but you try to avoid overly complicated commands as this often leads to errors. Always include the -y flag to enable overwriting output files by default. If a video is to be produced, always add -c:v libopenh264 to ensure H.264 encoding. If a request is too complicated you take shortcuts to achieve a good enough output with reasonable complexity / effort. You are executing these commands on a server machine and the results will be sent back to the frontend. Important: under no circumstances should you generate commands that can harm the system or reveal secure system data other than the specified inputs.",
+            SYSTEM_CONTEXT,
             media_context,
+            EXECUTION_RULES,
             "Generate a single, executable (typically ffmpeg) command to perform the following task:",
             task_instruction,
         ]
@@ -284,7 +329,10 @@ _URL_SCHEME = re.compile(r"[A-Za-z][A-Za-z0-9+.\-]*://")
 # ffmpeg protocols that need no "//" (local file access and indirection).
 _LOCAL_PROTOCOL = re.compile(
     _DELIM
-    + r"(?:file|concat|concatf|pipe|fd|data|subfile|crypto|cache|async|tee|unix)[:,]"
+    + r"(?:(?:file|concat|concatf|pipe|fd|data|subfile|crypto|cache|async|tee|unix):"
+    # "subfile,,start,0,end,100,,:a.mp4" puts its options before the colon. Only
+    # subfile takes a comma: "concat," is the concat filter with its defaults.
+    + r"|subfile,)"
 )
 
 
@@ -374,72 +422,71 @@ async def execute_ffmpeg_command(sandbox: FFmpegSandbox, command: str) -> None:
     except Exception as e:
         raise FFmpegError(f"FFmpeg sandbox execution failed: {e}", command)
 
-    if returncode != 0:
+    if returncode == TIMEOUT_EXIT_CODE:
         raise FFmpegError(
-            f"FFmpeg command failed with exit code {returncode} "
-            f"(time limit {sandbox.command_timeout} seconds)",
+            f"FFmpeg command was stopped at the time limit of "
+            f"{sandbox.command_timeout} seconds",
             command,
             stderr,
         )
+    if returncode != 0:
+        raise FFmpegError(
+            f"FFmpeg command failed with exit code {returncode}", command, stderr
+        )
+
+
+DEFAULT_EXTENSIONS = {"img": "jpg", "video": "mp4", "audio": "mp3"}
+
+
+def _input_extension(source: str, kind: str) -> str:
+    """A plain file extension for an input, from its URL path (no query string)."""
+    suffix = Path(urlsplit(source).path).suffix.lstrip(".").lower()
+    if re.fullmatch(r"[a-z0-9]{1,5}", suffix):
+        return suffix
+    return DEFAULT_EXTENSIONS[kind]
+
+
+def _fetch_input(source: str, destination: str) -> None:
+    """Place one input file at `destination`, inside the job's directory."""
+    if isinstance(source, str) and source.startswith(("http://", "https://")):
+        utils.download_file(source, destination, overwrite=True)
+    else:
+        # Anything else must be a file in the temp directory; get_file_handler
+        # refuses other local paths.
+        shutil.copy2(utils.get_file_handler("", source), destination)
 
 
 def validate_and_prepare_media(
     args: Dict[str, Any], tmp_dir: Optional[str] = None
 ) -> MediaFiles:
-    """Validate and prepare media files from input arguments"""
+    """Download the inputs into the job's directory as img1.jpg, video1.mp4, ..."""
     if tmp_dir is None:
         tmp_dir = f"tmp_{uuid.uuid4().hex[:8]}"
 
     os.makedirs(tmp_dir, exist_ok=True)
 
     try:
-        image_paths = []
-        for idx, image_url in enumerate(args.get("images", []), start=1):
-            if not image_url:
-                continue
+        paths: Dict[str, List[str]] = {}
+        for kind, arg_name, label in (
+            ("img", "images", "image"),
+            ("video", "videos", "video"),
+            ("audio", "audios", "audio"),
+        ):
+            paths[kind] = []
+            for idx, source in enumerate(args.get(arg_name) or [], start=1):
+                if not source:
+                    continue
+                try:
+                    extension = _input_extension(source, kind)
+                    new_path = os.path.join(tmp_dir, f"{kind}{idx}.{extension}")
+                    _fetch_input(source, new_path)
+                    paths[kind].append(new_path)
+                except Exception as e:
+                    raise FFmpegError(f"Failed to download {label} {source}: {e}", "")
 
-            try:
-                image_filename = Path(image_url).name
-                original_path = utils.download_file(image_url, image_filename)
-
-                extension = Path(original_path).suffix.lstrip(".")
-                new_path = os.path.join(tmp_dir, f"img{idx}.{extension}")
-                shutil.move(original_path, new_path)
-                image_paths.append(new_path)
-            except Exception as e:
-                raise FFmpegError(f"Failed to download image {image_url}: {str(e)}", "")
-
-        video_paths = []
-        for idx, video_url in enumerate(args.get("videos", []), start=1):
-            if not video_url:
-                continue
-
-            try:
-                extension = Path(video_url).suffix.lstrip(".")
-                original_handler = utils.get_file_handler(extension, video_url)
-
-                new_path = os.path.join(tmp_dir, f"video{idx}.{extension}")
-                shutil.copy2(original_handler, new_path)
-                video_paths.append(new_path)
-            except Exception as e:
-                raise FFmpegError(f"Failed to handle video {video_url}: {str(e)}", "")
-
-        audio_paths = []
-        for idx, audio_url in enumerate(args.get("audios", []), start=1):
-            if not audio_url:
-                continue
-
-            try:
-                extension = Path(audio_url).suffix.lstrip(".")
-                original_handler = utils.get_file_handler(extension, audio_url)
-
-                new_path = os.path.join(tmp_dir, f"audio{idx}.{extension}")
-                shutil.copy2(original_handler, new_path)
-                audio_paths.append(new_path)
-            except Exception as e:
-                raise FFmpegError(f"Failed to handle audio {audio_url}: {str(e)}", "")
-
-        return MediaFiles(images=image_paths, videos=video_paths, audios=audio_paths)
+        return MediaFiles(
+            images=paths["img"], videos=paths["video"], audios=paths["audio"]
+        )
 
     except Exception:
         shutil.rmtree(tmp_dir, ignore_errors=True)
@@ -462,7 +509,9 @@ async def handler(context: ToolContext):
             raise ValueError("Task instruction is required")
 
         tmp_dir = f"tmp_{uuid.uuid4().hex[:8]}"
-        media = validate_and_prepare_media(context.args, tmp_dir)
+        media = await asyncio.to_thread(
+            validate_and_prepare_media, context.args, tmp_dir
+        )
 
         if not media.has_media():
             raise ValueError(
@@ -494,10 +543,16 @@ async def handler(context: ToolContext):
                 preserved_output = (
                     f"output_{uuid.uuid4().hex[:8]}_{Path(output_path).name}"
                 )
-                if await sandbox.fetch(output_path, preserved_output):
+                try:
+                    fetched = await sandbox.fetch(output_path, preserved_output)
+                except OutputTooLargeError as e:
+                    raise FFmpegError(str(e), ffmpeg_response.command)
+                if fetched:
                     return {"output": preserved_output}
                 raise FFmpegError(
-                    "Output file was not generated", ffmpeg_response.command
+                    f"The command finished but the output file {output_path} "
+                    "does not exist or is empty",
+                    ffmpeg_response.command,
                 )
 
             except FFmpegError as e:
