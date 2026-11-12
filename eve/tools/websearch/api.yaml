@@ -1,7 +1,8 @@
 name: Web Search
 description: Search and extract content from any webpage
 tip: |-
-  The returns a raw text dump of the page and a few of its linked urls, no visual content.
+  This returns a raw text dump of the page and a few of its linked urls, no visual content.
+  The page is fetched without a browser, so content that only appears after JavaScript runs is not included.
 cost_estimate: 0.5
 output_type: string
 active: true

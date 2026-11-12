@@ -68,6 +68,7 @@ HANDLER_PATHS = {
     "send_eth": "wallet.send_eth.handler",
     "vibevoice": "voice_cloning.vibevoice.handler",
     "weather": "weather.handler",
+    "websearch": "websearch.handler",
     "openai_image_generate": "openai_image_generate.handler",
     "openai_image_edit": "openai_image_edit.handler",
     "veo3": "google.veo3.handler",

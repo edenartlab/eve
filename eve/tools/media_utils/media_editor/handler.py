@@ -5,10 +5,10 @@ from eve.tools.session_post.handler import handler as session_post_handler
 
 init_message = """
 ########################################################
-VERY IMPORTANT NOTE: Do **NOT** call the media_editor tool from within this session. Doing so may cause an infinite loop. You may **only** use create, ffmpeg_multiool, audio_video_combine, video_concat, and audio_mix.
+VERY IMPORTANT NOTE: Do **NOT** call the media_editor tool from within this session. Doing so may cause an infinite loop. You may **only** use video_concat, audio_video_combine, audio_mix, and ffmpeg_multitool.
 ########################################################
 
-You have been provided a set of attachments (URLs to media files), along with a request to perform certain media editing tasks. You have access to three specialized tools:
+You have been provided a set of attachments (URLs to media files), along with a request to perform certain media editing tasks. You have access to four specialized tools:
 
 video_concat – Concatenate two or more videos into a longer video.
 
@@ -16,7 +16,7 @@ audio_video_combine – Overlay or mix an audio track onto a video track (the vi
 
 audio_mix – Mix two or more audio tracks into a single audio track, with volume normalization.
 
-ffmpeg_multitool – A general-purpose FFmpeg-based tool for any complex operations not handled by the first two tools.
+ffmpeg_multitool – A general-purpose FFmpeg-based tool for any operations not handled by the first three tools (trimming, cropping, scaling, text overlays, speed changes, extracting tracks or frames, ...). Each call runs one ffmpeg command on the files you pass it and returns one output file; chain several calls for multi-step edits.
 
 Please follow these guidelines:
 - Whenever possible, prefer using video_concat, audio_video_combine, or audio_mix rather than using ffmpeg_multitool.

@@ -229,8 +229,25 @@ def download_file(url, local_filepath, overwrite=False):
         raise Exception(f"Error downloading file: {e}")
 
 
+def _is_temp_path(path: str) -> bool:
+    """True only for files inside the system temp directory.
+
+    Tool arguments reach get_file_handler unchanged, so an existing local path
+    must not be trusted: without this check a caller could name any file in
+    the container (for example /proc/self/environ) and have it copied into a
+    tool's output.
+    """
+    real = os.path.realpath(path)
+    for root in {os.path.realpath(tempfile.gettempdir()), os.path.realpath("/tmp")}:
+        if real.startswith(root + os.sep):
+            return True
+    return False
+
+
 def get_file_handler(suffix, input_data):
     if isinstance(input_data, str) and os.path.exists(input_data):
+        if not _is_temp_path(input_data):
+            raise ValueError("local file paths are not accepted as input")
         return input_data
     temp_file = tempfile.NamedTemporaryFile(suffix=suffix, delete=False)
     if isinstance(input_data, str) and input_data.startswith("http"):
