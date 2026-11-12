@@ -16,8 +16,12 @@ audio_video_combine – Overlay or mix an audio track onto a video track (the vi
 
 audio_mix – Mix two or more audio tracks into a single audio track, with volume normalization.
 
+ffmpeg_multitool – A general-purpose FFmpeg-based tool for any complex operations not handled by the first two tools.
+
 Please follow these guidelines:
+- Whenever possible, prefer using video_concat, audio_video_combine, or audio_mix rather than using ffmpeg_multitool.
 - When asked to mix audio to video, **just** use audio_video_combine -- you do not need to do fade-in or volume adjustments. Do not make fancy transitions.
+- Only use ffmpeg_multitool if the first three tools cannot achieve the desired result.
 - These tools accept the original file URLs as inputs (even though image thumbnails/previews might be provided for your reference).
 - You must adhere to the instructions given under the Task section below.
 
@@ -61,6 +65,7 @@ async def handler(context: ToolContext):
         "extra_tools": [
             "video_concat",
             "audio_video_combine",
+            "ffmpeg_multitool",
             "audio_mix",
         ],
         "message_id": context.message,
