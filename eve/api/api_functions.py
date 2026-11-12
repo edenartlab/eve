@@ -131,6 +131,22 @@ async def sweep_pending_fal_tasks_fn():
         sentry_sdk.capture_exception(e)
 
 
+async def sweep_pending_trainer_tasks_fn():
+    """Complete training tasks (the FLUX trainer) once their job has ended.
+
+    The trainer runs as its own Modal app without database access, so nothing
+    closes a training started from the web app unless this runs. It returns
+    before any Modal call when no such task is open.
+    """
+    try:
+        from eve.tools.modal_trainer_tool import sweep_pending_trainer_tasks
+
+        await sweep_pending_trainer_tasks()
+    except Exception as e:
+        logger.error(f"Error sweeping pending trainer tasks: {e}")
+        sentry_sdk.capture_exception(e)
+
+
 async def generate_lora_thumbnails_fn():
     try:
         await generate_lora_thumbnails()

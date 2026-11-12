@@ -155,10 +155,12 @@ class Tool(Document, ABC):
                 from .tools.replicate_tool import ReplicateTool
 
                 _tool_classes[handler] = ReplicateTool
-            elif handler == "gcp":
-                from .tools.gcp_tool import GCPTool
+            elif handler in ("modal_trainer", "gcp"):
+                # "gcp" is the FLUX trainer's handler from when it ran on
+                # Vertex AI; its tool document may still say so.
+                from .tools.modal_trainer_tool import ModalTrainerTool
 
-                _tool_classes[handler] = GCPTool
+                _tool_classes[handler] = ModalTrainerTool
             elif handler == "fal":
                 from .tools.fal_tool import FalTool
 

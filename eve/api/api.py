@@ -27,6 +27,7 @@ from eve.api.api_functions import (
     memory2_process_cold_sessions_fn,
     run_task_replicate,
     sweep_pending_fal_tasks_fn,
+    sweep_pending_trainer_tasks_fn,
 )
 from eve.api.api_functions import (
     run as _run,
@@ -606,6 +607,7 @@ async def periodic_fn():
     for fn in (
         run_scheduled_triggers_fn,  # fire due user/agent scheduled sessions
         sweep_pending_fal_tasks_fn,  # recover fal tasks whose webhook was missed
+        sweep_pending_trainer_tasks_fn,  # complete FLUX trainer jobs that have ended
         cancel_stuck_tasks_fn,
         cleanup_stale_busy_states,
         cleanup_stuck_triggers,

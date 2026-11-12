@@ -7,10 +7,8 @@ cost_estimate: '0.22 * max_train_steps'
 base_model: flux-dev
 output_type: lora
 gpu: A100
-handler: gcp
+handler: modal_trainer
 active: true
-gcr_image_uri: gcr.io/eden-training-435413/flux-trainer:latest
-machine_type: a2-highgpu-1g
 parameters:
   name:
     type: string
