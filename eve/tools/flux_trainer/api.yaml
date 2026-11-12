@@ -9,7 +9,7 @@ output_type: lora
 gpu: A100
 handler: gcp
 active: true
-gcr_image_uri: gcr.io/eden-training-435413/flux-trainer:latest
+gcr_image_uri: us-central1-docker.pkg.dev/eden-training-435413/trainers/flux-trainer:v2
 machine_type: a2-highgpu-1g
 parameters:
   name:

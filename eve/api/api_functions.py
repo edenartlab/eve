@@ -131,6 +131,22 @@ async def sweep_pending_fal_tasks_fn():
         sentry_sdk.capture_exception(e)
 
 
+async def sweep_pending_gcp_tasks_fn():
+    """Complete Vertex-job tasks (the FLUX trainer) once their job has ended.
+
+    The training container cannot write to the database, so nothing closes a
+    training started from the web app unless this runs. It returns before any
+    Google Cloud call when no such task is open.
+    """
+    try:
+        from eve.tools.gcp_tool import sweep_pending_gcp_tasks
+
+        await sweep_pending_gcp_tasks()
+    except Exception as e:
+        logger.error(f"Error sweeping pending GCP tasks: {e}")
+        sentry_sdk.capture_exception(e)
+
+
 async def generate_lora_thumbnails_fn():
     try:
         await generate_lora_thumbnails()
