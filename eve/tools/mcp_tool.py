@@ -4,10 +4,8 @@ from typing import Any, Dict, Optional
 from urllib.parse import urlencode
 
 import httpx
-from bson import ObjectId
 from pydantic import Field
 
-from ..mongo import get_collection
 from ..task import Task
 from ..tool import Tool, ToolContext, tool_context
 
@@ -73,32 +71,6 @@ class MCPTool(Tool):
 
         return url
 
-    def _get_user_api_key(self, user_id: Optional[str]) -> Optional[str]:
-        if not user_id:
-            return None
-        try:
-            user_obj = ObjectId(user_id)
-        except Exception:
-            return None
-
-        api_keys = get_collection("apikeys")
-        api_key_doc = api_keys.find_one(
-            {
-                "user": user_obj,
-                "character": {"$exists": False},
-                "deleted": {"$ne": True},
-            },
-            sort=[("createdAt", -1)],
-        )
-        if not api_key_doc:
-            api_key_doc = api_keys.find_one(
-                {"user": user_obj, "deleted": {"$ne": True}},
-                sort=[("createdAt", -1)],
-            )
-        if not api_key_doc:
-            return None
-        return api_key_doc.get("apiKey")
-
     async def _fetch_user_token(self, user_id: Optional[str]) -> Optional[str]:
         if not self.mcp_user_token_url or not user_id:
             return None
@@ -136,10 +108,14 @@ class MCPTool(Tool):
                 return user_token
             raise ValueError("Failed to mint MCP user token")
 
-        if self.mcp_use_user_api_key and user_id:
-            user_key = self._get_user_api_key(user_id)
-            if user_key:
-                return user_key
+        if self.mcp_use_user_api_key:
+            # User API keys are stored only as hashes and cannot be read back
+            # to act as a bearer. Fail closed rather than fall through to a
+            # shared credential.
+            raise ValueError(
+                "mcp_use_user_api_key is no longer supported: user API keys "
+                "are not recoverable from storage"
+            )
 
         if self.mcp_bearer_env:
             env_value = os.getenv(self.mcp_bearer_env)

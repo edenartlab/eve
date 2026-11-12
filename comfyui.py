@@ -97,6 +97,10 @@ if not os.getenv("WORKSPACE"):
     raise Exception("No workspace selected")
 
 db = os.getenv("DB", "STAGE").upper()
+# ComfyUI containers run third-party custom nodes, so they get their own
+# narrowly scoped secret (database + media bucket only) rather than the
+# API's full secret set.
+comfy_secret = modal.Secret.from_name(f"comfy-secrets-{db}")
 workspace_name = os.getenv("WORKSPACE")
 app_name = f"comfyui-{workspace_name}-{db}"
 workflows_filter = os.getenv("WORKFLOWS")
@@ -1090,10 +1094,7 @@ image = (
     .run_function(
         download_files,
         volumes={"/data": downloads_vol},
-        secrets=[
-            modal.Secret.from_name("eve-secrets"),
-            modal.Secret.from_name(f"eve-secrets-{db}"),
-        ],
+        secrets=[comfy_secret],
     )
     # Second copy of workflow files after downloads
     .add_local_dir(
@@ -1106,20 +1107,14 @@ image = (
         run_tests_or_restore,
         gpu=BUILD_GPU,
         volumes={"/data": downloads_vol},
-        secrets=[
-            modal.Secret.from_name("eve-secrets"),
-            modal.Secret.from_name(f"eve-secrets-{db}"),
-        ],
+        secrets=[comfy_secret],
     )
     .env({"SKIP_TESTS": str(skip_tests or "")})
 )
 
 app = modal.App(
     name=app_name,
-    secrets=[
-        modal.Secret.from_name("eve-secrets"),
-        modal.Secret.from_name(f"eve-secrets-{db}"),
-    ],
+    secrets=[comfy_secret],
 )
 
 
@@ -2119,34 +2114,6 @@ class ComfyUIPremium(ComfyUI):
 )
 class ComfyUIBasic(ComfyUI):
     pass
-
-
-@app.cls(
-    image=image,
-    gpu=INTERACTIVE_CONFIG["gpu"],
-    cpu=INTERACTIVE_CONFIG["cpu"],
-    volumes={"/data": downloads_vol},
-    max_containers=INTERACTIVE_CONFIG["max_containers"],
-    scaledown_window=INTERACTIVE_CONFIG["scaledown_window"],
-    min_containers=INTERACTIVE_CONFIG["min_containers"],
-    timeout=INTERACTIVE_CONFIG["timeout"],
-    enable_memory_snapshot=INTERACTIVE_CONFIG["enable_memory_snapshot"],
-)
-class ComfyUIInteractive(ComfyUI):
-    @modal.enter(snap=True)
-    def enter(self):
-        pass  # Skip auto-start; the web_server method handles it
-
-    @modal.enter()
-    def restore(self):
-        pass  # No snapshot restore needed for interactive mode
-
-    @modal.web_server(
-        8188, startup_timeout=INTERACTIVE_CONFIG["web_server_startup_timeout"]
-    )
-    def ui(self):
-        cmd = "python /root/main.py --listen --port 8188"
-        subprocess.Popen(cmd, shell=True)
 
 
 @app.local_entrypoint()

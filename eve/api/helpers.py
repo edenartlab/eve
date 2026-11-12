@@ -87,8 +87,35 @@ async def emit_update(
             logger.error(f"Failed to broadcast to SSE connections: {str(e)}")
 
 
+def is_own_api_url(url: Optional[str]) -> bool:
+    """True only for URLs under this service's own configured API base."""
+    from urllib.parse import urlsplit
+
+    from eve.agent.deployments.utils import get_api_url
+
+    base = get_api_url()
+    if not url or not base:
+        return False
+    try:
+        target, own = urlsplit(url), urlsplit(base)
+    except ValueError:
+        return False
+    return (
+        target.scheme in ("http", "https")
+        and target.scheme == own.scheme
+        and target.netloc == own.netloc
+        and bool(own.netloc)
+    )
+
+
 async def emit_http_update(update_config: UpdateConfig, data: dict):
     from eve.utils.data_utils import serialize_json
+
+    # The update endpoint can arrive in a request body. The admin key is only
+    # ever sent to our own API; anything else is dropped rather than called.
+    if not is_own_api_url(update_config.update_endpoint):
+        logger.error("Refusing to send update to a URL outside this API")
+        return
 
     async with aiohttp.ClientSession() as session:
         try:

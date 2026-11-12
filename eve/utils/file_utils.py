@@ -159,7 +159,11 @@ def download_file(url, local_filepath, overwrite=False):
         s3_pattern = r"https://([^.]+)\.s3(?:\.([^.]+))?\.amazonaws\.com/(.+)"
         s3_match = re.match(s3_pattern, url)
 
-        if s3_match:
+        # Only the configured media bucket is read with our own credentials.
+        # URLs naming any other bucket are fetched anonymously below, so a
+        # caller-supplied URL cannot borrow the service's S3 access.
+        media_bucket = os.getenv("AWS_BUCKET_NAME")
+        if s3_match and media_bucket and s3_match.group(1) == media_bucket:
             # This is an S3 URL
             bucket_name = s3_match.group(1)
             region = s3_match.group(2) or os.getenv("AWS_REGION_NAME", "us-east-1")

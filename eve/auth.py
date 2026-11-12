@@ -1,3 +1,5 @@
+import hashlib
+import hmac
 import os
 from typing import Optional
 
@@ -53,6 +55,20 @@ def get_users():
     return _users
 
 
+def hash_api_key(api_key: str) -> str:
+    """API keys are stored only as a SHA-256 hex digest (field `apiKeyHash`)."""
+    return hashlib.sha256(api_key.encode("utf-8")).hexdigest()
+
+
+def find_api_key(api_key: Optional[str]) -> Optional[dict]:
+    """Look up an API key row by hash. Rows without a hash never match."""
+    if not api_key or not isinstance(api_key, str):
+        return None
+    return get_api_keys().find_one(
+        {"apiKeyHash": hash_api_key(api_key), "deleted": {"$ne": True}}
+    )
+
+
 class UserData(BaseModel):
     userId: str
     subscriptionTier: int = 0
@@ -63,7 +79,7 @@ class UserData(BaseModel):
 def get_my_eden_user() -> str:
     """Get the user id for the api key in your env file"""
     api_key = EDEN_API_KEY
-    api_key = get_api_keys().find_one({"apiKey": api_key.get_secret_value()})
+    api_key = find_api_key(api_key.get_secret_value())
     if not api_key:
         raise HTTPException(status_code=401, detail="API key not found")
     user = User.from_mongo(api_key["user"])
@@ -87,7 +103,12 @@ def get_user_data(user_id: str) -> UserData:
 
 
 def verify_api_key(api_key: str) -> dict:
-    api_key = get_api_keys().find_one({"apiKey": api_key})
+    api_key_doc = find_api_key(api_key)
+    if not api_key_doc:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid API key"
+        )
+    api_key = api_key_doc
     user_obj = get_users().find_one({"_id": ObjectId(api_key["user"])})
     if user_obj is None:
         raise HTTPException(
@@ -174,7 +195,10 @@ def authenticate_admin(
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED, detail="Unauthorized"
         )
-    if token.credentials != EDEN_ADMIN_KEY:
+    # Constant-time comparison; an unset or empty admin key never matches.
+    if not EDEN_ADMIN_KEY or not hmac.compare_digest(
+        token.credentials.encode("utf-8"), EDEN_ADMIN_KEY.encode("utf-8")
+    ):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED, detail="Unauthorized"
         )
@@ -189,7 +213,7 @@ def authenticate_admin_api_key(
             status_code=status.HTTP_401_UNAUTHORIZED, detail="API key required"
         )
 
-    api_key_doc = get_api_keys().find_one({"apiKey": api_key})
+    api_key_doc = find_api_key(api_key)
     if not api_key_doc:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid API key"

@@ -54,6 +54,18 @@ def get_full_url(filename):
     return f"{get_root_url()}/{filename}"
 
 
+def get_public_url(filename: str) -> str:
+    """Public URL for an uploaded object: the CDN when configured, else S3.
+
+    Stored URLs should point at the CDN so the bucket itself does not need to
+    be publicly readable.
+    """
+    cloudfront_url = os.getenv("CLOUDFRONT_URL")
+    if cloudfront_url:
+        return f"{cloudfront_url.rstrip('/')}/{filename}"
+    return f"https://{os.getenv('AWS_BUCKET_NAME')}.s3.amazonaws.com/{filename}"
+
+
 def is_eden_url(url: str) -> bool:
     """Check if a URL is already on Eden (S3 or CloudFront)."""
     if not url:
@@ -100,7 +112,10 @@ def upload_file_from_url(url, name=None, file_type=None):
     """Uploads a file to an S3 bucket by downloading it to a temporary file and uploading it to S3."""
 
     AWS_BUCKET_NAME = os.getenv("AWS_BUCKET_NAME")
-    if f"{AWS_BUCKET_NAME}.s3." in url and ".amazonaws.com" in url:
+    CLOUDFRONT_URL = os.getenv("CLOUDFRONT_URL")
+    if (f"{AWS_BUCKET_NAME}.s3." in url and ".amazonaws.com" in url) or (
+        CLOUDFRONT_URL and url.startswith(f"{CLOUDFRONT_URL.rstrip('/')}/")
+    ):
         # file is already uploaded, get its size from S3
         filename = url.split("/")[-1]
         name = filename.split(".")[0]
@@ -206,7 +221,7 @@ def upload_buffer(buffer, name=None, file_type=None):
     filename = f"{name}{file_type}"
     file_bytes = io.BytesIO(buffer)
     bucket_name = os.getenv("AWS_BUCKET_NAME")
-    file_url = f"https://{bucket_name}.s3.amazonaws.com/{filename}"
+    file_url = get_public_url(filename)
 
     # if file doesn't exist, upload it
     try:
@@ -215,7 +230,10 @@ def upload_buffer(buffer, name=None, file_type=None):
         file_size = head_response.get("ContentLength", file_size)
         return file_url, name, file_size
     except s3.exceptions.ClientError as e:
-        if e.response["Error"]["Code"] == "404":
+        # A HEAD on a missing key returns 403 instead of 404 when the
+        # credentials have no ListBucket permission; both mean "not there".
+        # Keys are content hashes, so re-uploading is harmless.
+        if e.response["Error"]["Code"] in ("404", "403"):
             s3.upload_fileobj(
                 file_bytes,
                 bucket_name,

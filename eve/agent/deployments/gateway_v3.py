@@ -1943,7 +1943,7 @@ async def lifespan(app: FastAPI):
         logger.error("DISCORD_BOT_TOKEN not set!")
         raise ValueError("DISCORD_BOT_TOKEN is required")
 
-    logger.info(f"Starting Discord bot with token: {bot_token[:20]}...")
+    logger.info("Starting Discord bot")
 
     def run_bot_in_thread():
         """Run bot in a separate thread with its own event loop."""

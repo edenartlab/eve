@@ -66,12 +66,14 @@ class KMSEncryption:
             }
         }
         """
-        if not self.enabled:
-            logger.debug("KMS encryption not enabled, storing secrets unencrypted")
-            return secrets_dict
-
         if not secrets_dict:
             return secrets_dict
+
+        if not self.enabled:
+            # Fail closed: never hand plaintext back as if it were encrypted.
+            raise RuntimeError(
+                "Cannot encrypt secrets: AWS_KMS_KEY_ID / AWS_KMS_KEY_ARN is not set"
+            )
 
         try:
             # Convert secrets to JSON string
@@ -157,6 +159,11 @@ class KMSEncryption:
         except (json.JSONDecodeError, ValueError) as e:
             logger.error(f"Failed to parse decrypted secrets: {e}")
             raise Exception(f"Failed to parse decrypted secrets: {e}")
+
+
+def plaintext_secrets_allowed() -> bool:
+    """Explicit opt-in (local development only) to store secrets unencrypted."""
+    return os.getenv("ALLOW_PLAINTEXT_DEPLOYMENT_SECRETS", "").lower() == "yes"
 
 
 # Global instance

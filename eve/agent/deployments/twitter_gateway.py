@@ -1003,8 +1003,5 @@ def bootstrap_tracked_handles(api: TwitterAPIWrapper, usernames: List[str]):
 # The gateway now runs via poll_twitter_gateway() in twitter.py,
 # deployed as a Modal scheduled function.
 #
-# For local testing, use the API endpoint:
-#   POST http://localhost:8000/dev/twitter/poll
-#
-# Or run the gateway directly:
+# For local testing, run the gateway directly:
 #   DB=STAGE python -c "import asyncio; from eve.agent.deployments.twitter import poll_twitter_gateway; asyncio.run(poll_twitter_gateway())"

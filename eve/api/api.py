@@ -482,88 +482,6 @@ async def extract_agent_prompts(
     return await handle_extract_agent_prompts(request)
 
 
-# Development endpoints for local testing
-@web_app.post("/dev/twitter/poll")
-async def dev_poll_twitter(request: Request):
-    """
-    Local development endpoint for Twitter polling.
-    Processes tweets synchronously instead of spawning Modal tasks.
-
-    Usage:
-        POST http://localhost:8000/dev/twitter/poll
-
-    Optional query params:
-        ?key=<secret> - Simple auth for dev endpoint
-    """
-    if db == "PROD":
-        return JSONResponse(status_code=404, content={"error": "not found"})
-    # Simple dev auth (optional)
-    secret_key = request.query_params.get("key")
-    expected_key = os.getenv("DEV_API_KEY", "dev")
-
-    if secret_key != expected_key:
-        return JSONResponse(
-            status_code=401, content={"error": "Invalid or missing dev API key"}
-        )
-
-    from eve.agent.deployments.twitter import poll_twitter_gateway
-
-    logger.info("=== Running Twitter poll in LOCAL MODE ===")
-    result = await poll_twitter_gateway(local_mode=True)
-
-    return JSONResponse(content=result)
-
-
-@web_app.post("/dev/twitter/process_tweet")
-async def dev_process_tweet(request: Request):
-    """
-    Local development endpoint to manually process a single tweet.
-
-    Usage:
-        POST http://localhost:8000/dev/twitter/process_tweet?key=dev
-
-    Body (JSON):
-    {
-        "tweet_id": "1234567890",
-        "deployment_id": "507f1f77bcf86cd799439011",
-        "tweet_data": {
-            "data": {...},
-            "includes": {...}
-        }
-    }
-    """
-    if db == "PROD":
-        return JSONResponse(status_code=404, content={"error": "not found"})
-    # Simple dev auth
-    secret_key = request.query_params.get("key")
-    expected_key = os.getenv("DEV_API_KEY", "dev")
-
-    if secret_key != expected_key:
-        return JSONResponse(
-            status_code=401, content={"error": "Invalid or missing dev API key"}
-        )
-
-    from eve.agent.deployments.twitter import process_twitter_tweet
-
-    body = await request.json()
-    tweet_id = body.get("tweet_id")
-    deployment_id = body.get("deployment_id")
-    tweet_data = body.get("tweet_data")
-
-    if not all([tweet_id, deployment_id, tweet_data]):
-        return JSONResponse(
-            status_code=400,
-            content={
-                "error": "Missing required fields: tweet_id, deployment_id, tweet_data"
-            },
-        )
-
-    logger.info(f"=== Processing single tweet {tweet_id} in LOCAL MODE ===")
-    result = await process_twitter_tweet(tweet_id, tweet_data, deployment_id)
-
-    return JSONResponse(content=result)
-
-
 # Simple embed endpoint that just returns the embedding vector
 @web_app.post("/embed")
 async def embed(request: Request, _: dict = Depends(auth.authenticate_admin)):
@@ -605,17 +523,16 @@ async def embed(request: Request, _: dict = Depends(auth.authenticate_admin)):
 
 @web_app.exception_handler(RequestValidationError)
 async def validation_exception_handler(request: Request, exc: RequestValidationError):
-    logger.error(f"Validation error on {request.url}:")
-    logger.error(f"Request body: {await request.body()}")
-    logger.error(f"Validation errors: {exc.errors()}")
+    # Log and return only where and why validation failed. Request bodies
+    # (and the rejected input values) can contain credentials and user
+    # content, so they are neither logged nor echoed back.
+    errors = [
+        {"loc": e.get("loc"), "msg": e.get("msg"), "type": e.get("type")}
+        for e in exc.errors()
+    ]
+    logger.error(f"Validation error on {request.url.path}: {errors}")
 
-    return JSONResponse(
-        status_code=422,
-        content={
-            "detail": exc.errors(),
-            "body": await request.json() if await request.body() else None,
-        },
-    )
+    return JSONResponse(status_code=422, content={"detail": errors})
 
 
 @web_app.exception_handler(Exception)
@@ -633,11 +550,11 @@ token_tracker_vol = modal.Volume.from_name("token-tracker", create_if_missing=Tr
 
 app = modal.App(
     name=app_name,
-    secrets=[
-        modal.Secret.from_name("eve-secrets"),
-        modal.Secret.from_name(f"eve-secrets-{db}"),
-        modal.Secret.from_name("abraham-secrets"),
-    ],
+    # One environment-specific secret. The wallet secret used by the on-chain
+    # (Abraham) tools is deliberately NOT mounted here: this app runs chat
+    # tools for every user, so it must not hold a signing key. Those tools
+    # fail closed ("not configured") until they get an isolated function.
+    secrets=[modal.Secret.from_name(f"eve-secrets-{db}")],
 )
 
 root_dir = Path(__file__).parent.parent.parent

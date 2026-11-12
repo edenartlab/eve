@@ -1,9 +1,11 @@
 import asyncio
 import json
 import os
+import re
+import shlex
 import shutil
 import uuid
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any, Dict, List, Optional
 
 import anthropic
@@ -13,6 +15,7 @@ from pydantic import BaseModel, Field
 from eve.tool import ToolContext
 
 from .... import utils
+from .sandbox import FFmpegSandbox
 
 
 class CommandSecurityError(Exception):
@@ -266,45 +269,118 @@ async def generate_ffmpeg_command(
         raise FFmpegError(f"Failed to generate FFmpeg command: {str(e)}", "")
 
 
-ffmpeg_validator = utils.CommandValidator({"ffmpeg"})
+ALLOWED_BINARIES = {"ffmpeg", "ffprobe"}
+
+# The only absolute location a command may reference (fonts for drawtext).
+ALLOWED_ABSOLUTE_PREFIXES = ("/usr/share/fonts/",)
+
+# Characters that can precede a path or protocol inside an option value or a
+# filtergraph (e.g. "movie=/x", "drawtext=textfile='/x'", "[in]/x").
+_DELIM = r"(?:^|[\s=:,;'\"\[\]|])"
+_ABSOLUTE_PATH = re.compile(_DELIM + r"(/[A-Za-z0-9_.~\-][^\s:,;'\"\[\]|]*)")
+_HOME_PATH = re.compile(_DELIM + r"~")
+_TRAVERSAL = re.compile(r"(?:^|[/\s=:,;'\"\[\]|])\.\.(?:$|[/\s:,;'\"\[\]|])")
+_URL_SCHEME = re.compile(r"[A-Za-z][A-Za-z0-9+.\-]*://")
+# ffmpeg protocols that need no "//" (local file access and indirection).
+_LOCAL_PROTOCOL = re.compile(
+    _DELIM
+    + r"(?:file|concat|concatf|pipe|fd|data|subfile|crypto|cache|async|tee|unix)[:,]"
+)
 
 
-async def execute_ffmpeg_command(command: str, timeout: int = 60) -> None:
-    """Execute FFmpeg command with timeout and basic security validation"""
-    if not command:
-        raise ValueError("FFmpeg command cannot be empty")
+def check_ffmpeg_argument(arg: str) -> Optional[str]:
+    """Return why an argument is refused, or None if it is acceptable.
 
-    # Basic security validation
-    is_valid, error_message = ffmpeg_validator.validate_command(command)
-    if not is_valid:
-        raise FFmpegError(f"Security validation failed: {error_message}", command)
+    Inputs are downloaded into the job's working directory before the command
+    runs, so a legitimate command only needs relative paths inside it. This
+    is a second layer; the sandbox the command runs in is the real boundary.
+    """
+    if "\x00" in arg:
+        return "invalid character"
+    if arg.startswith("-/"):
+        return "options that load their value from a file are not allowed"
+    # Filtergraph escaping ("\/etc") must not hide a path from the checks.
+    plain = arg.replace("\\", "")
+    if _URL_SCHEME.search(plain):
+        return "URLs are not allowed; use the provided local input files"
+    if _LOCAL_PROTOCOL.search(plain):
+        return "protocol prefixes (file:, concat:, pipe:, ...) are not allowed"
+    if _TRAVERSAL.search(plain):
+        return "'..' path segments are not allowed"
+    if _HOME_PATH.search(plain):
+        return "paths must be relative to the working directory"
+    for match in _ABSOLUTE_PATH.finditer(plain):
+        if not match.group(1).startswith(ALLOWED_ABSOLUTE_PREFIXES):
+            return "absolute paths are not allowed; use relative paths"
+    return None
 
-    process = await asyncio.create_subprocess_shell(
-        command, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
-    )
+
+def check_relative_path(path: str) -> str:
+    """Validate a path that must stay inside the job's working directory."""
+    if not path or not isinstance(path, str):
+        raise FFmpegError("Output path is missing", "")
+    pure = PurePosixPath(path)
+    if pure.is_absolute() or ".." in pure.parts or path.startswith("~"):
+        raise FFmpegError(
+            "Security validation failed: output path must be a relative path "
+            "inside the working directory",
+            "",
+        )
+    if "\x00" in path or "\\" in path or ":" in path:
+        raise FFmpegError("Security validation failed: invalid output path", "")
+    return str(pure)
+
+
+def parse_ffmpeg_command(command: str) -> List[str]:
+    """Split a generated command into an argument list for direct execution.
+
+    The command is never handed to a shell: it is tokenised, the program must
+    be exactly one of the allow-listed binaries (no path), and the tokens are
+    passed to exec as-is, so shell syntax (pipes, redirects, substitution,
+    chaining) has no effect. Arguments that reach outside the job's working
+    directory (absolute paths, "..", URLs, protocol prefixes) are refused.
+    """
+    if not command or not isinstance(command, str):
+        raise FFmpegError("FFmpeg command cannot be empty", command or "")
+    try:
+        argv = shlex.split(command)
+    except ValueError as e:
+        raise FFmpegError(f"Invalid command syntax: {e}", command)
+    if not argv or argv[0] not in ALLOWED_BINARIES:
+        raise FFmpegError(
+            "Security validation failed: only ffmpeg/ffprobe may be executed", command
+        )
+    for arg in argv[1:]:
+        reason = check_ffmpeg_argument(arg)
+        if reason:
+            raise FFmpegError(f"Security validation failed: {reason}", command)
+    return argv
+
+
+async def execute_ffmpeg_command(sandbox: FFmpegSandbox, command: str) -> None:
+    """Run a generated FFmpeg command in the isolated sandbox, without a shell.
+
+    The command never runs in this process: this container holds service
+    credentials, the sandbox holds none and has no network.
+    """
+    argv = parse_ffmpeg_command(command)
+    if argv[0] == "ffmpeg":
+        argv.insert(1, "-nostdin")
 
     try:
-        stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=timeout)
-        if process.returncode != 0:
-            raise FFmpegError(
-                f"FFmpeg command failed with exit code {process.returncode}",
-                command,
-                stderr.decode() if stderr else None,
-            )
-    except asyncio.TimeoutError:
-        try:
-            process.kill()
-            await process.wait()
-        except ProcessLookupError:
-            pass
-        raise FFmpegError(f"FFmpeg command timed out after {timeout} seconds", command)
-    finally:
-        if process.returncode is None:
-            try:
-                process.kill()
-                await process.wait()
-            except ProcessLookupError:
-                pass
+        returncode, stderr = await sandbox.run(argv)
+    except FFmpegError:
+        raise
+    except Exception as e:
+        raise FFmpegError(f"FFmpeg sandbox execution failed: {e}", command)
+
+    if returncode != 0:
+        raise FFmpegError(
+            f"FFmpeg command failed with exit code {returncode} "
+            f"(time limit {sandbox.command_timeout} seconds)",
+            command,
+            stderr,
+        )
 
 
 def validate_and_prepare_media(
@@ -379,8 +455,7 @@ async def handler(context: ToolContext):
     timeout = max(1, int(context.args.get("timeout", 600)))
 
     tmp_dir = None
-    output_path = None
-    preserved_output = None
+    sandbox = None
 
     try:
         if not context.args.get("task_instruction"):
@@ -394,6 +469,11 @@ async def handler(context: ToolContext):
                 "At least one media file (image, video, or audio) must be provided"
             )
 
+        # Execution happens in a sandbox with no secrets and no network; only
+        # the downloaded inputs go in and only the output file comes back.
+        sandbox = FFmpegSandbox(command_timeout=timeout, attempts=n_retries)
+        await sandbox.start(media.images + media.videos + media.audios)
+
         previous_attempt = None
         last_error = None
 
@@ -403,22 +483,22 @@ async def handler(context: ToolContext):
                     context.args["task_instruction"], media, previous_attempt
                 )
 
-                # Store the output path
-                output_path = ffmpeg_response.output_path
+                try:
+                    output_path = check_relative_path(ffmpeg_response.output_path)
+                except FFmpegError as e:
+                    raise FFmpegError(e.message, ffmpeg_response.command)
 
-                await execute_ffmpeg_command(ffmpeg_response.command, timeout)
+                await execute_ffmpeg_command(sandbox, ffmpeg_response.command)
 
-                # If the output file exists, move it to a preserved location
-                if os.path.exists(output_path):
-                    preserved_output = (
-                        f"output_{uuid.uuid4().hex[:8]}_{Path(output_path).name}"
-                    )
-                    shutil.move(output_path, preserved_output)
+                # Copy the result out of the sandbox; the caller uploads it.
+                preserved_output = (
+                    f"output_{uuid.uuid4().hex[:8]}_{Path(output_path).name}"
+                )
+                if await sandbox.fetch(output_path, preserved_output):
                     return {"output": preserved_output}
-                else:
-                    raise FFmpegError(
-                        "Output file was not generated", ffmpeg_response.command
-                    )
+                raise FFmpegError(
+                    "Output file was not generated", ffmpeg_response.command
+                )
 
             except FFmpegError as e:
                 last_error = e
@@ -450,15 +530,7 @@ async def handler(context: ToolContext):
         raise ValueError(str(e))
 
     finally:
+        if sandbox:
+            await sandbox.close()
         if tmp_dir:
-            # Make sure we don't delete the preserved output file if it exists
-            if preserved_output and os.path.exists(preserved_output):
-                try:
-                    # If the output file is somehow still in the temp directory, remove it from there
-                    if output_path and os.path.exists(output_path):
-                        os.remove(output_path)
-                except Exception:
-                    pass  # Ignore any errors during cleanup
-
-            # Clean up the temporary directory
             shutil.rmtree(tmp_dir, ignore_errors=True)
