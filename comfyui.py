@@ -103,6 +103,36 @@ db = os.getenv("DB", "STAGE").upper()
 comfy_secret = modal.Secret.from_name(f"comfy-secrets-{db}")
 workspace_name = os.getenv("WORKSPACE")
 app_name = f"comfyui-{workspace_name}-{db}"
+
+# Workspaces whose pinned ComfyUI commit and custom nodes were written for the
+# PyTorch 2.6 generation. Building them against the newest PyTorch breaks node
+# imports (for example torchaudio.backend no longer exists), so their Python
+# stack is held at the versions they last ran with. Every pip call in the image
+# build honours the constraints file through PIP_CONSTRAINT.
+LEGACY_STACK_WORKSPACES = {"fast", "abyss", "wan"}
+LEGACY_STACK_CONSTRAINTS = [
+    "torch==2.6.0",
+    "torchvision==0.21.0",
+    "torchaudio==2.6.0",
+    "xformers==0.0.29.post3",
+    "numpy==1.26.4",
+]
+LEGACY_TORCH_INDEX = "https://download.pytorch.org/whl/cu124"
+PIP_CONSTRAINTS_PATH = "/root/pip-constraints.txt"
+
+
+def uses_legacy_stack() -> bool:
+    return workspace_name in LEGACY_STACK_WORKSPACES
+
+
+def apply_pip_constraints():
+    """Write the constraints file and point pip at it (image build only)."""
+    if not uses_legacy_stack():
+        return
+    with open(PIP_CONSTRAINTS_PATH, "w") as f:
+        f.write("\n".join(LEGACY_STACK_CONSTRAINTS) + "\n")
+    os.environ["PIP_CONSTRAINT"] = PIP_CONSTRAINTS_PATH
+    os.environ["PIP_EXTRA_INDEX_URL"] = LEGACY_TORCH_INDEX
 workflows_filter = os.getenv("WORKFLOWS")
 root_workflows_folder = (
     "../private_workflows" if os.getenv("PRIVATE") else "../workflows"
@@ -139,6 +169,7 @@ if not workflows_filter and workspace_name and not test_all:
 
 
 def install_comfyui():
+    apply_pip_constraints()
     os.chdir("/root")
     snapshot = json.load(open("/root/workspace/snapshot.json", "r"))
     comfyui_commit_sha = snapshot["comfyui"]
@@ -168,20 +199,23 @@ def install_comfyui():
     )
     logger.info(f"Git checkout output: {result.stdout.decode()}")
 
-    subprocess.run(
-        [
-            "pip",
-            "install",
+    if uses_legacy_stack():
+        torch_args = [
+            *LEGACY_STACK_CONSTRAINTS,
+            "--extra-index-url",
+            LEGACY_TORCH_INDEX,
+        ]
+    else:
+        torch_args = [
             "xformers>=0.0.35",
-            "sageattention",
-            "-r",
-            "requirements.txt",
             "torch>=2.10.0",
             "torchvision>=0.25.0",
             "torchaudio>=2.10.0",
             "--extra-index-url",
             "https://download.pytorch.org/whl/cu130",
-        ],
+        ]
+    subprocess.run(
+        ["pip", "install", "sageattention", "-r", "requirements.txt", *torch_args],
         check=True,
     )
     # List all files and directories in the current directory:
@@ -200,6 +234,7 @@ def install_comfyui():
 
 
 def install_custom_nodes():
+    apply_pip_constraints()
     os.chdir("/root")
 
     snapshot = json.load(open("/root/workspace/snapshot.json", "r"))
@@ -1277,6 +1312,10 @@ class ComfyUI:
     @modal.enter()
     def restore(self):
         """Runs after snapshot restore — re-establish volume symlinks."""
+        # Any database client created before the snapshot is unusable now.
+        from eve.mongo import reset_mongo_client
+
+        reset_mongo_client()
         downloads = json.load(open("/root/workspace/downloads.json", "r"))
         for path_key, source_identifier in downloads.items():
             comfy_path = pathlib.Path("/root") / path_key

@@ -35,6 +35,23 @@ def get_mongo_client():
     return _mongo_client
 
 
+def reset_mongo_client():
+    """Drop the cached client and collections so the next use reconnects.
+
+    Call this after a container is restored from a memory snapshot: a client
+    created before the snapshot keeps dead sockets and stalled monitor
+    threads, and every operation then fails server selection.
+    """
+    global _mongo_client
+    client, _mongo_client = _mongo_client, None
+    _collections.clear()
+    if client is not None:
+        try:
+            client.close()
+        except Exception:
+            pass
+
+
 def get_collection(collection_name: str):
     """Get a MongoDB collection with connection pooling"""
     db = os.getenv("DB", "STAGE")
