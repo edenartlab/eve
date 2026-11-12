@@ -1277,6 +1277,10 @@ class ComfyUI:
     @modal.enter()
     def restore(self):
         """Runs after snapshot restore — re-establish volume symlinks."""
+        # Any database client created before the snapshot is unusable now.
+        from eve.mongo import reset_mongo_client
+
+        reset_mongo_client()
         downloads = json.load(open("/root/workspace/downloads.json", "r"))
         for path_key, source_identifier in downloads.items():
             comfy_path = pathlib.Path("/root") / path_key
