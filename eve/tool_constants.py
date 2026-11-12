@@ -31,7 +31,9 @@ OUTPUT_TYPES = Literal[
     "object",
 ]
 
-HANDLERS = Literal["local", "modal", "comfyui", "replicate", "gcp", "fal", "mcp"]
+HANDLERS = Literal[
+    "local", "modal", "comfyui", "replicate", "modal_trainer", "gcp", "fal", "mcp"
+]
 
 BASE_MODELS = Literal[
     "sd15",
