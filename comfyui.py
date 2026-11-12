@@ -1261,7 +1261,12 @@ class ComfyUI:
         user: str = None,
         agent: str = None,
         session: str = None,
+        message: str = None,
+        tool_call_id: str = None,
     ):
+        # The shared task handler (eve.task._task_handler) passes message and
+        # tool_call_id to every handler; they must be accepted here even
+        # though ComfyUI execution does not use them.
         return self._execute(tool_key, args, user, agent, session)
 
     @modal.enter(snap=True)
